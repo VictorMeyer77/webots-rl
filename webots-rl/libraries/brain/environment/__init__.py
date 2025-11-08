@@ -2,7 +2,6 @@ import json
 from abc import ABC, abstractmethod
 
 from brain.utils.logger import logger
-from brain.utils.tcp_socket import TcpSocket
 from controller import Supervisor
 
 
@@ -56,36 +55,26 @@ class Environment(ABC):
 
     Attributes:
         supervisor (Supervisor): The Webots Supervisor instance managing the simulation.
-        train (bool): Indicates if the environment is in training mode.
-        tcp_socket (TcpSocket | None): TCP socket for communication during training, if enabled.
         step_index (int): Current step number in the environment execution.
         max_step (int): Maximum number of steps allowed in an episode.
     """
 
     supervisor: Supervisor
-    train: bool = False
-    tcp_socket: TcpSocket | None
     step_index: int
     max_step: int
 
-    def __init__(self, supervisor: Supervisor, max_step: int, train: bool = False):
+    def __init__(self, supervisor: Supervisor, max_step: int):
         """
         Initialize the environment with a Supervisor instance.
 
         Args:
             supervisor (Supervisor): The Webots Supervisor instance managing the simulation.
             max_step (int): Maximum number of steps allowed in an episode.
-            train (bool): Whether to enable training mode. Defaults to False.
         """
         self.supervisor = supervisor
-        self.train = train
         self.step_index = 0
         self.max_step = max_step
-        if self.train:
-            self.tcp_socket = TcpSocket(is_client=False)
-        logger().debug(
-            f"Environment initialized in {'training' if self.train else 'production'} mode. Max steps: {self.max_step}"
-        )
+        logger().debug(f"Environment initialized, max steps: {self.max_step}")
 
     @abstractmethod
     def step(self) -> tuple[EnvironmentState, float]:

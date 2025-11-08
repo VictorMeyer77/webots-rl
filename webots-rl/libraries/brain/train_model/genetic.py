@@ -3,17 +3,17 @@ import os
 import random
 from abc import abstractmethod
 
-from brain.environment.model.genetic import EnvironmentGenetic
-from brain.model import Model
+from brain.environment import Environment
+from brain.train_model import TrainModel
 from brain.utils.logger import logger
 
 
-class Genetic(Model):
+class TrainGenetic(TrainModel):
     """
     Abstract base class for implementing genetic algorithms.
 
     Attributes:
-        environment (EnvironmentGenetic): The environment in which individuals are evaluated.
+        environment (Environment): The environment in which individuals are evaluated.
         generation_size (int): Number of individuals per generation.
         individual_size (int): Size of each individual (genome length).
         mutation_rate (float): Probability of mutating each gene.
@@ -22,7 +22,6 @@ class Genetic(Model):
         actions (list[float]): The best actions found by the algorithm.
     """
 
-    environment: EnvironmentGenetic
     generation_size: int
     individual_size: int
     mutation_rate: float
@@ -32,7 +31,7 @@ class Genetic(Model):
 
     def __init__(
         self,
-        environment: EnvironmentGenetic,
+        environment: Environment,
         generation_size: int,
         individual_size: int,
         mutation_rate: float,
@@ -101,7 +100,7 @@ class Genetic(Model):
         fitness_scores = []
         for index, individual in enumerate(population):
             self.environment.reset()
-            self.environment.set_actions(individual)
+            self.tcp_socket.send(json.dumps({"actions": individual}))
             reward = self.environment.run()
             logger().info(f"Individual {index} Reward: {reward}")
             fitness_scores.append(reward)
@@ -140,16 +139,7 @@ class Genetic(Model):
 
         The file is saved in the model directory with the model's name as the filename.
         """
-        with open(os.path.join(self.model_dir, self.name + ".json"), "w", encoding="utf-8") as f:
+        model_path = os.path.join(self.model_dir, self.name + ".json")
+        with open(model_path, "w", encoding="utf-8") as f:
             json.dump(self.actions, f)
-
-    def load(self, model_name: str):
-        """
-        Load actions from a JSON file for the specified model.
-
-        Args:
-            model_name (str): The name of the model to load.
-        """
-        super().load(model_name)
-        with open(os.path.join(self.model_dir, self.name + ".json"), "r", encoding="utf-8") as f:
-            self.actions = json.load(f)
+        logger().info(f"Model saved successfully at {model_path}")

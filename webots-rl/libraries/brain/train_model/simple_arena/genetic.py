@@ -1,15 +1,15 @@
 import random
 import string
 
-from brain.model.genetic import Genetic
+from brain.train_model.genetic import TrainGenetic
 
 
-class SimpleArenaGenetic(Genetic):
+class TrainSimpleArenaGenetic(TrainGenetic):
     """
     Genetic algorithm implementation for the Simple Arena environment.
 
     Inherits from:
-        Genetic
+        TrainGenetic
     """
 
     def create_individual(self) -> list[float]:

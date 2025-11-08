@@ -6,7 +6,7 @@ EPUCK_DEF = "EPUCK"
 FINISH_LINE_DEF = "FINISH_LINE"
 
 
-class SimpleArenaState(EnvironmentState):
+class StateSimpleArena(EnvironmentState):
     """
     Represents the state of the simple arena environment.
 
@@ -28,7 +28,7 @@ class SimpleArenaState(EnvironmentState):
         self.finish_line_distance = 99
 
 
-class SimpleArena(Environment):
+class EnvironmentSimpleArena(Environment):
     """
     Environment for a simple arena simulation.
 
@@ -38,16 +38,15 @@ class SimpleArena(Environment):
     Args:
         supervisor (Supervisor): Webots Supervisor instance.
         max_step (int): Maximum number of steps per episode.
-        train (bool): Whether the environment is in training mode.
     """
 
-    def __init__(self, supervisor: Supervisor, max_step: int, train: bool = False):
+    def __init__(self, supervisor: Supervisor, max_step: int):
         """
         Initializes the SimpleArena environment.
 
         Retrieves references to the agent and finish line objects in the simulation.
         """
-        super().__init__(supervisor, max_step, train)
+        super().__init__(supervisor, max_step)
         epuck = self.supervisor.getFromDef(EPUCK_DEF)
         self.epuck_translation = epuck.getField("translation")
         finish_line = self.supervisor.getFromDef(FINISH_LINE_DEF)
@@ -89,16 +88,37 @@ class SimpleArena(Environment):
         distance = (dx**2 + dy**2) ** 0.5
         return distance
 
-    def state(self) -> SimpleArenaState:
+    def state(self) -> StateSimpleArena:
         """
         Returns the current state of the environment.
 
         Returns:
-            SimpleArenaState: The current environment state.
+            StateSimpleArena: The current environment state.
         """
-        state = SimpleArenaState()
+        state = StateSimpleArena()
         state.finish_line_distance = self.finsh_distance()
         state.step_index = self.step_index
         state.is_terminated = state.finish_line_distance < 0.02 or self.step_index >= self.max_step
         state.is_success = state.finish_line_distance < 0.02
         return state
+
+    def step(self) -> tuple[StateSimpleArena, float]:
+        """
+        Perform one step in the environment.
+
+        On the first step, sends the agent's actions over TCP.
+        Calculates the reward as the negative distance to the finish line,
+        adds a large bonus if the task is successful, and applies a small
+        penalty for each step taken.
+
+        Returns:
+            tuple[StateSimpleArena, float]: The new environment state and the computed reward.
+        """
+
+        state = self.state()
+        reward = -state.finish_line_distance
+        if state.is_success:
+            reward += 10.0
+        reward -= 0.0005 * state.step_index
+
+        return state, reward

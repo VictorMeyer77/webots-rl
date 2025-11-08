@@ -1,10 +1,12 @@
 import os
 from abc import ABC, abstractmethod
 
+from brain.utils.tcp_socket import TcpSocket
+
 MODEL_PATH = "/Users/victormeyer/Dev/Self/webots-rl/output/model"
 
 
-class Model(ABC):
+class TrainModel(ABC):
     """
     Abstract base class for all models.
 
@@ -15,6 +17,7 @@ class Model(ABC):
 
     model_dir: str
     name: str
+    tcp_socket: TcpSocket | None
 
     def __init__(self):
         """
@@ -23,6 +26,7 @@ class Model(ABC):
         self.name = self.get_name()
         self.model_dir = MODEL_PATH
         os.makedirs(self.model_dir, exist_ok=True)
+        self.tcp_socket = TcpSocket(is_client=False)
 
     @abstractmethod
     def get_name(self) -> str:
@@ -40,12 +44,3 @@ class Model(ABC):
         Save the model to disk.
         """
         raise NotImplementedError("Method save() not implemented.")
-
-    def load(self, model_name: str):
-        """
-        Load the model by setting its name.
-
-        Args:
-            model_name (str): The name of the model to load.
-        """
-        self.name = model_name
