@@ -20,16 +20,16 @@ show:             ## Show the current environment.
 
 .PHONY: fmt
 fmt:              ## Format code using black & isort.
-	$(ENV_PREFIX)isort vacuum-cleaner/
+	$(ENV_PREFIX)isort webots-rl/
 	$(ENV_PREFIX)isort main.py
-	$(ENV_PREFIX)black -l 120  vacuum-cleaner/
+	$(ENV_PREFIX)black -l 120  webots-rl/
 	$(ENV_PREFIX)black -l 120  main.py
 
 .PHONY: lint
 lint:             ## Run pep8, black.
-	$(ENV_PREFIX)flake8 --max-line-length 120 --ignore=E402,W503 vacuum-cleaner/
+	$(ENV_PREFIX)flake8 --max-line-length 120 --ignore=E402,W503 webots-rl/
 	$(ENV_PREFIX)flake8 --max-line-length 120 --ignore=E402,W503 main.py
-	$(ENV_PREFIX)black -l 120 --check vacuum-cleaner/
+	$(ENV_PREFIX)black -l 120 --check webots-rl/
 	$(ENV_PREFIX)black -l 120 --check main.py
 
 .PHONY: install
@@ -50,6 +50,7 @@ clean:            ## Clean working directory.
 	@rm -rf *.egg-info
 	@rm -rf output/logs/*
 	@rm -rf webots-rl/worlds/.*.wbproj
+	@rm -rf webots-rl/worlds/*_run_*
 
 .PHONY: virtualenv
 virtualenv:       ## Create virtual environment.

@@ -121,7 +121,7 @@ class Genetic(Model):
             population_eval.sort(key=lambda x: x[1], reverse=True)
             population = [individual for individual, _ in population_eval]
             logger().info(f"EPOCH: {epoch}: Best Reward: {population_eval[0][1]}")
-            next_gen = population[: int(self.generation_size * self.selection_rate)]
+            next_gen = population[: int(self.generation_size * self.selection_rate) + 1]
             while len(next_gen) < self.generation_size:
                 parent_a, parent_b = random.sample(next_gen, 2)
                 child = self.crossover(parent_a, parent_b)
@@ -132,7 +132,6 @@ class Genetic(Model):
         best_individual, best_reward = max(population_eval, key=lambda x: x[1])
         logger().info(f"Best Reward: {best_individual}")
         self.actions = best_individual
-        self.environment.quit()
         return best_individual, best_reward
 
     def save(self):

@@ -1,7 +1,7 @@
 import os
 from abc import ABC, abstractmethod
 
-MODEL_PATH = "/Users/victormeyer/Dev/Self/webots-sandbox/output/model"
+MODEL_PATH = "/Users/victormeyer/Dev/Self/webots-rl/output/model"
 
 
 class Model(ABC):

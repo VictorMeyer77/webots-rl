@@ -21,7 +21,7 @@ import logging.handlers
 import os
 from datetime import datetime
 
-LOG_DIR = "/Users/victormeyer/Dev/Self/webots-sandbox/output/logs"
+LOG_DIR = "/Users/victormeyer/Dev/Self/webots-rl/output/logs"
 
 
 class Logger:

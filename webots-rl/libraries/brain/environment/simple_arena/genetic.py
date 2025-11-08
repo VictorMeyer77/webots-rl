@@ -31,7 +31,7 @@ class EnvironmentSimpleArenaGenetic(SimpleArena, EnvironmentGenetic):
         Returns:
             tuple[SimpleArenaState, float]: The new environment state and the computed reward.
         """
-        if self.step_index == 0:
+        if self.step_index == 0 and self.train:
             self.tcp_socket.send(json.dumps({"actions": self.actions}))
 
         state = self.state()
