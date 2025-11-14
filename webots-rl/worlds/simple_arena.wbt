@@ -55,6 +55,10 @@ DEF EPUCK E-puck {
 DEF SUPERVISOR Robot {
   controller "{{SUPERVISOR}}"
   supervisor TRUE
+  children [
+    Emitter { name "emitter" channel 1 }
+    Receiver { name "receiver" channel 1 }
+  ]
 }
 DEF FINISH_LINE Solid {
   translation 0.440141 0.438402 0.0001

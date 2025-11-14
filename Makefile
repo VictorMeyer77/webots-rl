@@ -49,6 +49,7 @@ clean:            ## Clean working directory.
 	@rm -rf dist
 	@rm -rf *.egg-info
 	@rm -rf output/logs/*
+	@rm -rf output/train/*
 	@rm -rf webots-rl/worlds/.*.wbproj
 	@rm -rf webots-rl/worlds/*_run_*
 
