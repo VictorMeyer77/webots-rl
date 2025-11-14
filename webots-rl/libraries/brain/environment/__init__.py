@@ -1,99 +1,124 @@
+"""
+Abstract environment and state base definitions for a Webots reinforcement learning framework.
+
+This module provides:
+- `EnvironmentState`: Lightweight dataclass capturing episode progression, termination, and success.
+- `Environment`: Abstract base class defining the interface expected from any concrete Webots RL environment:
+  `step()`, `state()`, `run()`, plus lifecycle helpers `reset()` and `quit()`.
+
+Subclasses should:
+- Implement `state()` to build and return a domain-specific `EnvironmentState` subtype (optional).
+- Implement `step()` to apply one simulation tick and compute reward.
+- Implement `run()` to execute an episode loop until termination.
+
+Attributes expected in concrete environments:
+- `supervisor`: Webots `Supervisor` controlling the simulation.
+- `timestep`: Simulation step duration (ms).
+- `step_index`: Current discrete step counter.
+- `max_step`: Maximum allowed steps per episode.
+- `queue`: Message queue utility for controller/supervisor communication (may be `None` if unused).
+"""
+
 import json
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 from brain.utils.logger import logger
+from brain.utils.queue import Queue
 from controller import Supervisor
 
 
+@dataclass
 class EnvironmentState:
     """
-    Represents the current state of the environment during agent execution.
+    Serializable base state for an environment episode.
 
-    This class tracks the environment's execution state including termination status,
-    success status, and the current step count. It provides JSON serialization
-    for state persistence and logging.
+    Tracks termination and success flags plus the current step index. Can be
+    subclassed to add domain-specific fields (e.g. distances, sensor arrays).
 
     Attributes:
-        is_terminated (bool): Whether the environment has reached a terminal state
-        is_success (bool): Whether the environment task completed successfully
-        step_index (int): Current step number in the environment execution
+        is_terminated (bool): True when episode must stop (goal reached or limit exceeded).
+        is_success (bool): True when termination corresponds to goal achievement.
+        step_index (int): Zero-based index of the current step within the episode.
     """
-
-    is_terminated: bool
-    is_success: bool
-    step_index: int
-
-    def __init__(self):
-        """
-        Initialize the environment state with default values.
-
-        Sets is_terminated and is_success to False, and step_index to 0.
-        """
-        self.is_terminated = False
-        self.is_success = False
-        self.step_index = 0
+    is_terminated: bool = False
+    is_success: bool = False
+    step_index: int = 0
 
     def to_json(self) -> str:
         """
-        Serialize the environment state to a JSON string.
-
-        Converts all instance attributes to a JSON-formatted string representation.
+        Serialize the state to a JSON string.
 
         Returns:
-            str: JSON string containing all state attributes
+            str: JSON representation of all instance attributes.
         """
         return json.dumps(self.__dict__)
 
 
 class Environment(ABC):
     """
-    Abstract base class for simulation environments.
+    Abstract base class for Webots reinforcement learning environments.
 
-    This class defines the interface and common attributes for environments
-    used in reinforcement learning or control tasks. Subclasses must implement
-    the required abstract methods to define environment-specific behavior.
+    Manages common simulation bookkeeping and enforces the interface for
+    stepping, state retrieval, episode execution, and lifecycle management.
 
     Attributes:
-        supervisor (Supervisor): The Webots Supervisor instance managing the simulation.
-        step_index (int): Current step number in the environment execution.
-        max_step (int): Maximum number of steps allowed in an episode.
+        supervisor (Supervisor): Webots Supervisor instance used to control simulation.
+        timestep (int): Simulation step duration in milliseconds.
+        step_index (int): Current step number (auto-incremented externally or in `run()`).
+        max_step (int): Maximum number of steps permitted per episode.
+        queue (Queue | None): Communication helper for message-based interaction (optional).
     """
 
     supervisor: Supervisor
+    timestep: int
     step_index: int
     max_step: int
+    queue: Queue | None
 
-    def __init__(self, supervisor: Supervisor, max_step: int):
+    def __init__(self, supervisor: Supervisor, timestep: int, max_step: int):
         """
-        Initialize the environment with a Supervisor instance.
+        Initialize the environment core structures.
 
         Args:
-            supervisor (Supervisor): The Webots Supervisor instance managing the simulation.
-            max_step (int): Maximum number of steps allowed in an episode.
+            supervisor (Supervisor): Active Webots Supervisor.
+            timestep (int): Simulation timestep in milliseconds.
+            max_step (int): Upper bound on steps per episode.
         """
         self.supervisor = supervisor
+        self.timestep = timestep
         self.step_index = 0
         self.max_step = max_step
+        self.queue = Queue(timestep, supervisor.getDevice("emitter"), supervisor.getDevice("receiver"))
         logger().debug(f"Environment initialized, max steps: {self.max_step}")
 
     @abstractmethod
     def step(self) -> tuple[EnvironmentState, float]:
         """
-        Advance the simulation by one timestep.
+        Advance the simulation by one logical RL step.
 
-        Returns
-            tuple[EnvironmentState, float]: Tuple with new environment state and reward.
+        Must:
+            - Update or compute the new `EnvironmentState`.
+            - Compute and return the reward for the transition.
 
+        Returns:
+            tuple[EnvironmentState, float]: New state and scalar reward.
         """
         raise NotImplementedError("Method step() not implemented.")
 
     @abstractmethod
     def state(self) -> EnvironmentState:
+        """
+        Build and return the current state snapshot.
+
+        Returns:
+            EnvironmentState: Current environment state (may be subclass instance).
+        """
         raise NotImplementedError("Method state() not implemented.")
 
     def reset(self):
         """
-        Reset the environment to its initial state.
+        Reset simulation and internal counters to episode start.
         """
         self.supervisor.simulationReset()
         self.step_index = 0
@@ -101,17 +126,21 @@ class Environment(ABC):
 
     def quit(self):
         """
-        Quit the simulation.
+        Terminate the simulation process.
         """
         self.supervisor.simulationQuit(0)
         logger().info("Environment terminated successfully.")
 
     @abstractmethod
-    def run(self) -> float:
+    def run(self) -> EnvironmentState:
         """
-        Execute simulation and return total reward.
+        Execute an episode loop until termination.
+
+        Expected pattern:
+            - While not terminated: call `step()`, increment `step_index`.
+            - Return the final `EnvironmentState`.
 
         Returns:
-            float: The cumulated reward.
+            EnvironmentState: Terminal state at episode completion.
         """
         raise NotImplementedError("Method run() not implemented.")

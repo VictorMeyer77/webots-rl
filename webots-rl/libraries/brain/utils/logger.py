@@ -1,3 +1,7 @@
+import logging.handlers
+import os
+from datetime import datetime
+
 """
 Logger Configuration Module for Robotic Agent
 
@@ -16,10 +20,6 @@ Example:
     logger.logger.error("Collision detected")
     ```
 """
-
-import logging.handlers
-import os
-from datetime import datetime
 
 LOG_DIR = "/Users/victormeyer/Dev/Self/webots-rl/output/logs"
 
@@ -50,7 +50,7 @@ class Logger:
         self.logger.setLevel(logging.DEBUG)
         self.logger.propagate = False
         self.formatter = logging.Formatter(
-            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            fmt="%(asctime)s - %(module)s.%(funcName)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
         )
 
     def __call__(self):
@@ -98,7 +98,7 @@ class Logger:
             ```
         """
         os.makedirs(LOG_DIR, exist_ok=True)
-        file_name = os.path.join(LOG_DIR, f"robotic_agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        file_name = os.path.join(LOG_DIR, f"webot_rl_{datetime.now().strftime('%Y%m%d%H')}.log")
         file_handler = logging.handlers.RotatingFileHandler(file_name, maxBytes=10 * 1024 * 1024, backupCount=5)  # 10MB
         file_handler.setLevel(level)
         file_handler.setFormatter(self.formatter)
