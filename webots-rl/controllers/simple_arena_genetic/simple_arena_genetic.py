@@ -1,3 +1,20 @@
+"""Entry point controller for the Simple Arena genetic experiment.
+
+This script is executed by Webots for either:
+  1. Training bridge mode (env var TRAIN=1): Handles the controller side
+     of the genetic evaluation handshake via `EpuckTurnerGenetic.train()`.
+  2. Deployment mode: Loads a persisted genome (`ModelGenetic`) and
+     replays the action sequence with `EpuckTurnerGenetic.run()`.
+
+Environment Variable:
+  TRAIN:
+    - "1" -> training handshake mode.
+    - anything else / unset -> deployment (inference) mode.
+
+Logging:
+  Initializes console and file loggers at INFO level.
+"""
+
 import sys
 
 sys.path.append("../../libraries")
@@ -5,43 +22,28 @@ sys.path.append("../../libraries")
 import logging
 import os
 
-from brain.controller.epuck.genetic.epuck_turner_genetic import EpuckTurnerGenetic
-from brain.controller.epuck.genetic.epuck_turner_genetic_train import EpuckTurnerGeneticTrain
+from brain.controller.epuck.epuck_turner_genetic import EpuckTurnerGenetic
+from brain.model.genetic import ModelGenetic
 from brain.utils.logger import logger
 from controller import Robot
-
-"""
-Main script to run or train the genetic algorithm-based e-puck controller in the simple arena environment.
-
-This script sets up logging, determines the mode (training or inference) based on the TRAIN environment variable,
-and initializes the appropriate controller for the e-puck robot in Webots.
-
-Environment Variables:
-    TRAIN: Set to "1" to enable training mode; otherwise, runs in inference mode.
-
-Usage:
-    - Set the TRAIN environment variable to "1" to train the controller.
-    - Run the script to start the simulation with the selected mode.
-
-Attributes:
-    TIME_STEP (int): Simulation time step in milliseconds.
-    MAX_SPEED (float): Maximum speed for the e-puck robot.
-"""
-
 
 TIME_STEP = 64
 MAX_SPEED = 6.28
 
-train = True if os.getenv("TRAIN") == "1" else False
+if __name__ == "__main__":
 
-logger.add_console_logger(logging.INFO)
-logger.add_file_logger(logging.INFO)
+    train = True if os.getenv("TRAIN") == "1" else False
 
-robot = Robot()
+    logger.add_console_logger(logging.INFO)
+    logger.add_file_logger(logging.INFO)
 
-if train:
-    epuck = EpuckTurnerGeneticTrain(robot, TIME_STEP, MAX_SPEED)
-    epuck.run()
-else:
-    epuck = EpuckTurnerGenetic(robot, TIME_STEP, MAX_SPEED, "simple_arena_genetic_x7mE")
-    epuck.run()
+    robot = Robot()
+    epuck = EpuckTurnerGenetic(robot, TIME_STEP, MAX_SPEED)
+
+    if train:
+        epuck.train()
+    else:
+        model = ModelGenetic()
+        model.load("simple_arena_genetic_x5TS")
+        epuck.set_model(model)
+        epuck.run()

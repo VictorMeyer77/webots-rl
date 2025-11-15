@@ -46,12 +46,11 @@ if __name__ == "__main__":
 
     train = True if os.getenv("TRAIN") == "1" else False
     robot = Robot()
+    epuck = EpuckTurnerMonteCarlo(robot, TIME_STEP, MAX_SPEED)
 
     if train:
-        epuck = EpuckTurnerMonteCarlo(robot, TIME_STEP, MAX_SPEED)
         epuck.train()
     else:
-        epuck = EpuckTurnerMonteCarlo(robot, TIME_STEP, MAX_SPEED)
         model = ModelMonteCarlo(observation_cardinality=3)
         model.load("simple_arena_monte_carlo_poIB")
         epuck.set_model(model)

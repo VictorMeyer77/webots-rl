@@ -54,7 +54,7 @@ if __name__ == "__main__":
     environment = EnvironmentSimpleArena(supervisor, TIME_STEP, EPISODE_SIZE)
 
     if train:
-        model = TrainerMonteCarloSimpleArena(
+        trainer = TrainerMonteCarloSimpleArena(
             model_name=MODEL_NAME,
             environment=environment,
             action_size=ACTION_SIZE,
@@ -63,8 +63,8 @@ if __name__ == "__main__":
             gamma=GAMMA,
             epsilon=EPSILON,
         )
-        model.run(EPOCHS)
-        model.save_model()
+        trainer.run(EPOCHS)
+        trainer.save_model()
     else:
         final_state = environment.run()
         logger().info(f"Final state: {final_state.to_json()}")
