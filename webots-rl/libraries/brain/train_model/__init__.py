@@ -29,41 +29,39 @@ class Trainer(ABC):
     Attributes:
         environment: The simulation environment.
         model_name: Unique name for the model instance.
-        model_path: Filesystem path for saving the model.
         tb_writer: TensorBoard SummaryWriter for logging.
     """
 
     environment: Environment
     model_name: str
-    model_path: str
     tb_writer: SummaryWriter
 
     def __init__(self, model_name: str, environment: Environment):
         """
-        Initialize the trainer, set up model paths and TensorBoard logging.
+        Initialize trainer resources and create a unique session name.
 
         Parameters:
-            model_name: Base name for the model.
-            environment: The simulation environment instance.
+            model_name (str): Base human-readable identifier for this training run.
+            environment (Environment): Environment used for interaction and data generation.
         """
         self.environment = environment
         self.model_name = f"{model_name}_{''.join(random.choices(string.ascii_letters + string.digits, k=4))}"
-        self.model_path = os.path.join(MODEL_PATH, self.model_name + ".npy")
 
-        os.makedirs(MODEL_PATH, exist_ok=True)
         tensorboard_dir = os.path.join(TENSORBOARD_PATH, self.model_name)
         self.tb_writer = SummaryWriter(log_dir=tensorboard_dir)
         logger().info(f"TensorBoard logging to {tensorboard_dir}")
 
-    def close_tb(self):
+    def close_tb(self) -> None:
         """
-        Flush and close the TensorBoard SummaryWriter.
+        Flush and close the TensorBoard writer.
+
+        Should be called after training completes to ensure all events are persisted.
         """
         self.tb_writer.flush()
         self.tb_writer.close()
 
     @abstractmethod
-    def save_model(self):
+    def save_model(self) -> None:
         """
         Save the model to disk.
 
@@ -72,7 +70,7 @@ class Trainer(ABC):
         raise NotImplementedError("Method save() not implemented.")
 
     @abstractmethod
-    def run(self, epochs: int):
+    def run(self, epochs: int) -> None:
         """
         Run the training process for a given number of epochs.
 
