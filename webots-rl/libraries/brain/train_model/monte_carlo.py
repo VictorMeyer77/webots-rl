@@ -120,7 +120,8 @@ class TrainerMonteCarlo(Trainer):
             self.tb_writer.add_scalar("MonteCarlo/Return", g, epoch)
             self.environment.reset()
             logger().info(
-                f"Epoch {epoch + 1}/{epochs} completed with return {g:.4f}, epsilon {self.epsilon:.4f} and reward {sum(rewards)}"
+                f"Epoch {epoch + 1}/{epochs} completed with return {g:.4f}, "
+                f"epsilon {self.epsilon:.4f} and reward {sum(rewards)}"
             )
         self.close_tb()
 
