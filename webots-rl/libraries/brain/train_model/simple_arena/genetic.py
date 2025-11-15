@@ -28,9 +28,9 @@ class TrainerSimpleArenaGenetic(TrainerGenetic):
         Create a new random genome.
 
         Returns:
-            NumPy array of shape (individual_size,) with integer genes in {0,1,2}.
+            NumPy array of shape (individual_size,) with integer genes in {0,1,2,3}.
         """
-        return np.random.randint(0, 3, size=self.individual_size, dtype=np.int64)
+        return np.random.randint(0, 4, size=self.individual_size, dtype=np.int64)
 
     @staticmethod
     def crossover(parent_a: np.ndarray, parent_b: np.ndarray) -> np.ndarray:

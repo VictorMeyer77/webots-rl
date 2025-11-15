@@ -44,6 +44,6 @@ if __name__ == "__main__":
         epuck.train()
     else:
         model = ModelGenetic()
-        model.load("simple_arena_genetic_x5TS")
+        model.load("simple_arena_genetic_UFv0")
         epuck.set_model(model)
         epuck.run()
