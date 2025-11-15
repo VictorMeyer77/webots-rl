@@ -1,103 +1,112 @@
+"""
+Base controller abstractions for Webots reinforcement learning.
+
+This module defines `BaseController`, an abstract interface for robot controllers
+that perform a perception-decision-action loop each simulation timestep.
+
+Responsibilities:
+- Observing sensor data (`observe()`).
+- Selecting actions via a policy (`policy()`).
+- Executing actions on the robot (`act()`).
+- Running a continuous control loop (`run()`).
+- Optional training routine (`train()`).
+
+Subclasses must implement all abstract methods to provide concrete behavior.
+"""
+
 from abc import ABC, abstractmethod
 
+from brain.model import Model
 from brain.utils.logger import logger
-from brain.utils.tcp_socket import TcpSocket
+from brain.utils.queue import Queue
 from controller import Robot
 
 
 class BaseController(ABC):
     """
-    Abstract base class for robot controllers.
+    Abstract base class for Webots robot controllers.
 
     Attributes:
-        robot (Robot): The robot instance to control.
-        train (bool): Indicates if training mode is enabled.
-        timestep (int): Simulation timestep in milliseconds.
-        step_index (int): Current step index in the control loop.
-        tcp_socket (TcpSocket | None): TCP socket for communication (used in training mode).
-
-    This class defines the interface for observing, deciding actions, acting, and running the control loop.
-    Subclasses must implement the abstract methods for specific robot behaviors.
+        robot (Robot): Controlled robot instance.
+        timestep (int): Simulation step duration in milliseconds.
+        queue (Queue | None): Message queue for supervisor/robot communication.
     """
 
     robot: Robot
-    train: bool
     timestep: int
-    step_index: int
-    tcp_socket: TcpSocket | None
+    queue: Queue | None
+    model: Model
 
-    def __init__(self, robot: Robot, timestep: int = 64, train: bool = False):
+    def __init__(self, robot: Robot, timestep: int = 64):
         """
         Initialize the controller.
 
         Args:
-            robot (Robot): The robot instance to control.
-            timestep (int, optional): Simulation timestep in milliseconds. Defaults to 64.
-            train (bool, optional): Whether to enable training mode. Defaults to False.
+            robot (Robot): Robot instance to control.
+            timestep (int): Simulation timestep in milliseconds (default: 64).
         """
         self.robot = robot
         self.timestep = timestep
-        self.train = train
-        self.step_index = 0
-        if self.train:
-            self.tcp_socket = TcpSocket(is_client=True)
-        logger().info(f"Controller initialized in {'training' if self.train else 'production'} mode")
+        self.queue = Queue(timestep, robot.getDevice("emitter"), robot.getDevice("receiver"))
+        self.model = None
 
     @abstractmethod
     def observe(self) -> dict:
         """
-        Read robot sensors.
+        Read robot sensors and build an observation payload.
 
         Returns:
-                dict: A dictionary containing observation data.
+            dict: Structured sensor data for policy consumption.
         """
         raise NotImplementedError("Method observe() not implemented.")
 
     @abstractmethod
     def policy(self, observation: dict) -> int:
         """
-        Decide on an action based on the observation.
+        Decide an action based on the current observation.
 
         Args:
-                observation (dict): The current robot sensors.
+            observation (dict): Sensor-derived observation.
 
         Returns:
-                int: The action to be taken.
+            int: Discrete action identifier.
         """
         raise NotImplementedError("Method policy() not implemented.")
 
     @abstractmethod
-    def act(self, action: int):
+    def act(self, action: int) -> None:
         """
-        Perform an action in the environment.
+        Execute the chosen action on the robot.
 
         Args:
-                action (int): The action to be performed.
+            action (int): Action identifier.
         """
         raise NotImplementedError("Method act() not implemented.")
 
-    def step(self):
+    def step(self) -> None:
         """
-        Execute one step of the control loop.
+        Perform one perception-decision-action cycle.
         """
-        observations = self.observe()
-        action = self.policy(observations)
+        observation = self.observe()
+        action = self.policy(observation)
         self.act(action)
 
-    @abstractmethod
-    def reset(self):
+    def run(self) -> None:
         """
-        Reset controller for a new run.
-        Use only for training.
+        Continuous control loop until simulation termination.
         """
-        self.step_index = 0
-        logger().info("Controller has been reset")
-
-    def run(self):
-        """
-        Run the controller loop.
-        """
+        step_index = 0
         while self.robot.step(self.timestep) != -1:
             self.step()
-            self.step_index += 1
-            logger().debug(f"Step index: {self.step_index}")
+            step_index += 1
+            logger().debug(f"Step index: {step_index}")
+
+    @abstractmethod
+    def train(self) -> None:
+        """
+        Execute a training routine (e.g., data collection or policy update).
+        """
+        raise NotImplementedError("Method train() not implemented.")
+
+    def set_model(self, model: Model) -> None:
+        self.model = model

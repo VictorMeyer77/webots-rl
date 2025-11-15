@@ -27,7 +27,7 @@ class BaseEpuck(BaseController):
     distance_sensors: list[DistanceSensor]
     motors: list[Motor]
 
-    def __init__(self, robot: Robot, timestep: int, max_speed: float, train: bool = False):
+    def __init__(self, robot: Robot, timestep: int, max_speed: float):
         """
         Initialize the BaseEpuck controller.
 
@@ -35,14 +35,13 @@ class BaseEpuck(BaseController):
             robot (Robot): The Webots robot instance.
             timestep (int): Simulation timestep in milliseconds.
             max_speed (float): Maximum speed for the robot's motors.
-            train (bool, optional): Flag indicating training mode. Defaults to False.
         """
-        super().__init__(robot=robot, timestep=timestep, train=train)
+        super().__init__(robot=robot, timestep=timestep)
         self.max_speed = max_speed
-        self._init_distance_sensor()
+        self._init_distance_sensors()
         self._init_motors()
 
-    def _init_distance_sensor(self):
+    def _init_distance_sensors(self) -> None:
         """
         Initialize and enable the e-puck's distance sensors.
 
@@ -59,7 +58,7 @@ class BaseEpuck(BaseController):
             self.distance_sensors[i].enable(self.timestep)
         logger().debug("Epuck distance sensors initialized")
 
-    def _init_motors(self):
+    def _init_motors(self) -> None:
         """
         Initialize the e-puck's wheel motors for velocity control.
 
@@ -80,27 +79,26 @@ class BaseEpuck(BaseController):
         Returns:
             dict: Dictionary containing a list of distance sensor values under the key 'distance_sensors'.
         """
-        observations = {"distance_sensors": []}
-        for i in range(8):
-            observations["distance_sensors"].append(self.distance_sensors[i].getValue())
+        observations = {"distance_sensors": [s.getValue() for s in self.distance_sensors]}
         logger().debug(f"Epuck distance sensor readings: {observations['distance_sensors']}")
         return observations
-
-    def reset(self):
-        """
-        Reinitialize the robot's distance sensors and motors, then call the parent reset method.
-
-        This ensures the robot starts from a known state at the beginning of each episode or simulation run.
-        """
-        self._init_distance_sensor()
-        self._init_motors()
-        super().reset()
 
 
 class EpuckTurner(BaseEpuck):
     """
     Controller for the e-puck robot that supports discrete turning actions.
     """
+
+    def __init__(self, robot: Robot, timestep: int, max_speed: float):
+
+        super().__init__(robot=robot, timestep=timestep, max_speed=max_speed)
+
+        self.actions = {
+            0: [0.5 * self.max_speed, 0.5 * self.max_speed],  # forward
+            1: [-0.5 * self.max_speed, 0.5 * self.max_speed],  # left
+            2: [0.5 * self.max_speed, -0.5 * self.max_speed],  # right
+            3: [-0.5 * self.max_speed, -0.5 * self.max_speed],  # backward
+        }
 
     def act(self, action: int) -> None:
         """
@@ -118,32 +116,14 @@ class EpuckTurner(BaseEpuck):
         Raises:
             ValueError: If action is not between 0 and 3.
         """
-        left_speed = 0.0
-        right_speed = 0.0
 
-        # forward
-        if action == 0:
-            left_speed = 0.5 * self.max_speed
-            right_speed = 0.5 * self.max_speed
-        # left
-        elif action == 1:
-            left_speed = -0.5 * self.max_speed
-            right_speed = 0.5 * self.max_speed
+        if action not in self.actions:
+            raise ValueError("Action must be an integer between 0 and 3.")
 
-        # right
-        elif action == 2:
-            left_speed = 0.5 * self.max_speed
-            right_speed = -0.5 * self.max_speed
+        logger().debug(
+            f"Epuck motor velocities updated with left_speed = {self.actions[action][0]} "
+            f"and right_speed = {self.actions[action][1]}"
+        )
 
-        # backward
-        elif action == 3:
-            left_speed = -0.5 * self.max_speed
-            right_speed = -0.5 * self.max_speed
-
-        else:
-            ValueError("Action should be between 0 and 3.")
-
-        logger().debug(f"Epuck motor velocities updated with left_speed = {left_speed} and right_speed = {right_speed}")
-
-        self.motors[0].setVelocity(left_speed)
-        self.motors[1].setVelocity(right_speed)
+        self.motors[0].setVelocity(self.actions[action][0])
+        self.motors[1].setVelocity(self.actions[action][1])
