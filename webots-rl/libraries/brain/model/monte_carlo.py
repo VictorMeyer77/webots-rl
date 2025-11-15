@@ -12,8 +12,9 @@ Notes:
 """
 
 import os
+
 import numpy as np
-from brain.model import Model, MODEL_PATH
+from brain.model import MODEL_PATH, Model
 from brain.utils.logger import logger
 
 

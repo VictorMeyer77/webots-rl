@@ -59,7 +59,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             action = random.randint(0, self.action_size - 1)
             logger().debug(f"Taking random action {action} for state {observation}")
         else:
-            q_values = self.q_table[self.observation_to_index(observation)]
+            q_values = self.model.q_table[self.model.observation_to_index(observation)]
             max_q = q_values.max()
             max_indexes = np.where(q_values == max_q)[0]
             action = np.random.choice(max_indexes)

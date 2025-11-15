@@ -10,10 +10,10 @@ Core concepts:
 """
 
 from abc import abstractmethod
-from typing import Any
 
 import numpy as np
 from brain.environment import Environment
+from brain.model.monte_carlo import ModelMonteCarlo
 from brain.train_model import Trainer
 from brain.utils.logger import logger
 
@@ -28,7 +28,6 @@ class TrainerMonteCarlo(Trainer):
         observation_cardinality: Number of discrete values each sensor can take.
         gamma: Discount factor (0 <= gamma <= 1).
         epsilon: Exploration rate for epsilon-greedy policy.
-        q_table: NumPy array storing Q-values for all state-action pairs.
         rewards: Mapping from (state_index, action) to list of sampled returns.
     """
 
@@ -38,8 +37,8 @@ class TrainerMonteCarlo(Trainer):
     gamma: float
     epochs: int
     epsilon: float
-    q_table: Any
     rewards: dict[tuple[int, int], list[float]] = {}
+    model: ModelMonteCarlo | None
 
     def __init__(
         self,
@@ -66,44 +65,11 @@ class TrainerMonteCarlo(Trainer):
         super().__init__(environment=environment, model_name=model_name)
         self.action_size = action_size
         self.observation_size = observation_size
-        self.observation_cardinality = observation_cardinality
         self.gamma = gamma
         self.epsilon = epsilon
-        self.q_table = np.zeros((observation_cardinality**observation_size, action_size))
         self.rewards = {}
-
-    def index_to_observation(self, index: int) -> list[int]:
-        """
-        Decode a flattened state index back into its observation vector.
-
-        Parameters:
-            index: Integer index representing a state.
-
-        Returns:
-            A list of length observation_size with each component in [0, observation_cardinality - 1].
-        """
-        observation = []
-        for _ in range(self.observation_size):
-            observation.append(index % self.observation_cardinality)
-            index //= self.observation_cardinality
-        return observation
-
-    def observation_to_index(self, observation: list[int]) -> int:
-        """
-        Encode an observation vector into a single integer index.
-
-        Parameters:
-            observation: List of discrete sensor values.
-
-        Returns:
-            Integer index usable to address the Q-table.
-        """
-        index = 0
-        mul = 1
-        for obs in observation:
-            index += obs * mul
-            mul *= self.observation_cardinality
-        return index
+        self.model = ModelMonteCarlo(observation_cardinality=observation_cardinality)
+        self.model.q_table = np.zeros((observation_cardinality**observation_size, action_size))
 
     def update_q_table(self, observations: list[list[int]], actions: list[int], rewards: list[float]) -> float:
         """
@@ -124,18 +90,17 @@ class TrainerMonteCarlo(Trainer):
         visited = set()
         for i in reversed(range(len(actions))):
             g = rewards[i] + self.gamma * g
-            observation_index = self.observation_to_index(observations[i])
-            if (observation_index, actions[i]) not in visited:
-                visited.add((observation_index, actions[i]))
-                if (observation_index, actions[i]) not in self.rewards:
-                    self.rewards[(observation_index, actions[i])] = []
-                self.rewards[(observation_index, actions[i])].append(g)
-                self.q_table[observation_index][actions[i]] = sum(self.rewards[(observation_index, actions[i])]) / len(
-                    self.rewards[(observation_index, actions[i])]
-                )
+            observation_index = self.model.observation_to_index(observations[i])
+            q_key = (observation_index, actions[i])
+            if q_key not in visited:
+                visited.add(q_key)
+                if q_key not in self.rewards:
+                    self.rewards[q_key] = []
+                self.rewards[q_key].append(g)
+                self.model.q_table[observation_index][actions[i]] = sum(self.rewards[q_key]) / len(self.rewards[q_key])
         return g
 
-    def run(self, epochs: int):
+    def run(self, epochs: int) -> None:
         """
         Execute multiple training epochs.
 
@@ -147,9 +112,6 @@ class TrainerMonteCarlo(Trainer):
 
         Parameters:
             epochs: Number of training iterations.
-
-        Returns:
-            The learned Q-table (NumPy array).
         """
         for epoch in range(epochs):
             self.epsilon = max(0.01, self.epsilon * 0.998)
@@ -157,18 +119,19 @@ class TrainerMonteCarlo(Trainer):
             g = self.update_q_table(observations, actions, rewards)
             self.tb_writer.add_scalar("MonteCarlo/Return", g, epoch)
             self.environment.reset()
-            logger().info(f"Epoch {epoch + 1}/{epochs} completed with return {g:.4f}, epsilon {self.epsilon:.4f}")
+            logger().info(
+                f"Epoch {epoch + 1}/{epochs} completed with return {g:.4f}, epsilon {self.epsilon:.4f} and reward {sum(rewards)}"
+            )
         self.close_tb()
 
-    def save_model(self):
+    def save_model(self) -> None:
         """
         Persist the Q-table to disk using NumPy binary format (.npy).
 
         Side Effects:
             Writes file to self.model_path and logs success.
         """
-        np.save(self.model_path, self.q_table)
-        logger().info(f"Model saved successfully at {self.model_path}")
+        self.model.save(self.model_name)
 
     @abstractmethod
     def simulation(self) -> tuple[list[list[int]], list[int], list[float]]:
