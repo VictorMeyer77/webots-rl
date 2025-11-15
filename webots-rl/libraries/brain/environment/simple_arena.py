@@ -27,6 +27,7 @@ class StateSimpleArena(EnvironmentState):
     Attributes:
         finish_line_distance (float): Euclidean distance from agent to finish line.
     """
+
     finish_line_distance: float = 99
 
 
@@ -57,6 +58,7 @@ class EnvironmentSimpleArena(Environment):
         self.epuck_translation = self.epuck.getField("translation")
         finish_line = self.supervisor.getFromDef(FINISH_LINE_DEF)
         self.finish_line_translation = finish_line.getField("translation")
+        self.last_distance = None
 
     def run(self) -> EnvironmentState:
         """
@@ -112,10 +114,17 @@ class EnvironmentSimpleArena(Environment):
             tuple[StateSimpleArena, float]: (New state, computed reward)
         """
         state = self.state()
-        reward = -state.finish_line_distance
+        reward = 0.0
+
         if state.is_success:
             reward += 10.0
-        reward -= 0.0005 * state.step_index
+
+        if state.step_index > 0:
+            reward += (self.last_distance - state.finish_line_distance) * 0.1
+        self.last_distance = state.finish_line_distance
+
+        reward -= 0.001
+
         return state, reward
 
     def reset(self):

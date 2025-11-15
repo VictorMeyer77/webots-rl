@@ -41,6 +41,7 @@ class EnvironmentState:
         is_success (bool): True when termination corresponds to goal achievement.
         step_index (int): Zero-based index of the current step within the episode.
     """
+
     is_terminated: bool = False
     is_success: bool = False
     step_index: int = 0
