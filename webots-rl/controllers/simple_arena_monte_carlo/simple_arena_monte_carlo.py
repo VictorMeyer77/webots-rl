@@ -53,5 +53,6 @@ if __name__ == "__main__":
     else:
         epuck = EpuckTurnerMonteCarlo(robot, TIME_STEP, MAX_SPEED)
         model = ModelMonteCarlo(observation_cardinality=3)
-        model.load("simple_arena_monte_carlo_005f")
+        model.load("simple_arena_monte_carlo_poIB")
         epuck.set_model(model)
+        epuck.run()
