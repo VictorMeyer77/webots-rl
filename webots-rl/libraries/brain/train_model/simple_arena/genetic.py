@@ -1,63 +1,71 @@
-import random
-import string
+"""
+Genetic trainer specialization for the Simple Arena environment.
 
-from brain.train_model.genetic import TrainGenetic
+This module provides a concrete implementation of a genetic algorithm
+trainer for an environment where each genome is an integer action vector
+with values in the discrete range [0, 2].
+"""
+
+import numpy as np
+from brain.train_model.genetic import TrainerGenetic
 
 
-class TrainSimpleArenaGenetic(TrainGenetic):
+class TrainerSimpleArenaGenetic(TrainerGenetic):
     """
-    Genetic algorithm implementation for the Simple Arena environment.
+    Concrete genetic algorithm trainer for the Simple Arena.
 
-    Inherits from:
-        TrainGenetic
+    Responsibilities:
+      - Create new individuals (genomes).
+      - Apply one-point crossover.
+      - Apply per-gene mutation using a vectorized mask.
+
+    Genome:
+      A NumPy int64 array of length `individual_size` with each gene in {0,1,2}.
     """
 
-    def create_individual(self) -> list[float]:
+    def create_individual(self) -> np.ndarray:
         """
-        Create a new individual for the population.
+        Create a new random genome.
 
         Returns:
-            list[float]: A list of random integers (0, 1, or 2) of length individual_size.
+            NumPy array of shape (individual_size,) with integer genes in {0,1,2}.
         """
-        return [random.randint(0, 2) for _ in range(self.individual_size)]
+        return np.random.randint(0, 3, size=self.individual_size, dtype=np.int64)
 
     @staticmethod
-    def crossover(parent_a: list[float], parent_b: list[float]) -> list[float]:
+    def crossover(parent_a: np.ndarray, parent_b: np.ndarray) -> np.ndarray:
         """
-        Perform single-point crossover between two parents.
+        Perform one-point crossover between two parent genomes.
+
+        The crossover index is sampled uniformly from [1, len(parent_a)-1].
 
         Args:
-            parent_a (list[float]): The first parent individual.
-            parent_b (list[float]): The second parent individual.
+            parent_a: First parent genome (1D array).
+            parent_b: Second parent genome (same shape as parent_a).
 
         Returns:
-            list[float]: The child individual created by combining genes from both parents.
-        """
-        index = random.randint(1, len(parent_a) - 1)
-        return parent_a[:index] + parent_b[index:]
+            Child genome composed of parent_a[:index] + parent_b[index:].
 
-    def mutate(self, individual) -> list[float]:
+        Raises:
+            ValueError: If parent shapes differ or are not 1D.
         """
-        Mutate an individual by randomly changing its genes.
+
+        index = np.random.randint(1, parent_a.shape[0])
+        return np.concatenate((parent_a[:index], parent_b[index:]))
+
+    def mutate(self, individual: np.ndarray) -> np.ndarray:
+        """
+        Mutate a genome in-place using a per-gene probability.
+
+        A boolean mask selects genes to replace with new random values in {0,1,2}.
 
         Args:
-            individual (list[float]): The individual to mutate.
+            individual: Genome to mutate (modified in-place).
 
         Returns:
-            list[float]: The mutated individual.
+            The mutated genome (same array instance).
         """
-        for i in range(len(individual)):
-            if random.random() < self.mutation_rate:
-                individual[i] = random.randint(0, 2)
+        mask = np.random.rand(individual.shape[0]) < self.mutation_rate
+        if np.any(mask):
+            individual[mask] = np.random.randint(0, 3, size=mask.sum(), dtype=individual.dtype)
         return individual
-
-    @staticmethod
-    def get_name() -> str:
-        """
-        Generate a unique name for the model by appending a random 4-character string.
-
-        Returns:
-            str: The generated model name, e.g., 'simple_arena_genetic_a1B2'.
-        """
-        rand_str = "".join(random.choices(string.ascii_letters + string.digits, k=4))
-        return f"simple_arena_genetic_{rand_str}"

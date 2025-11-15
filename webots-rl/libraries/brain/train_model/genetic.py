@@ -1,125 +1,225 @@
-import json
-import os
+"""
+Genetic training infrastructure for evolving action vectors using a simple
+elitist genetic algorithm. Subclasses must implement genome creation,
+crossover, and mutation strategies.
+"""
+
 import random
 from abc import abstractmethod
 
+import numpy as np
 from brain.environment import Environment
-from brain.train_model import TrainModel
+from brain.model.genetic import ModelGenetic
+from brain.train_model import Trainer
 from brain.utils.logger import logger
 
 
-class TrainGenetic(TrainModel):
+class TrainerGenetic(Trainer):
     """
-    Abstract base class for implementing genetic algorithms.
+    Genetic algorithm trainer responsible for:
+    - Managing population lifecycle across epochs.
+    - Evaluating individuals via environment simulation.
+    - Selecting, crossing, and mutating genomes.
+    - Persisting the best performing individual.
 
     Attributes:
-        environment (Environment): The environment in which individuals are evaluated.
-        generation_size (int): Number of individuals per generation.
-        individual_size (int): Size of each individual (genome length).
-        mutation_rate (float): Probability of mutating each gene.
-        selection_rate (float): Fraction of top individuals selected for reproduction.
-        epochs (int): Number of generations to run the algorithm.
-        actions (list[float]): The best actions found by the algorithm.
+        generation_size: Number of individuals per generation.
+        individual_size: Length of each genome (action vector).
+        mutation_rate: Probability per gene to mutate.
+        selection_rate: Fraction of top individuals retained for breeding.
+        model: Holds the best actions for persistence.
     """
 
     generation_size: int
     individual_size: int
     mutation_rate: float
     selection_rate: float
-    epochs: int
-    actions: list[float]
+    model: ModelGenetic
 
     def __init__(
         self,
         environment: Environment,
+        model_name: str,
         generation_size: int,
         individual_size: int,
         mutation_rate: float,
         selection_rate: float,
-        epochs: int,
     ):
         """
-        Initialize the genetic algorithm with the given parameters.
+        Initialize the genetic trainer.
 
         Args:
-            environment (EnvironmentGenetic): The environment for evaluation.
-            generation_size (int): Number of individuals per generation.
-            individual_size (int): Size of each individual.
-            mutation_rate (float): Mutation probability per gene.
-            selection_rate (float): Fraction of top individuals selected.
-            epochs (int): Number of generations to run.
+            environment: Simulation environment instance.
+            model_name: Identifier used for saving the model.
+            generation_size: Size of each generation (population).
+            individual_size: Genome length (number of actions).
+            mutation_rate: Per-gene mutation probability in [0,1].
+            selection_rate: Fraction (0–1] of elites retained each epoch.
         """
-        super().__init__()
-        self.environment = environment
+        super().__init__(environment=environment, model_name=model_name)
         self.generation_size = generation_size
         self.individual_size = individual_size
         self.mutation_rate = mutation_rate
         self.selection_rate = selection_rate
-        self.epochs = epochs
-        self.actions = []
+        self.model = ModelGenetic()
+
         logger().info(
             f"Genetic Algorithm initialized with generation_size={generation_size}, "
             f"individual_size={individual_size}, mutation_rate={mutation_rate}, "
-            f"selection_rate={selection_rate}, epochs={epochs}"
+            f"selection_rate={selection_rate}"
         )
 
     @abstractmethod
-    def create_individual(self) -> list[float]:
+    def create_individual(self) -> np.ndarray:
         """
-        Create a new individual (genome).
-        Must be implemented by subclasses.
+        Create a new genome.
+
+        Returns:
+            A NumPy array representing an individual's genome.
         """
         raise NotImplementedError("Method create_individual() not implemented.")
 
     @abstractmethod
-    def crossover(self, parent_a: list[float], parent_b: list[float]) -> list[float]:
+    def crossover(self, parent_a: np.ndarray, parent_b: np.ndarray) -> np.ndarray:
         """
-        Perform crossover between two parents to produce a child.
-        Must be implemented by subclasses.
+        Produce a child from two parents.
+
+        Args:
+            parent_a: First parent genome.
+            parent_b: Second parent genome.
+
+        Returns:
+            Child genome resulting from crossover.
         """
         raise NotImplementedError("Method crossover() not implemented.")
 
     @abstractmethod
-    def mutate(self, individual) -> list[float]:
+    def mutate(self, individual: np.ndarray) -> np.ndarray:
         """
-        Mutate an individual.
-        Must be implemented by subclasses.
+        Apply mutation to a genome.
+
+        Args:
+            individual: Genome to mutate (may be modified in-place).
+
+        Returns:
+            Mutated genome.
         """
         raise NotImplementedError("Method mutate() not implemented.")
 
-    def evaluate_generation(self, population: list[list[float]]) -> list[tuple[list[float], float]]:
+    def simulation(self, actions: np.ndarray) -> float:
         """
-        Evaluate the fitness of each individual in the population.
+        Run a full episode using provided actions.
+
+        Communication phases:
+            1. Sync handshake with controller.
+            2. Send action vector once.
+            3. Wait for controller step confirmation.
+            4. Step environment; collect reward.
+            5. Detect termination and exit loop.
 
         Args:
-            population (list[list[float]]): The current generation.
+            actions: Action vector (genome) to evaluate.
 
         Returns:
-            list[tuple[list[float], float]]: List of (individual, reward) tuples.
+            Mean reward over the episode.
+        """
+        rewards = []
+        queue = self.environment.queue
+        state = None
+        sync = False
+        send_actions = False
+        step_control = False
+
+        # Main supervisor-driven loop; exits on Webots termination (-1) or episode end.
+        while self.environment.supervisor.step(self.environment.timestep) != -1:
+
+            queue.clear_buffer()
+
+            # (1) Initial synchronization handshake on the very first step.
+            if not sync:
+                if not queue.search_message("ack"):
+                    queue.send({"sync": 1})
+                    logger().debug("Sent sync message to controller.")
+                    continue
+                else:
+                    sync = True
+                    logger().debug("Synchronization with controller successful.")
+
+            # (2) Actions dispatch to controller.
+            if not send_actions:
+                queue.send({"actions": actions.tolist()})
+                send_actions = True
+
+            # (3) Blocking wait for end step controller message.
+            if not step_control:
+                step_messages = queue.search_message("step")
+                if not step_messages:
+                    continue
+                else:
+                    step_object = step_messages[0]
+                    if step_object["step"] != self.environment.step_index:
+                        raise RuntimeError(
+                            f"Controller step index {step_object['step']} does not match "
+                            f"supervisor step index {self.environment.step_index}."
+                        )
+                    else:
+                        step_control = True
+
+            # (4) Environment step: obtain new state and reward.
+            state, reward = self.environment.step()
+            rewards.append(reward)
+            logger().debug(
+                f"Step {self.environment.step_index}: Distance to finish line: {state.finish_line_distance:.4f}"
+            )
+
+            # (5) Termination check: restart controller and exit loop if episode ends.
+            if state.is_terminated:
+                break
+
+            self.environment.step_index += 1
+            step_control = False
+
+        logger().info(f"Simulation terminated at step {state.step_index}, success: {state.is_success}")
+        return sum(rewards) / len(rewards)
+
+    def evaluate_generation(self, population: list[np.ndarray]) -> list[tuple[np.ndarray, float]]:
+        """Evaluate all individuals in the population.
+
+        Args:
+            population: List of genomes.
+
+        Returns:
+            List of (genome, fitness) tuples sorted externally later.
         """
         fitness_scores = []
         for index, individual in enumerate(population):
-            self.environment.reset()
-            self.tcp_socket.send(json.dumps({"actions": individual}))
-            reward = self.environment.run()
+            reward = self.simulation(individual)
             logger().info(f"Individual {index} Reward: {reward}")
             fitness_scores.append(reward)
+            self.environment.reset()
         return list(zip(population, fitness_scores))
 
-    def run(self) -> tuple[list[float], float]:
+    def run(self, epochs: int) -> None:
         """
-        Run the genetic algorithm for the specified number of epochs.
+        Execute the genetic optimization loop.
 
-        Returns:
-            tuple[list[float], float]: The best individual and its reward.
+        Process per epoch:
+            - Evaluate current population.
+            - Sort by fitness (descending).
+            - Retain top selection_rate fraction (elitism).
+            - Fill remainder via crossover + mutation.
+            - Track best reward via tensorboard.
+
+        Args:
+            epochs: Number of generations to evolve.
         """
         population = [self.create_individual() for _ in range(self.generation_size)]
         population_eval = []
-        for epoch in range(self.epochs):
+        for epoch in range(epochs):
             population_eval = self.evaluate_generation(population)
             population_eval.sort(key=lambda x: x[1], reverse=True)
             population = [individual for individual, _ in population_eval]
-            logger().info(f"EPOCH: {epoch}: Best Reward: {population_eval[0][1]}")
+            self.tb_writer.add_scalar("Genetic/Reward", population_eval[0][1], epoch)
             next_gen = population[: int(self.generation_size * self.selection_rate) + 1]
             while len(next_gen) < self.generation_size:
                 parent_a, parent_b = random.sample(next_gen, 2)
@@ -129,17 +229,10 @@ class TrainGenetic(TrainModel):
             population = next_gen
 
         best_individual, best_reward = max(population_eval, key=lambda x: x[1])
-        logger().info(f"Best Reward: {best_individual}")
-        self.actions = best_individual
-        return best_individual, best_reward
+        self.model.actions = best_individual
 
-    def save(self):
+    def save_model(self) -> None:
         """
-        Save the best actions found by the genetic algorithm to a JSON file.
-
-        The file is saved in the model directory with the model's name as the filename.
+        Persist the best model actions to storage.
         """
-        model_path = os.path.join(self.model_dir, self.name + ".json")
-        with open(model_path, "w", encoding="utf-8") as f:
-            json.dump(self.actions, f)
-        logger().info(f"Model saved successfully at {model_path}")
+        self.model.save(self.model_name)
