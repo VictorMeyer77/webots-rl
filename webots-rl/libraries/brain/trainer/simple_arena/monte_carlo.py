@@ -27,7 +27,7 @@ import random
 
 import numpy as np
 from brain.environment import Environment
-from brain.train_model.monte_carlo import TrainerMonteCarlo
+from brain.trainer.monte_carlo import TrainerMonteCarlo
 from brain.utils.logger import logger
 
 OBSERVATION_SIZE = 8  # Number of distance sensors

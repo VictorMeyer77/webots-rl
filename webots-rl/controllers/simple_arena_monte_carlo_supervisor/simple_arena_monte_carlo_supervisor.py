@@ -28,7 +28,7 @@ import logging
 import os
 
 from brain.environment.simple_arena import EnvironmentSimpleArena
-from brain.train_model.simple_arena.monte_carlo import TrainerMonteCarloSimpleArena
+from brain.trainer.simple_arena.monte_carlo import TrainerMonteCarloSimpleArena
 from brain.utils.logger import logger
 from controller import Supervisor
 

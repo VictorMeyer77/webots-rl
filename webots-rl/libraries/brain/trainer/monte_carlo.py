@@ -14,7 +14,7 @@ from abc import abstractmethod
 import numpy as np
 from brain.environment import Environment
 from brain.model.monte_carlo import ModelMonteCarlo
-from brain.train_model import Trainer
+from brain.trainer import Trainer
 from brain.utils.logger import logger
 
 

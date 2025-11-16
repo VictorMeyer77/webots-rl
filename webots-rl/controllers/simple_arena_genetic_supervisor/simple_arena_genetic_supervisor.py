@@ -31,7 +31,7 @@ import logging
 import os
 
 from brain.environment.simple_arena import EnvironmentSimpleArena
-from brain.train_model.simple_arena.genetic import TrainerSimpleArenaGenetic
+from brain.trainer.simple_arena.genetic import TrainerSimpleArenaGenetic
 from brain.utils.logger import logger
 from controller import Supervisor
 

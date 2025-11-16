@@ -21,7 +21,7 @@ import random
 
 import numpy as np
 from brain.environment import Environment
-from brain.train_model.sarsa import TrainerSarsa
+from brain.trainer.sarsa import TrainerSarsa
 from brain.utils.logger import logger
 
 OBSERVATION_SIZE = 8  # Number of distance sensors

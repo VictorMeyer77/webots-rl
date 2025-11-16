@@ -7,7 +7,7 @@ with values in the discrete range [0, 2].
 """
 
 import numpy as np
-from brain.train_model.genetic import TrainerGenetic
+from brain.trainer.genetic import TrainerGenetic
 
 
 class TrainerSimpleArenaGenetic(TrainerGenetic):

@@ -10,7 +10,7 @@ from abc import abstractmethod
 import numpy as np
 from brain.environment import Environment
 from brain.model.genetic import ModelGenetic
-from brain.train_model import Trainer
+from brain.trainer import Trainer
 from brain.utils.logger import logger
 
 
@@ -179,7 +179,7 @@ class TrainerGenetic(Trainer):
             self.environment.step_index += 1
             step_control = False
 
-        logger().info(f"Simulation terminated at step {state.step_index}, success: {state.is_success}")
+        logger().info(f"Simulation terminated at step {state.step_index + 1}, success: {state.is_success}")
         return sum(rewards) / len(rewards)
 
     def evaluate_generation(self, population: list[np.ndarray]) -> list[tuple[np.ndarray, float]]:
