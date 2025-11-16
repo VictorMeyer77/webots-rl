@@ -1,15 +1,25 @@
 """
 Simple arena environment for Webots reinforcement learning.
 
-This module defines:
-- `StateSimpleArena`: State dataclass for the agent in the arena, including distance to the finish line.
-- `EnvironmentSimpleArena`: Environment class managing agent and finish line positions, simulation loop,
-  state computation, reward calculation, and environment reset.
+Overview:
+    A Supervisor-managed episodic task where an e-puck robot moves toward a finish line.
+    The environment supplies:
+      * `StateSimpleArena` dataclass: distance to target plus generic episode flags.
+      * `EnvironmentSimpleArena`: distance computation, reward shaping, termination, reset, and
+        a blocking `run()` loop for evaluation.
 
-The environment expects Webots Supervisor API access and is designed for discrete-step RL training.
+Entities (resolved by DEF names):
+    * Robot: `EPUCK`
+    * Finish line: `FINISH_LINE`
+
+Termination criteria:
+    Episode ends when either:
+      * Distance to finish line < 0.025 (success).
+      * Step index >= `max_step - 1` (timeout).
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 from brain.environment import Environment, EnvironmentState
 from brain.utils.logger import logger
@@ -33,16 +43,25 @@ class StateSimpleArena(EnvironmentState):
 
 class EnvironmentSimpleArena(Environment):
     """
-    Webots environment for a simple arena task.
+    Target-approach Webots environment.
 
-    Handles agent and finish line references, computes state and reward, and manages
-    the simulation loop for RL training.
+    Responsibilities:
+        * Resolve robot and finish line supervisor nodes.
+        * Compute distance and derive success / termination flags.
+        * Produce shaped reward encouraging forward progress.
+        * Provide blocking `run()` for evaluation and granular `step()` for trainers.
 
     Args:
-        supervisor (Supervisor): Webots Supervisor instance.
+        supervisor (Supervisor): Active Webots Supervisor.
         timestep (int): Simulation timestep in milliseconds.
-        max_step (int): Maximum number of steps per episode.
+        max_step (int): Episode step cap.
     """
+
+    epuck: Any
+    epuck_translation: Any
+    finish_line_translation: Any
+    last_distance: float | None
+    initial_distance: float | None
 
     def __init__(self, supervisor: Supervisor, timestep: int, max_step: int):
         """
@@ -59,6 +78,7 @@ class EnvironmentSimpleArena(Environment):
         finish_line = self.supervisor.getFromDef(FINISH_LINE_DEF)
         self.finish_line_translation = finish_line.getField("translation")
         self.last_distance = None
+        self.initial_distance = None
 
     def run(self) -> EnvironmentState:
         """
@@ -106,30 +126,50 @@ class EnvironmentSimpleArena(Environment):
 
     def step(self) -> tuple[StateSimpleArena, float]:
         """
-        Perform one environment step: compute state and reward.
+        Advance environment one logical step (no direct action applied here).
 
-        Reward is negative distance to finish line, with a bonus for success and a small step penalty.
+        Reward:
+            success -> +10.0
+            timeout (no success) -> -2.0
+            progress (>0) -> +0.5 * normalized_progress
+            step penalty -> -0.0005
+
+        Normalized progress:
+            (last_distance - current_distance) / max(initial_distance, 1e-9)
 
         Returns:
-            tuple[StateSimpleArena, float]: (New state, computed reward)
+            tuple[StateSimpleArena, float]: (state, reward)
         """
         state = self.state()
         reward = 0.0
 
         if state.is_success:
-            reward += 10.0
+            reward += 10.0  # Success bonus
+        elif state.is_terminated:
+            reward -= 2.0  # Failure penalty
+        else:
+            if state.step_index > 0:
+                progress = (self.last_distance - state.finish_line_distance) / max(self.initial_distance, 1e-9)
+                if progress > 0:
+                    reward += 0.5 * progress  # Progress reward
+            else:
+                self.initial_distance = state.finish_line_distance
 
-        if state.step_index > 0:
-            reward += (self.last_distance - state.finish_line_distance) * 0.1
+        reward -= 0.0005  # Step penalty
         self.last_distance = state.finish_line_distance
-
-        reward -= 0.001
 
         return state, reward
 
     def reset(self):
         """
-        Reset the environment and restart the agent controller.
+        Reset episode bookkeeping and restart robot controller.
+
+        Actions:
+            * Restart e-puck controller.
+            * Clear distance history.
+            * Delegate base reset (clears step index and sets initial state).
         """
         self.epuck.restartController()
+        self.last_distance = None
+        self.initial_distance = None
         super().reset()
