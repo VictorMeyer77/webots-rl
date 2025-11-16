@@ -18,24 +18,12 @@ Notes:
 import numpy as np
 from brain.controller.epuck import EpuckTurner
 from brain.utils.logger import logger
-from controller import Robot
 
 
 class EpuckTurnerMonteCarlo(EpuckTurner):
     """
     E-puck turning controller using a precomputed Monte Carlo Q-table.
     """
-
-    def __init__(self, robot: Robot, timestep: int, max_speed: float):
-        """
-        Initialize controller and load the Q-table from disk.
-
-        Args:
-            robot (Robot): Webots robot instance.
-            timestep (int): Simulation step duration in milliseconds.
-            max_speed (float): Maximum wheel speed passed to base turning controller.
-        """
-        super().__init__(robot=robot, timestep=timestep, max_speed=max_speed)
 
     def observe(self) -> dict:
         """
