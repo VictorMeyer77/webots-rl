@@ -52,6 +52,6 @@ if __name__ == "__main__":
         epuck.train()
     else:
         model = ModelMonteCarlo(observation_cardinality=3)
-        model.load("simple_arena_monte_carlo_RKaa")
+        model.load("simple_arena_monte_carlo_XG6A")
         epuck.set_model(model)
         epuck.run()

@@ -32,7 +32,7 @@ def create(world: str, controller: str, train: bool) -> str:
     return tmp_file_path
 
 
-def run(world_path: str, fast: bool, render: bool):
+def run(world_path: str, fast: bool, render: bool, port: int = None) -> None:
     """
     Runs the Webots simulation with the specified world file and options.
     Removes the temporary world file after execution.
@@ -45,7 +45,8 @@ def run(world_path: str, fast: bool, render: bool):
     webots_option = " --batch "
     webots_option += " --mode=fast " if fast else ""
     webots_option += " --no-rendering " if not render else ""
-    os.system(f"{WEBOTS_BIN_PATH} {world_path} {webots_option}")
+    webots_option += f" --port={port} " if port is not None else ""
+    os.system(f"{WEBOTS_BIN_PATH} {world_path} {webots_option}")  # todo specify port
     os.remove(world_path)
 
 
@@ -53,9 +54,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run simulation with specified world, controller, and supervisor.")
     parser.add_argument("--world", type=str, required=True, help="Path to the world file")
     parser.add_argument("--controller", type=str, required=True, help="Controller name or path")
+    parser.add_argument("--port", type=int, required=False, help="Controller name or path")
     parser.add_argument("--train", action="store_true", help="Enable training mode")
     parser.add_argument("--fast", action="store_true", help="Fast running mode")
     parser.add_argument("--render", action="store_true", help="Rendering")
     args = parser.parse_args()
     world_path = create(args.world, args.controller, args.train)
-    run(world_path, fast=args.fast, render=args.render)
+    run(world_path, fast=args.fast, render=args.render, port=args.port)
