@@ -26,8 +26,13 @@ State object (from environment.step()) is assumed to expose:
 import random
 
 import numpy as np
+from brain.environment import Environment
 from brain.train_model.monte_carlo import TrainerMonteCarlo
 from brain.utils.logger import logger
+
+OBSERVATION_SIZE = 8  # Number of distance sensors
+OBSERVATION_CARDINALITY = 3  # Number of discrete bins per sensor
+ACTION_SIZE = 3  # Number of discrete actions
 
 
 class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
@@ -43,6 +48,32 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
         simulation(): Runs a single episode, handling synchronization, observation,
                       action selection, and reward collection.
     """
+
+    def __init__(
+        self,
+        environment: Environment,
+        model_name: str,
+        gamma: float,
+        epsilon: float,
+    ):
+        """
+        Initialize the Monte Carlo trainer.
+
+        Parameters:
+            environment: Simulation environment providing reset and interaction.
+            model_name: Name used for saving the Q-table model.
+            gamma: Discount factor applied to future rewards.
+            epsilon: Initial exploration rate for the epsilon-greedy policy.
+        """
+        super().__init__(
+            environment=environment,
+            model_name=model_name,
+            action_size=ACTION_SIZE,
+            observation_size=OBSERVATION_SIZE,
+            observation_cardinality=OBSERVATION_CARDINALITY,
+            gamma=gamma,
+            epsilon=epsilon,
+        )
 
     def policy(self, observation: dict) -> int:
         """
@@ -66,7 +97,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             logger().debug(f"Taking best action {action} for state {observation} with Q-value {max_q}")
         return int(action)
 
-    def simulation(self) -> tuple[list[list[int]], list[int], list[float]]:
+    def simulation(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Run a single episode interaction loop with the environment.
 
@@ -80,9 +111,9 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             7. If terminal, restart controller and break.
 
         Returns:
-            observations: List of sensor vectors (list[int]).
-            actions: List of action indices.
-            rewards: List of scalar rewards (type as provided by environment).
+            observations: ndarray of sensor vectors.
+            actions: ndarray of action indices.
+            rewards: ndarray of scalar rewards (type as provided by environment).
         """
         observations = []
         actions = []
@@ -145,7 +176,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             state, reward = self.environment.step()
             rewards.append(reward)
             logger().debug(
-                f"Step {self.environment.step_index}: Distance to finish line: {state.finish_line_distance:.4f}"
+                f"Step {self.environment.step_index + 1}: Distance to finish line: {state.finish_line_distance:.4f}"
             )
 
             # (5) Termination check: restart controller and exit loop if episode ends.
@@ -157,5 +188,5 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             step_send_action = False
             step_control = False
 
-        logger().info(f"Simulation terminated at step {state.step_index}, success: {state.is_success}")
-        return observations, actions, rewards
+        logger().info(f"Simulation terminated at step {state.step_index + 1}, success: {state.is_success}")
+        return np.array(observations, dtype=int), np.array(actions, dtype=int), np.array(rewards, dtype=float)

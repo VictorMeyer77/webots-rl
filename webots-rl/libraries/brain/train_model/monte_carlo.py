@@ -71,24 +71,25 @@ class TrainerMonteCarlo(Trainer):
         self.model = ModelMonteCarlo(observation_cardinality=observation_cardinality)
         self.model.q_table = np.zeros((observation_cardinality**observation_size, action_size))
 
-    def update_q_table(self, observations: list[list[int]], actions: list[int], rewards: list[float]) -> float:
+    def update_q_table(self, observations: np.ndarray, actions: np.ndarray, rewards: np.ndarray) -> float:
         """
         Perform every-visit Monte Carlo update over one episode trajectory.
 
         Parameters:
-            observations: Sequence of observation vectors.
-            actions: Sequence of actions taken at each observation.
-            rewards: Sequence of scalar rewards aligned with observations/actions.
+            observations: ndarray of observation vectors.
+            actions: ndarray of actions taken at each observation.
+            rewards: ndarray of scalar rewards aligned with observations/actions.
 
         Returns:
             The return (discounted sum of rewards) from the first time step.
         """
         logger().debug(
-            f"Monte Carlo update with {len(observations)} observations, {len(actions)} actions, {len(rewards)} rewards"
+            f"Monte Carlo update with {observations.shape[0]} observations, "
+            f"{actions.shape[0]} actions, {rewards.shape[0]} rewards"
         )
         g = 0.0
         visited = set()
-        for i in reversed(range(len(actions))):
+        for i in reversed(range(actions.shape[0])):
             g = rewards[i] + self.gamma * g
             observation_index = self.model.observation_to_index(observations[i])
             q_key = (observation_index, actions[i])
@@ -114,7 +115,7 @@ class TrainerMonteCarlo(Trainer):
             epochs: Number of training iterations.
         """
         for epoch in range(epochs):
-            self.epsilon = max(0.01, self.epsilon * 0.998)
+            self.epsilon = max(0.01, self.epsilon * 0.998)  # todo set as parameters
             observations, actions, rewards = self.simulation()
             g = self.update_q_table(observations, actions, rewards)
             self.tb_writer.add_scalar("MonteCarlo/Return", g, epoch)
@@ -135,15 +136,15 @@ class TrainerMonteCarlo(Trainer):
         self.model.save(self.model_name)
 
     @abstractmethod
-    def simulation(self) -> tuple[list[list[int]], list[int], list[float]]:
+    def simulation(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Generate one full episode trajectory.
 
         Returns:
             Tuple of (observations, actions, rewards):
-                observations: list of observation vectors.
-                actions: list of action indices.
-                rewards: list of float rewards.
+                observations: ndarray of observation vectors.
+                actions: ndarray of action indices.
+                rewards: ndarray of float rewards.
         Raises:
             NotImplementedError: Must be implemented by subclasses integrating the environment.
         """

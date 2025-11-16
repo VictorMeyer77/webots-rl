@@ -70,7 +70,7 @@ class EpuckTurnerMonteCarlo(EpuckTurner):
         Returns:
             int: Action index with maximal Q-value.
         """
-        index = self.model.observation_to_index(observation["distance_sensors"])
+        index = self.model.observation_to_index(np.array(observation["distance_sensors"]))
         action_values = self.model.q_table[index]
         action = np.argmax(action_values)
         return int(action)

@@ -12,9 +12,6 @@ Environment Variable:
 Constants:
     TIME_STEP: Webots simulation step (ms).
     EPISODE_SIZE: Maximum steps per episode.
-    ACTION_SIZE: Number of discrete actions expected by the trainer.
-    OBSERVATION_SIZE: Number of distance sensor readings.
-    OBSERVATION_CARDINALITY: Discrete bins per sensor.
     EPOCHS: Training epochs for Monte Carlo (episodes).
     GAMMA: Discount factor.
     EPSILON: Initial exploration rate.
@@ -38,9 +35,6 @@ from controller import Supervisor
 MODEL_NAME = "simple_arena_monte_carlo"
 TIME_STEP = 64
 EPISODE_SIZE = 3000
-ACTION_SIZE = 3
-OBSERVATION_SIZE = 8
-OBSERVATION_CARDINALITY = 3
 EPOCHS = 1000
 GAMMA = 0.99
 EPSILON = 1.0
@@ -57,9 +51,6 @@ if __name__ == "__main__":
         trainer = TrainerMonteCarloSimpleArena(
             model_name=MODEL_NAME,
             environment=environment,
-            action_size=ACTION_SIZE,
-            observation_size=OBSERVATION_SIZE,
-            observation_cardinality=OBSERVATION_CARDINALITY,
             gamma=GAMMA,
             epsilon=EPSILON,
         )

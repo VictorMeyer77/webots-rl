@@ -71,14 +71,14 @@ class ModelMonteCarlo(Model):
         np.save(model_path, self.q_table)
         logger().info(f"Model saved successfully at {model_path}")
 
-    def observation_to_index(self, observation: list[int]) -> int:
+    def observation_to_index(self, observation: np.ndarray) -> int:
         """
         Convert a list of discrete sensor values into a single linear index.
 
         Mixed-radix accumulation where each position has radix = `observation_cardinality`.
 
         Args:
-            observation (list[int]): Discrete sensor bins.
+            observation (ndarray): Discrete sensor bins.
 
         Returns:
             int: Linear index usable to address the Q-table.
