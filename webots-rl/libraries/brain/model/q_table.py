@@ -1,15 +1,16 @@
 """
-Tabular SARSA model utilities.
+Tabular Q-table model utilities.
 
 Provides a persistable NumPy-backed Q-table plus an observation indexing
 scheme for discrete, factorized sensor readings. Each observation component
-is assumed to have identical discrete cardinality `observation_cardinality`,
+is assumed to have identical discrete cardinality ``observation_cardinality``,
 allowing mixed-radix encoding into a single linear state index.
 
 Notes:
-  * `observation_to_index` performs O(n) mixed-radix accumulation.
-  * Caller must allocate `q_table` before saving.
-  * This class is agnostic to the learning algorithm; SARSA logic resides in the trainer.
+  * ``observation_to_index`` performs O(n) mixed-radix accumulation.
+  * Caller must allocate ``q_table`` before saving.
+  * This class is agnostic to the learning algorithm; update logic
+    (Q-learning, SARSA, etc.) resides in the trainer classes.
 """
 
 import os
@@ -19,24 +20,32 @@ from brain.model import MODEL_PATH, Model
 from brain.utils.logger import logger
 
 
-class ModelSarsa(Model):
-    """
-    Persistable tabular Q-table for discrete SARSA training.
+class ModelQTable(Model):
+    """Persistable tabular Q-table for discrete RL algorithms.
+
+    This model stores a 2-D NumPy array of Q-values indexed by a linearized
+    state index and an action index. It is intended to be used with
+    tabular algorithms such as Q-learning or SARSA.
 
     Attributes:
-        observation_cardinality (int): Number of discrete bins per observation feature.
-        q_table (np.ndarray | None): Shape `(state_space, action_space)`; must be set externally before `save()`.
+        observation_cardinality (int): Number of discrete bins per
+            observation feature.
+        q_table (np.ndarray | None): Array of shape
+            ``(state_space_size, action_space_size)``; must be allocated
+            externally before :meth:`save` is called.
     """
 
     observation_cardinality: int
     q_table: np.ndarray | None
 
     def __init__(self, observation_cardinality: int):
-        """
-        Initialize an empty SARSA model (no Q-table allocated).
+        """Create a Q-table model without allocating the table itself.
 
         Args:
-            observation_cardinality (int): Uniform discrete bin count per observation component.
+            observation_cardinality (int): Uniform discrete bin count per
+                observation component. Used by :meth:`observation_to_index`
+                to encode multi-dimensional observations into a single
+                integer index.
         """
         self.observation_cardinality = observation_cardinality
         self.q_table = None

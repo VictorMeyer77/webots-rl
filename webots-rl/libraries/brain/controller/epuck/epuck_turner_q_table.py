@@ -1,12 +1,14 @@
 """
-Controller-side e-puck SARSA integration.
+Controller-side e-puck tabular Q-table integration.
 
-This module implements the robot-facing counterpart of a tabular SARSA setup:
-the supervisor (trainer) drives learning, while this controller:
-  1. Waits for a synchronization message from the supervisor (`{'sync': 1}`) and replies with `{'ack': 1}`.
-  2. Sends discretized distance sensor observations (`{'observation': {...}}`).
-  3. Receives an action (`{'action': int}`) selected by the supervisor policy.
-  4. Executes the action and reports step completion (`{'step': step_index}`).
+This module implements the robot-facing counterpart of a tabular RL setup
+using a shared Q-table: the supervisor (trainer) drives learning, while
+this controller:
+  1. Waits for a synchronization message from the supervisor (``{'sync': 1}``)
+     and replies with ``{'ack': 1}``.
+  2. Sends discretized distance sensor observations (``{'observation': {...}}``).
+  3. Receives an action (``{'action': int}``) selected by the supervisor policy.
+  4. Executes the action and reports step completion (``{'step': step_index}``).
 
 Observation discretization (per distance sensor value):
   value > 80 -> bin 0 (far)
@@ -19,19 +21,24 @@ from brain.controller.epuck import EpuckTurner
 from brain.utils.logger import logger
 
 
-class EpuckTurnerSarsa(EpuckTurner):
-    """
-    E-puck controller specialization supporting tabular SARSA-driven turning behavior.
+class EpuckTurnerQTable(EpuckTurner):
+    """E-puck controller specialization for tabular Q-table control.
+
+    This controller is algorithm-agnostic: it can be paired with SARSA,
+    Q-learning, Monte Carlo, or any tabular method that maintains a
+    shared Q-table on the supervisor side.
 
     Responsibilities:
-      * Discretize raw distance sensor readings for compatibility with a tabular Q-table.
-      * Provide a greedy `policy()` used during evaluation (supervisor handles exploration during training).
-      * Run a message-driven training loop (`train()`) coordinating with the supervisor.
+      * Discretize raw distance sensor readings for compatibility with a
+        tabular Q-table.
+      * Provide a greedy ``policy()`` used during evaluation (supervisor
+        handles exploration during training).
+      * Run a message-driven training loop (``train()``) coordinating
+        with the supervisor.
     """
 
     def observe(self) -> dict:
-        """
-        Collect raw distance sensor readings and discretize them.
+        """Collect raw distance sensor readings and discretize them.
 
         Binning:
             > 80 -> 0 (far)
@@ -39,7 +46,7 @@ class EpuckTurnerSarsa(EpuckTurner):
             else -> 2 (near)
 
         Returns:
-            dict: {'distance_sensors': list[int]} binned distances.
+            dict: ``{'distance_sensors': list[int]}`` binned distances.
         """
         observations = super().observe()
         bins = {"distance_sensors": []}
@@ -53,14 +60,13 @@ class EpuckTurnerSarsa(EpuckTurner):
         return bins
 
     def policy(self, observation: dict) -> int:
-        """
-        Select greedy action for the current binned observation.
+        """Select greedy action for the current binned observation.
 
         Args:
-            observation (dict): Output from observe().
+            observation (dict): Output from :meth:`observe`.
 
         Returns:
-            int: Action index with maximal Q-value.
+            int: Action index with maximal Q-value for the given state.
         """
         index = self.model.observation_to_index(np.array(observation["distance_sensors"]))
         action_values = self.model.q_table[index]
@@ -68,19 +74,22 @@ class EpuckTurnerSarsa(EpuckTurner):
         return int(action)
 
     def train(self) -> None:
-        """
-        Execute the controller-side training communication loop.
+        """Execute the controller-side training communication loop.
 
         Sequence per iteration:
-          1. Synchronize: wait for `{'sync': 1}` then reply `{'ack': 1}` once.
+          1. Synchronize: wait for ``{'sync': 1}`` then reply ``{'ack': 1}``
+             once.
           2. Observation: send discretized sensor data.
           3. Action reception: wait for supervisor-selected action.
-          4. Actuation: apply action via `act()` and notify completion with `{'step': step_index}`.
-          5. Repeat until simulation ends (robot.step() returns -1).
+          4. Actuation: apply action via :meth:`act` and notify completion
+             with ``{'step': step_index}``.
+          5. Repeat until simulation ends (``robot.step()`` returns ``-1``).
 
         Notes:
-          * Exploration (epsilon-greedy) is handled supervisor-side; controller always executes received actions.
-          * The controller does not update the Q-table; it only supplies observations and executes actions.
+          * Exploration (epsilon-greedy) is handled supervisor-side; the
+            controller always executes the received actions.
+          * The controller does not update the Q-table; it only supplies
+            observations and executes actions.
         """
         step_index = 0
         sync = False

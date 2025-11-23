@@ -2,10 +2,10 @@
 Controller runner for the simple arena tabular SARSA setup.
 
 Purpose:
-    Launch an e-puck controller (`EpuckTurnerSarsa`) inside Webots in either:
+    Launch an e-puck controller (`EpuckTurnerQTable`) inside Webots in either:
       1. Training mode (`TRAIN=1`): controller enters its message-driven `train()` loop
          cooperating with the supervisor (which performs learning).
-      2. Evaluation mode: loads a persisted SARSA `ModelSarsa` and runs `run()` with a greedy policy.
+      2. Evaluation mode: loads a persisted SARSA `ModelQTable` and runs `run()` with a greedy policy.
 
 Environment Variable:
     TRAIN=1 -> training mode.
@@ -23,8 +23,8 @@ sys.path.append("../../libraries")
 import logging
 import os
 
-from brain.controller.epuck.epuck_turner_sarsa import EpuckTurnerSarsa
-from brain.model.sarsa import ModelSarsa
+from brain.controller.epuck.epuck_turner_q_table import EpuckTurnerQTable
+from brain.model.q_table import ModelQTable
 from brain.utils.logger import logger
 from controller import Robot
 
@@ -39,12 +39,12 @@ if __name__ == "__main__":
 
     train = True if os.getenv("TRAIN") == "1" else False
     robot = Robot()
-    epuck = EpuckTurnerSarsa(robot, TIME_STEP, MAX_SPEED)
+    epuck = EpuckTurnerQTable(robot, TIME_STEP, MAX_SPEED)
 
     if train:
         epuck.train()
     else:
-        model = ModelSarsa(observation_cardinality=3)
+        model = ModelQTable(observation_cardinality=3)
         model.load("simple_arena_sarsa_f4KP")
         epuck.set_model(model)
         epuck.run()

@@ -9,7 +9,7 @@ Key Concepts:
   * Exploration: ε decays each epoch down to a minimum (0.01) to balance
     exploration vs exploitation.
   * Representation: Observations are mapped to integer indices in the
-    Q-table via ModelSarsa.observation_to_index() assuming each component
+    Q-table via ModelQTable.observation_to_index() assuming each component
     has identical cardinality.
 
 Usage:
@@ -27,7 +27,7 @@ from abc import abstractmethod
 
 import numpy as np
 from brain.environment import Environment
-from brain.model.sarsa import ModelSarsa
+from brain.model.q_table import ModelQTable
 from brain.trainer import Trainer
 from brain.utils.logger import logger
 
@@ -45,7 +45,7 @@ class TrainerSarsa(Trainer):
         gamma (float): Discount factor for future returns.
         epsilon (float): Current ε for ε-greedy policy (decays each epoch).
         rewards (dict[tuple[int,int], list[float]]): Optional reward traces keyed by (epoch, step).
-        model (ModelSarsa | None): Wrapper holding the Q-table and indexing utilities.
+        model (ModelQTable | None): Wrapper holding the Q-table and indexing utilities.
     """
 
     action_size: int
@@ -56,7 +56,7 @@ class TrainerSarsa(Trainer):
     epochs: int
     epsilon: float
     rewards: dict[tuple[int, int], list[float]] = {}
-    model: ModelSarsa | None
+    model: ModelQTable | None
 
     def __init__(
         self,
@@ -89,7 +89,7 @@ class TrainerSarsa(Trainer):
         self.gamma = gamma
         self.epsilon = epsilon
         self.rewards = {}
-        self.model = ModelSarsa(observation_cardinality=observation_cardinality)
+        self.model = ModelQTable(observation_cardinality=observation_cardinality)
         self.model.q_table = np.zeros((observation_cardinality**observation_size, action_size))
 
     def update_q_table(
@@ -117,7 +117,7 @@ class TrainerSarsa(Trainer):
         Args:
             observation (np.ndarray): Current state observation before taking
                 ``action``. This is mapped to a discrete index via
-                ``ModelSarsa.observation_to_index``.
+                ``ModelQTable.observation_to_index``.
             action (int): Index of the action taken in the current state.
             reward (float): Immediate scalar reward obtained after executing
                 ``action`` in ``observation``.

@@ -2,7 +2,7 @@
 Module: simple arena Monte Carlo controller runner.
 
 Purpose:
-    Launch an e-puck controller (`EpuckTurnerMonteCarlo`) inside Webots either in:
+    Launch an e-puck controller (`EpuckTurnerQTable`) inside Webots either in:
         1. Training mode (TRAIN=1) where the controller runs its internal `train()` loop.
         2. Evaluation mode where a saved Monte Carlo model is loaded and bound to the controller.
 
@@ -15,7 +15,7 @@ Constants:
     EPISODE_SIZE (int): Maximum episode steps (used by training logic if referenced).
 
 Model Loading (evaluation):
-    - Expects a file named like `simple_arena_monte_carlo_005f` resolvable by `ModelMonteCarlo.load()`.
+    - Expects a file named like `simple_arena_monte_carlo_005f` resolvable by `ModelQTable.load()`.
       Adjust the name as needed for your saved checkpoints.
 
 Logging:
@@ -29,8 +29,8 @@ sys.path.append("../../libraries")
 import logging
 import os
 
-from brain.controller.epuck.epuck_turner_monte_carlo import EpuckTurnerMonteCarlo
-from brain.model.monte_carlo import ModelMonteCarlo
+from brain.controller.epuck.epuck_turner_q_table import EpuckTurnerQTable
+from brain.model.q_table import ModelQTable
 from brain.utils.logger import logger
 from controller import Robot
 
@@ -45,12 +45,12 @@ if __name__ == "__main__":
 
     train = True if os.getenv("TRAIN") == "1" else False
     robot = Robot()
-    epuck = EpuckTurnerMonteCarlo(robot, TIME_STEP, MAX_SPEED)
+    epuck = EpuckTurnerQTable(robot, TIME_STEP, MAX_SPEED)
 
     if train:
         epuck.train()
     else:
-        model = ModelMonteCarlo(observation_cardinality=3)
+        model = ModelQTable(observation_cardinality=3)
         model.load("simple_arena_monte_carlo_XG6A")
         epuck.set_model(model)
         epuck.run()
