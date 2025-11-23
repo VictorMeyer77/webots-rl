@@ -49,8 +49,6 @@ class TrainerQLearning(Trainer):
         gamma (float): Discount factor for future returns.
         epsilon (float): Current ε for ε-greedy policy (decays each
             epoch).
-        rewards (dict[tuple[int, int], list[float]]): Optional reward
-            traces keyed by (epoch, step).
         model (ModelQTable | None): Wrapper holding the Q-table and
             indexing utilities.
     """
@@ -62,7 +60,6 @@ class TrainerQLearning(Trainer):
     gamma: float
     epochs: int
     epsilon: float
-    rewards: dict[tuple[int, int], list[float]] = {}
     model: ModelQTable | None
 
     def __init__(
@@ -95,7 +92,6 @@ class TrainerQLearning(Trainer):
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
-        self.rewards = {}
         self.model = ModelQTable(observation_cardinality=observation_cardinality)
         self.model.q_table = np.zeros((observation_cardinality**observation_size, action_size))
 
