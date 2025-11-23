@@ -17,7 +17,7 @@ Termination criteria:
       * Distance to finish line < 0.025 (success).
       * Step index >= `max_step - 1` (timeout).
 """
-
+import random
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +27,7 @@ from controller import Supervisor
 
 EPUCK_DEF = "EPUCK"
 FINISH_LINE_DEF = "FINISH_LINE"
+FINISH_DISTANCE_THRESHOLD = 0.025
 
 
 @dataclass
@@ -120,8 +121,8 @@ class EnvironmentSimpleArena(Environment):
         state = StateSimpleArena()
         state.finish_line_distance = self.finish_distance()
         state.step_index = self.step_index
-        state.is_terminated = state.finish_line_distance < 0.025 or self.step_index >= self.max_step - 1
-        state.is_success = state.finish_line_distance < 0.025
+        state.is_terminated = state.finish_line_distance < FINISH_DISTANCE_THRESHOLD or self.step_index >= self.max_step - 1
+        state.is_success = state.finish_line_distance < FINISH_DISTANCE_THRESHOLD
         return state
 
     def step(self) -> tuple[StateSimpleArena, float]:
@@ -160,7 +161,7 @@ class EnvironmentSimpleArena(Environment):
 
         return state, reward
 
-    def reset(self):
+    def reset(self) -> None:
         """
         Reset episode bookkeeping and restart robot controller.
 
@@ -173,3 +174,18 @@ class EnvironmentSimpleArena(Environment):
         self.last_distance = None
         self.initial_distance = None
         super().reset()
+
+    def randomize(self) -> None:
+        """Randomize the e-puck start position within the arena.
+
+        The robot translation is uniformly sampled in the square
+        ``x, y in [-0.45, 0.45]`` with a fixed ``z = 0.0``. If the
+        sampled position is closer to the finish line than the
+        ``FINISH_DISTANCE_THRESHOLD``, a new position is resampled
+        recursively. This is intended to be called before a new
+        training episode to add variety to starting conditions.
+        """
+        new_position = [random.uniform(-0.45, 0.45), random.uniform(-0.45, 0.45), 0.0]
+        self.epuck_translation.setSFVec3f(new_position)
+        if self.finish_distance() < FINISH_DISTANCE_THRESHOLD:
+            self.randomize()

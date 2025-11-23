@@ -140,7 +140,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
 
             queue.clear_buffer()
 
-            # (1) Initial synchronization handshake on the very first step.
+            # (1) Initial synchronization handshake on the very first step. Randomize epuck position.
             if not sync:
                 if not queue.search_message("ack"):
                     queue.send({"sync": 1})
@@ -148,6 +148,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
                     continue
                 else:
                     sync = True
+                    self.environment.randomize()
                     logger().debug("Synchronization with controller successful.")
 
             # (2) Blocking wait for an observation message.
@@ -160,7 +161,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
                     logger().debug(f"Received observation {step_observation}")
 
             # (3) Action selection (epsilon-greedy) and dispatch to controller.
-            if not step_action:
+            if step_action is None:
                 step_action = self.policy(step_observation)
                 queue.send({"action": step_action})
 

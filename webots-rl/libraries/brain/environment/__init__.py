@@ -117,7 +117,7 @@ class Environment(ABC):
         """
         raise NotImplementedError("Method state() not implemented.")
 
-    def reset(self):
+    def reset(self) -> None:
         """
         Reset simulation and internal counters to episode start.
         """
@@ -125,7 +125,7 @@ class Environment(ABC):
         self.step_index = 0
         logger().info("Environment reset.")
 
-    def quit(self):
+    def quit(self) -> None:
         """
         Terminate the simulation process.
         """
@@ -145,3 +145,18 @@ class Environment(ABC):
             EnvironmentState: Terminal state at episode completion.
         """
         raise NotImplementedError("Method run() not implemented.")
+
+    @abstractmethod
+    def randomize(self) -> None:
+        """Apply environment-specific randomization before or between episodes.
+
+        Typical uses include:
+          * Randomizing the agent's start pose (position/orientation).
+          * Randomizing target or obstacle positions.
+          * Sampling domain parameters (e.g. noise levels, textures).
+
+        This method is intended to be called by trainers before ``reset()``
+        or at the beginning of an episode to increase diversity and
+        robustness of learned policies.
+        """
+        raise NotImplementedError("Method randomize() not implemented.")
