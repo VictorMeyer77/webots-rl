@@ -2,33 +2,38 @@
 Monte Carlo trainer implementing an every-visit epsilon-greedy control algorithm.
 
 Core concepts:
-- States are encoded as mixed-radix indices based on discrete sensor values.
-- Q-table shape: (observation_cardinality ** observation_size, action_size).
-- Every-visit returns: for each (state, action) pair in an episode, the full discounted return
-  is appended and the Q-value is updated as the mean of all stored returns.
+- States are encoded as mixed-radix indices based on discrete, binned sensor values.
+- Q-table shape: ``(observation_cardinality ** observation_size, action_size)``.
+- Every-visit returns: for each (state, action) pair in an episode, the full discounted
+  return is appended and the Q-value is updated as the mean of all stored returns.
 - Epsilon decays multiplicatively per epoch until a floor value (0.01).
+
+This trainer is built on top of :class:`ModelQTable`, which provides a generic
+NumPy-backed Q-table and observation-to-index mapping usable by multiple
+algorithms (Monte Carlo, SARSA, Q-learning, etc.).
 """
 
 from abc import abstractmethod
 
 import numpy as np
 from brain.environment import Environment
-from brain.model.monte_carlo import ModelMonteCarlo
+from brain.model.q_table import ModelQTable
 from brain.trainer import Trainer
 from brain.utils.logger import logger
 
 
 class TrainerMonteCarlo(Trainer):
-    """
-    Monte Carlo control trainer with an epsilon-greedy policy over a tabular Q-function.
+    """Monte Carlo control trainer with an epsilon-greedy tabular policy.
 
     Attributes:
-        action_size: Number of discrete actions.
-        observation_size: Number of sensor readings composing a state.
-        observation_cardinality: Number of discrete values each sensor can take.
-        gamma: Discount factor (0 <= gamma <= 1).
-        epsilon: Exploration rate for epsilon-greedy policy.
-        rewards: Mapping from (state_index, action) to list of sampled returns.
+        action_size (int): Number of discrete actions.
+        observation_size (int): Number of sensor readings composing a state.
+        observation_cardinality (int): Number of discrete values each sensor can take.
+        gamma (float): Discount factor (0 <= gamma <= 1).
+        epsilon (float): Exploration rate for epsilon-greedy policy.
+        rewards (dict[tuple[int, int], list[float]]): Mapping from
+            ``(state_index, action)`` to a list of sampled returns ``G_t``.
+        model (ModelQTable | None): Backing Q-table model shared with the controller.
     """
 
     action_size: int
@@ -38,7 +43,7 @@ class TrainerMonteCarlo(Trainer):
     epochs: int
     epsilon: float
     rewards: dict[tuple[int, int], list[float]] = {}
-    model: ModelMonteCarlo | None
+    model: ModelQTable | None
 
     def __init__(
         self,
@@ -68,20 +73,31 @@ class TrainerMonteCarlo(Trainer):
         self.gamma = gamma
         self.epsilon = epsilon
         self.rewards = {}
-        self.model = ModelMonteCarlo(observation_cardinality=observation_cardinality)
+        self.model = ModelQTable(observation_cardinality=observation_cardinality)
         self.model.q_table = np.zeros((observation_cardinality**observation_size, action_size))
 
     def update_q_table(self, observations: np.ndarray, actions: np.ndarray, rewards: np.ndarray) -> float:
-        """
-        Perform every-visit Monte Carlo update over one episode trajectory.
+        """Perform every-visit Monte Carlo update over one episode.
 
-        Parameters:
-            observations: ndarray of observation vectors.
-            actions: ndarray of actions taken at each observation.
-            rewards: ndarray of scalar rewards aligned with observations/actions.
+        The episode is provided as three aligned arrays of equal length:
+        ``observations[t]``, ``actions[t]``, and ``rewards[t]`` correspond to
+        the state, action, and reward at time step ``t``. For each distinct
+        ``(state_index, action)`` pair that appears in the episode, the method
+        computes the full discounted return ``G_t`` from that time step onward
+        and updates the corresponding Q-value as the mean of all sampled
+        returns for that pair.
+
+        Args:
+            observations (np.ndarray): Array of observation vectors for each
+                time step in the episode.
+            actions (np.ndarray): Array of integer action indices, one per
+                time step.
+            rewards (np.ndarray): Array of scalar rewards aligned with
+                ``observations`` and ``actions``.
 
         Returns:
-            The return (discounted sum of rewards) from the first time step.
+            float: The return (discounted sum of rewards) from the first
+            time step of the episode (``G_0``).
         """
         logger().debug(
             f"Monte Carlo update with {observations.shape[0]} observations, "
@@ -102,17 +118,16 @@ class TrainerMonteCarlo(Trainer):
         return g
 
     def run(self, epochs: int) -> None:
-        """
-        Execute multiple training epochs.
+        """Execute multiple Monte Carlo training epochs.
 
-        Per epoch:
-            1. Decay epsilon.
-            2. Generate an episode via simulation().
-            3. Update Q-table with Monte Carlo returns.
-            4. Log metrics and reset environment.
+        For each epoch:
+          1. Decay ``epsilon`` (down to a minimum of 0.01).
+          2. Generate one episode via :meth:`simulation`.
+          3. Update the Q-table using :meth:`update_q_table`.
+          4. Log the episode return and reset the environment.
 
-        Parameters:
-            epochs: Number of training iterations.
+        Args:
+            epochs (int): Number of Monte Carlo training iterations (episodes).
         """
         for epoch in range(epochs):
             self.epsilon = max(0.01, self.epsilon * 0.998)  # todo set as parameters
@@ -127,25 +142,25 @@ class TrainerMonteCarlo(Trainer):
         self.close_tb()
 
     def save_model(self) -> None:
-        """
-        Persist the Q-table to disk using NumPy binary format (.npy).
+        """Persist the Q-table to disk using NumPy binary format (.npy).
 
         Side Effects:
-            Writes file to self.model_path and logs success.
+            Writes a ``<model_name>.npy`` file under ``MODEL_PATH`` and logs success.
         """
         self.model.save(self.model_name)
 
     @abstractmethod
     def simulation(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        Generate one full episode trajectory.
+        """Generate one full episode trajectory.
 
         Returns:
-            Tuple of (observations, actions, rewards):
-                observations: ndarray of observation vectors.
-                actions: ndarray of action indices.
-                rewards: ndarray of float rewards.
+            tuple[np.ndarray, np.ndarray, np.ndarray]:
+                * observations: ndarray of observation vectors (one per step).
+                * actions: ndarray of action indices.
+                * rewards: ndarray of float rewards.
+
         Raises:
-            NotImplementedError: Must be implemented by subclasses integrating the environment.
+            NotImplementedError: Must be implemented by subclasses integrating
+                a concrete environment and messaging protocol.
         """
         raise NotImplementedError("Method simulation() not implemented in TrainerMonteCarlo.")
