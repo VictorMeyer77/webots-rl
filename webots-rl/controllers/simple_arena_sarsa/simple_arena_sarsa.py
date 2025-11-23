@@ -14,7 +14,6 @@ Environment Variable:
 Constants:
     TIME_STEP (int): Supervisor/controller simulation timestep in milliseconds.
     MAX_SPEED (float): Maximum wheel motor angular velocity (rad/s).
-    EPISODE_SIZE (int): Maximum steps per episode (utilized by training workflows elsewhere).
 """
 
 import sys
@@ -31,7 +30,6 @@ from controller import Robot
 
 TIME_STEP = 64
 MAX_SPEED = 6.28
-EPISODE_SIZE = 3000
 
 
 if __name__ == "__main__":
@@ -47,6 +45,6 @@ if __name__ == "__main__":
         epuck.train()
     else:
         model = ModelSarsa(observation_cardinality=3)
-        model.load("simple_arena_sarsa_EKe8")
+        model.load("simple_arena_sarsa_f4KP")
         epuck.set_model(model)
         epuck.run()

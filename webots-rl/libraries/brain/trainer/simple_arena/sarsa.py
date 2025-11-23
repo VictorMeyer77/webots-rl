@@ -119,6 +119,7 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
         """
         queue = self.environment.queue
         total_reward = 0.0
+        previous_reward = 0.0
         state = None
         sync = False
         step_observation = None
@@ -175,22 +176,27 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
             state, reward = self.environment.step()
             total_reward += reward
 
-            if previous_step_observation is not None and previous_step_action is not None:
+            if previous_step_observation is not None:
                 self.update_q_table(
-                    np.array(step_observation["distance_sensors"]),
-                    step_action,
-                    reward,
                     np.array(previous_step_observation["distance_sensors"]),
                     previous_step_action,
+                    previous_reward,
+                    np.array(step_observation["distance_sensors"]),
+                    step_action,
                 )
 
-            # (6) Termination check: restart controller and exit loop if episode ends.
+            # (6) Termination check: update q_table and exit loop if episode ends.
             if state.is_terminated:
+                self.update_q_table(
+                    np.array(step_observation["distance_sensors"]), step_action, reward, None, None, terminated=True
+                )
                 break
 
+            # (7) Set variables for next iteration.
             self.environment.step_index += 1
             previous_step_observation = step_observation
             previous_step_action = step_action
+            previous_reward = reward
             step_observation = None
             step_action = None
             step_control = False

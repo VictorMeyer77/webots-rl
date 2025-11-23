@@ -93,25 +93,57 @@ class TrainerSarsa(Trainer):
         self.model.q_table = np.zeros((observation_cardinality**observation_size, action_size))
 
     def update_q_table(
-        self, observation: np.ndarray, action: int, reward: float, next_observation: np.ndarray, next_action: int
+        self,
+        observation: np.ndarray,
+        action: int,
+        reward: float,
+        next_observation: np.ndarray,
+        next_action: int,
+        terminated: bool = False,
     ) -> None:
-        """
-        Apply one SARSA TD update to the Q-table.
+        """Apply a single SARSA TD update to the Q-table.
+
+        This method updates the Q-value associated with a given state–action
+        pair ``(observation, action)`` using the SARSA rule:
+
+            Q(s, a) ← Q(s, a) + α [ r + γ Q(s', a') − Q(s, a) ]
+
+        where ``(s, a)`` is the current state–action pair, ``r`` is the
+        immediate reward, and ``(s', a')`` is the next state–action pair
+        chosen according to the current ε-greedy policy. When the transition
+        leads to a terminal state, the future value term ``γ Q(s', a')`` is
+        omitted and the target reduces to ``r``.
 
         Args:
-            observation (np.ndarray): Current state observation vector.
-            action (int): Action taken at current state.
-            reward (float): Immediate reward received.
-            next_observation (np.ndarray): Observation after transition.
-            next_action (int): Next action chosen by current policy (ε-greedy).
+            observation (np.ndarray): Current state observation before taking
+                ``action``. This is mapped to a discrete index via
+                ``ModelSarsa.observation_to_index``.
+            action (int): Index of the action taken in the current state.
+            reward (float): Immediate scalar reward obtained after executing
+                ``action`` in ``observation``.
+            next_observation (np.ndarray): Observation of the next state
+                after the transition. Only used when ``terminated`` is
+                ``False``.
+            next_action (int): Index of the next action selected in
+                ``next_observation`` by the current ε-greedy policy. Only
+                used when ``terminated`` is ``False``.
+            terminated (bool, optional): Flag indicating whether the
+                transition ended the episode. If ``True``, no bootstrap term
+                is added and the TD target is equal to ``reward``.
+
+        Returns:
+            None: The Q-table stored in ``self.model.q_table`` is updated
+            in-place.
         """
+
         obs_index = self.model.observation_to_index(observation)
-        next_obs_index = self.model.observation_to_index(next_observation)
-        self.model.q_table[obs_index][action] += self.alpha * (
-            reward
-            + self.gamma * self.model.q_table[next_obs_index][next_action]
-            - self.model.q_table[obs_index][action]
-        )
+        if terminated:
+            td_target = reward
+        else:
+            next_obs_index = self.model.observation_to_index(next_observation)
+            td_target = reward + self.gamma * self.model.q_table[next_obs_index][next_action]
+        td_error = td_target - self.model.q_table[obs_index][action]
+        self.model.q_table[obs_index][action] += self.alpha * td_error
 
     def run(self, epochs: int) -> None:
         """
