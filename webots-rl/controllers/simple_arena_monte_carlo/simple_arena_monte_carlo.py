@@ -36,7 +36,6 @@ from controller import Robot
 
 TIME_STEP = 64
 MAX_SPEED = 6.28
-EPISODE_SIZE = 3000
 
 
 if __name__ == "__main__":
