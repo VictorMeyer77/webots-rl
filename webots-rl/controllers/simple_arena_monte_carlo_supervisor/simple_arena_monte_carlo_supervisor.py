@@ -35,7 +35,7 @@ from controller import Supervisor
 MODEL_NAME = "simple_arena_monte_carlo"
 TIME_STEP = 64
 EPISODE_SIZE = 3000
-EPOCHS = 1000
+EPOCHS = 2000
 GAMMA = 0.99
 EPSILON = 1.0
 

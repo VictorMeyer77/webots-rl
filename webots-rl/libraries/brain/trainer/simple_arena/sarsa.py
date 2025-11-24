@@ -133,7 +133,7 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
 
             queue.clear_buffer()
 
-            # (1) Initial synchronization handshake on the very first step. Randomize epuck position.
+            # (1) Initial synchronization handshake on the very first step.
             if not sync:
                 if not queue.search_message("ack"):
                     queue.send({"sync": 1})
@@ -141,7 +141,6 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
                     continue
                 else:
                     sync = True
-                    self.environment.randomize()
                     logger().debug("Synchronization with controller successful.")
 
             # (2) Blocking wait for an observation message.

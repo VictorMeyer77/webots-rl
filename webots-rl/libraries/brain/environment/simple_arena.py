@@ -17,6 +17,7 @@ Termination criteria:
       * Distance to finish line < 0.025 (success).
       * Step index >= `max_step - 1` (timeout).
 """
+
 import random
 from dataclasses import dataclass
 from typing import Any
@@ -121,7 +122,9 @@ class EnvironmentSimpleArena(Environment):
         state = StateSimpleArena()
         state.finish_line_distance = self.finish_distance()
         state.step_index = self.step_index
-        state.is_terminated = state.finish_line_distance < FINISH_DISTANCE_THRESHOLD or self.step_index >= self.max_step - 1
+        state.is_terminated = (
+            state.finish_line_distance < FINISH_DISTANCE_THRESHOLD or self.step_index >= self.max_step - 1
+        )
         state.is_success = state.finish_line_distance < FINISH_DISTANCE_THRESHOLD
         return state
 
