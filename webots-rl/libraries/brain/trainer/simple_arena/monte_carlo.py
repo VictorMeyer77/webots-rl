@@ -42,11 +42,6 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
     This trainer interacts with a Webots environment using JSON messages to
     synchronize, receive observations, select actions via an epsilon-greedy policy,
     and manage episode progression.
-
-    Methods:
-        policy(observation): Selects an action using epsilon-greedy strategy.
-        simulation(): Runs a single episode, handling synchronization, observation,
-                      action selection, and reward collection.
     """
 
     def __init__(
@@ -55,6 +50,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
         model_name: str,
         gamma: float,
         epsilon: float,
+        epsilon_decay: float,
     ):
         """
         Initialize the Monte Carlo trainer.
@@ -64,6 +60,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             model_name: Name used for saving the Q-table model.
             gamma: Discount factor applied to future rewards.
             epsilon: Initial exploration rate for the epsilon-greedy policy.
+            epsilon_decay: Multiplicative decay factor for epsilon per epoch.
         """
         super().__init__(
             environment=environment,
@@ -73,6 +70,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             observation_cardinality=OBSERVATION_CARDINALITY,
             gamma=gamma,
             epsilon=epsilon,
+            epsilon_decay=epsilon_decay,
         )
 
     def policy(self, observation: dict) -> int:
@@ -122,7 +120,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
         state = None
         sync = False
         step_observation = None
-        step_send_action = False
+        step_action = None
         step_control = False
 
         # Main supervisor-driven loop; exits on Webots termination (-1) or episode end.
@@ -130,7 +128,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
 
             queue.clear_buffer()
 
-            # (1) Initial synchronization handshake on the very first step. Randomize epuck position.
+            # (1) Initial synchronization handshake on the very first step.
             if not sync:
                 if not queue.search_message("ack"):
                     queue.send({"sync": 1})
@@ -138,7 +136,6 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
                     continue
                 else:
                     sync = True
-                    self.environment.randomize()
                     logger().debug("Synchronization with controller successful.")
 
             # (2) Blocking wait for an observation message.
@@ -151,12 +148,12 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
                     observations.append(step_observation["distance_sensors"])
                     logger().debug(f"Received observation {step_observation}")
 
-            # (3) Action selection (epsilon-greedy) and dispatch to controller.
-            if not step_send_action:
-                action = self.policy(step_observation)
-                queue.send({"action": action})
-                actions.append(action)
-                step_send_action = True
+            # (3) Action selection (epsilon-greedy), dispatch to controller and set in environment to reward compute.
+            if step_action is None:
+                step_action = self.policy(step_observation)
+                queue.send({"action": step_action})
+                actions.append(step_action)
+                self.environment.last_action = step_action
 
             # (2) Blocking wait for end step controller message.
             if not step_control:
@@ -186,7 +183,7 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
 
             self.environment.step_index += 1
             step_observation = None
-            step_send_action = False
+            step_action = None
             step_control = False
 
         logger().info(f"Simulation terminated at step {state.step_index + 1}, success: {state.is_success}")

@@ -31,6 +31,7 @@ class TrainerMonteCarlo(Trainer):
         observation_cardinality (int): Number of discrete values each sensor can take.
         gamma (float): Discount factor (0 <= gamma <= 1).
         epsilon (float): Exploration rate for epsilon-greedy policy.
+        epsilon_decay (float): Multiplicative decay factor for epsilon per epoch.
         rewards (dict[tuple[int, int], list[float]]): Mapping from
             ``(state_index, action)`` to a list of sampled returns ``G_t``.
         model (ModelQTable | None): Backing Q-table model shared with the controller.
@@ -42,6 +43,7 @@ class TrainerMonteCarlo(Trainer):
     gamma: float
     epochs: int
     epsilon: float
+    epsilon_decay: float
     rewards: dict[tuple[int, int], list[float]] = {}
     model: ModelQTable | None
 
@@ -54,6 +56,7 @@ class TrainerMonteCarlo(Trainer):
         observation_cardinality: int,
         gamma: float,
         epsilon: float,
+        epsilon_decay: float,
     ):
         """
         Initialize the Monte Carlo trainer.
@@ -66,12 +69,14 @@ class TrainerMonteCarlo(Trainer):
             observation_cardinality: Number of discrete values per observation component.
             gamma: Discount factor applied to future rewards.
             epsilon: Initial exploration rate for the epsilon-greedy policy.
+            epsilon_decay: Multiplicative decay factor for epsilon per epoch.
         """
         super().__init__(environment=environment, model_name=model_name)
         self.action_size = action_size
         self.observation_size = observation_size
         self.gamma = gamma
         self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
         self.rewards = {}
         self.model = ModelQTable(observation_cardinality=observation_cardinality)
         self.model.q_table = np.zeros((observation_cardinality**observation_size, action_size))
@@ -130,14 +135,17 @@ class TrainerMonteCarlo(Trainer):
             epochs (int): Number of Monte Carlo training iterations (episodes).
         """
         for epoch in range(epochs):
-            self.epsilon = max(0.01, self.epsilon * 0.998)  # todo set as parameters
+            self.epsilon = max(0.01, self.epsilon * self.epsilon_decay)
             observations, actions, rewards = self.simulation()
             g = self.update_q_table(observations, actions, rewards)
+            reward = sum(rewards)
             self.tb_writer.add_scalar("MonteCarlo/Return", g, epoch)
+            self.tb_writer.add_scalar("MonteCarlo/Reward", reward, epoch)
+            self.tb_writer.add_scalar("MonteCarlo/Epsilon", self.epsilon, epoch)
             self.environment.reset()
             logger().info(
                 f"Epoch {epoch + 1}/{epochs} completed with return {g:.4f}, "
-                f"epsilon {self.epsilon:.4f} and reward {sum(rewards)}"
+                f"epsilon {self.epsilon:.4f} and reward {reward}"
             )
         self.close_tb()
 
