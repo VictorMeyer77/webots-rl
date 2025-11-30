@@ -39,11 +39,13 @@ if __name__ == "__main__":
 
     robot = Robot()
     epuck = EpuckTurnerGenetic(robot, TIME_STEP, MAX_SPEED)
+    epuck.init_distance_sensors()
 
     if train:
+        epuck.init_emitter_receiver()
         epuck.train()
     else:
         model = ModelGenetic()
-        model.load("simple_arena_genetic_UFv0")
+        model.load("simple_arena_genetic_FD2v")
         epuck.set_model(model)
         epuck.run()

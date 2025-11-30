@@ -180,7 +180,7 @@ class TrainerGenetic(Trainer):
             step_control = False
 
         logger().info(f"Simulation terminated at step {state.step_index + 1}, success: {state.is_success}")
-        return sum(rewards) / len(rewards)
+        return sum(rewards)
 
     def evaluate_generation(self, population: list[np.ndarray]) -> list[tuple[np.ndarray, float]]:
         """Evaluate all individuals in the population.
