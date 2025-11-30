@@ -30,6 +30,7 @@ class BaseController(ABC):
         robot (Robot): Controlled robot instance.
         timestep (int): Simulation step duration in milliseconds.
         queue (Queue | None): Message queue for supervisor/robot communication.
+        model (Model): Associated model for decision-making.
     """
 
     robot: Robot
@@ -47,8 +48,11 @@ class BaseController(ABC):
         """
         self.robot = robot
         self.timestep = timestep
-        self.queue = Queue(timestep, robot.getDevice("emitter"), robot.getDevice("receiver"))
+        self.queue = None
         self.model = None
+
+    def init_emitter_receiver(self):
+        self.queue = Queue(self.timestep, self.robot.getDevice("emitter"), self.robot.getDevice("receiver"))
 
     @abstractmethod
     def observe(self) -> dict:
