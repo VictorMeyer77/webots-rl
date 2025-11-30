@@ -81,6 +81,7 @@ class EnvironmentSimpleArena(Environment):
         self.finish_line_translation = finish_line.getField("translation")
         self.last_distance = None
         self.initial_distance = None
+        self.last_action = None
 
     def run(self) -> EnvironmentState:
         """
@@ -154,14 +155,19 @@ class EnvironmentSimpleArena(Environment):
         else:
             if state.step_index > 0:
                 progress = (self.last_distance - state.finish_line_distance) / max(self.initial_distance, 1e-9)
-                if progress > 0:
-                    reward += 0.5 * progress  # Progress reward
+                reward += 0.5 * progress  # Progress reward
+                if abs(self.last_distance - state.finish_line_distance) < 0.001:
+                    reward -= 0.01  # Stagnation penalty
+                if self.last_action == 0:
+                    reward += 0.01  # forward action bonus
+                elif self.last_action == 3:
+                    reward -= 0.01  # backward action penalty
             else:
                 self.initial_distance = state.finish_line_distance
 
-        reward -= 0.0005  # Step penalty
+        reward -= 0.001 * state.finish_line_distance  # Time penalty
+        reward /= 10.0  # Normalize reward scale
         self.last_distance = state.finish_line_distance
-
         return state, reward
 
     def reset(self) -> None:

@@ -90,7 +90,9 @@ class Environment(ABC):
         self.timestep = timestep
         self.step_index = 0
         self.max_step = max_step
-        self.queue = Queue(timestep, supervisor.getDevice("emitter"), supervisor.getDevice("receiver"))
+        self.queue = Queue(
+            timestep, supervisor.getDevice("emitter"), supervisor.getDevice("receiver")
+        )  # todo init only if needed
         logger().debug(f"Environment initialized, max steps: {self.max_step}")
 
     @abstractmethod
