@@ -37,16 +37,7 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
       * Implements ε-greedy policy over tabular Q-values.
       * Manages message handshake and step synchronization.
       * Executes a full episode and applies on-policy TD updates.
-
-    Attributes:
-      alpha (float): Learning rate for SARSA updates (inherited).
-      gamma (float): Discount factor (inherited).
-      epsilon (float): Current exploration rate (inherited).
     """
-
-    alpha: float
-    gamma: float
-    epsilon: float
 
     def __init__(
         self,
@@ -55,6 +46,7 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
         alpha: float,
         gamma: float,
         epsilon: float,
+        epsilon_decay: float,
     ):
         """
         Initialize SARSA trainer and allocate Q-table.
@@ -65,6 +57,7 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
           alpha (float): Learning rate for temporal difference updates.
           gamma (float): Discount factor applied to future value estimates.
           epsilon (float): Initial ε for ε-greedy exploration policy.
+          epsilon_decay (float): Multiplicative decay factor for ε per epoch.
         """
         super().__init__(
             environment=environment,
@@ -75,6 +68,7 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
             alpha=alpha,
             gamma=gamma,
             epsilon=epsilon,
+            epsilon_decay=epsilon_decay,
         )
 
     def policy(self, observation: dict) -> int:
@@ -152,10 +146,11 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
                     step_observation = observation_messages[0]["observation"]
                     logger().debug(f"Received observation {step_observation}")
 
-            # (3) Action selection (epsilon-greedy) and dispatch to controller.
+            # (3) Action selection (epsilon-greedy), dispatch to controller and set in environment to reward compute.
             if step_action is None:
                 step_action = self.policy(step_observation)
                 queue.send({"action": step_action})
+                self.environment.last_action = step_action
 
             # (4) Blocking wait for end step controller message.
             if not step_control:
