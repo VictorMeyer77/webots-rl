@@ -38,16 +38,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
       * Implements an ε-greedy policy over tabular Q-values.
       * Manages message handshake and step synchronization.
       * Executes a full episode and applies off-policy Q-learning updates.
-
-    Attributes:
-      alpha (float): Learning rate for Q-learning updates (inherited).
-      gamma (float): Discount factor (inherited).
-      epsilon (float): Current exploration rate (inherited).
     """
-
-    alpha: float
-    gamma: float
-    epsilon: float
 
     def __init__(
         self,
@@ -56,6 +47,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
         alpha: float,
         gamma: float,
         epsilon: float,
+        epsilon_decay: float,
     ):
         """
         Initialize SARSA trainer and allocate Q-table.
@@ -66,6 +58,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
           alpha (float): Learning rate for temporal difference updates.
           gamma (float): Discount factor applied to future value estimates.
           epsilon (float): Initial ε for ε-greedy exploration policy.
+          epsilon_decay (float): Multiplicative decay factor for ε per episode.
         """
         super().__init__(
             environment=environment,
@@ -76,6 +69,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
             alpha=alpha,
             gamma=gamma,
             epsilon=epsilon,
+            epsilon_decay=epsilon_decay,
         )
 
     def policy(self, observation: dict) -> int:
@@ -163,6 +157,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
             if step_action is None:
                 step_action = self.policy(step_observation)
                 queue.send({"action": step_action})
+                self.environment.last_action = step_action
 
             # (4) Blocking wait for end step controller message.
             if not step_control:
