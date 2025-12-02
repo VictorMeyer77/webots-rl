@@ -19,6 +19,7 @@ Constants:
     ALPHA: Double Q-learning learning rate.
     GAMMA: Discount factor for future rewards.
     EPSILON: Initial exploration rate (decayed inside the trainer).
+    EPSILON_DECAY: Multiplicative decay factor for epsilon per episode.
 """
 
 import sys
@@ -40,6 +41,7 @@ EPOCHS = 2500
 ALPHA = 0.1
 GAMMA = 0.99
 EPSILON = 1.0
+EPSILON_DECAY = 0.999
 
 if __name__ == "__main__":
     logger.add_console_logger(logging.INFO)
@@ -56,6 +58,7 @@ if __name__ == "__main__":
             alpha=ALPHA,
             gamma=GAMMA,
             epsilon=EPSILON,
+            epsilon_decay=EPSILON_DECAY,
         )
         trainer.run(EPOCHS)
         trainer.save_model()

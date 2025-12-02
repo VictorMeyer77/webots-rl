@@ -47,12 +47,11 @@ class TrainerDoubleQLearning(Trainer):
     Attributes:
         action_size (int): Number of discrete actions.
         observation_size (int): Length of the observation vector.
-        observation_cardinality (int): Number of discrete values per
-            observation component.
+        observation_cardinality (int): Number of discrete values per observation component.
         alpha (float): Learning rate (step size) for TD updates.
         gamma (float): Discount factor for future returns.
-        epsilon (float): Current ε for ε-greedy policy (decays each
-            epoch).
+        epsilon (float): Current ε for ε-greedy policy (decays each epoch).
+        epsilon_decay (float): Multiplicative decay factor for ε per episode.
         model_a (ModelQTable | None): Q-table model for Q_A.
         model_b (ModelQTable | None): Q-table model for Q_B.
     """
@@ -64,6 +63,7 @@ class TrainerDoubleQLearning(Trainer):
     gamma: float
     epochs: int
     epsilon: float
+    epsilon_decay: float
     model_a: ModelQTable | None
     model_b: ModelQTable | None
 
@@ -77,6 +77,7 @@ class TrainerDoubleQLearning(Trainer):
         alpha: float,
         gamma: float,
         epsilon: float,
+        epsilon_decay: float,
     ):
         """
         Initialize trainer and allocate Q-table.
@@ -90,6 +91,7 @@ class TrainerDoubleQLearning(Trainer):
             alpha (float): Learning rate.
             gamma (float): Discount factor.
             epsilon (float): Initial ε for ε-greedy policy.
+            epsilon_decay (float): Multiplicative decay factor for ε per episode.
         """
         super().__init__(environment=environment, model_name=model_name)
         self.action_size = action_size
@@ -97,6 +99,7 @@ class TrainerDoubleQLearning(Trainer):
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
         self.model_a = ModelQTable(observation_cardinality=observation_cardinality)
         self.model_a.q_table = np.zeros((observation_cardinality**observation_size, action_size))
         self.model_b = ModelQTable(observation_cardinality=observation_cardinality)
@@ -183,7 +186,7 @@ class TrainerDoubleQLearning(Trainer):
             epochs (int): Number of training episodes.
         """
         for epoch in range(epochs):
-            self.epsilon = max(0.01, self.epsilon * 0.999)
+            self.epsilon = max(0.01, self.epsilon * self.epsilon_decay)
             reward = self.simulation()
             self.tb_writer.add_scalar("DoubleQLearning/Reward", reward, epoch)
             self.tb_writer.add_scalar("DoubleQLearning/Epsilon", self.epsilon, epoch)

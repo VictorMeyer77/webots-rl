@@ -41,16 +41,7 @@ class TrainerDoubleQLearningSimpleArena(TrainerDoubleQLearning):
       * Manages message handshake and step synchronization with the controller.
       * Executes a full episode and applies Double Q-learning updates
         (updating either Q_A or Q_B at each step).
-
-    Attributes:
-      alpha (float): Learning rate for Double Q-learning updates (inherited).
-      gamma (float): Discount factor (inherited).
-      epsilon (float): Current exploration rate (inherited).
     """
-
-    alpha: float
-    gamma: float
-    epsilon: float
 
     def __init__(
         self,
@@ -59,6 +50,7 @@ class TrainerDoubleQLearningSimpleArena(TrainerDoubleQLearning):
         alpha: float,
         gamma: float,
         epsilon: float,
+        epsilon_decay: float,
     ):
         """
         Initialize SARSA trainer and allocate Q-table.
@@ -69,6 +61,7 @@ class TrainerDoubleQLearningSimpleArena(TrainerDoubleQLearning):
           alpha (float): Learning rate for temporal difference updates.
           gamma (float): Discount factor applied to future value estimates.
           epsilon (float): Initial ε for ε-greedy exploration policy.
+          epsilon_decay (float): Multiplicative decay factor for ε per episode.
         """
         super().__init__(
             environment=environment,
@@ -79,6 +72,7 @@ class TrainerDoubleQLearningSimpleArena(TrainerDoubleQLearning):
             alpha=alpha,
             gamma=gamma,
             epsilon=epsilon,
+            epsilon_decay=epsilon_decay,
         )
 
     def policy(self, observation: dict, table: str) -> int:
@@ -90,6 +84,7 @@ class TrainerDoubleQLearningSimpleArena(TrainerDoubleQLearning):
 
         Parameters:
           observation (dict): Must include key 'distance_sensors' -> sequence of numeric values.
+          table (str): 'A' or 'B' indicating which Q-table to use for action selection.
 
         Returns:
           int: Selected discrete action index.
@@ -171,6 +166,7 @@ class TrainerDoubleQLearningSimpleArena(TrainerDoubleQLearning):
             if step_action is None:
                 step_action = self.policy(step_observation, q_action_table)
                 queue.send({"action": step_action})
+                self.environment.last_action = step_action
 
             # (4) Blocking wait for end step controller message.
             if not step_control:

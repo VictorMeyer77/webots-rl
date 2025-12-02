@@ -41,11 +41,13 @@ if __name__ == "__main__":
     train = True if os.getenv("TRAIN") == "1" else False
     robot = Robot()
     epuck = EpuckTurnerQTable(robot, TIME_STEP, MAX_SPEED)
+    epuck.init_distance_sensors()
 
     if train:
+        epuck.init_emitter_receiver()
         epuck.train()
     else:
         model = ModelQTable(observation_cardinality=3)
-        model.load("simple_arena_double_q_learning_8lQK")
+        model.load("simple_arena_double_q_learning_6a55")
         epuck.set_model(model)
         epuck.run()
