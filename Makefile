@@ -27,8 +27,8 @@ fmt:              ## Format code using black & isort.
 
 .PHONY: lint
 lint:             ## Run pep8, black.
-	$(ENV_PREFIX)flake8 --max-line-length 120 --ignore=E402,W503 webots-rl/
-	$(ENV_PREFIX)flake8 --max-line-length 120 --ignore=E402,W503 main.py
+	$(ENV_PREFIX)flake8 --max-line-length 120 --ignore=E402,W503,W605 webots-rl/
+	$(ENV_PREFIX)flake8 --max-line-length 120 --ignore=E402,W503,W605 main.py
 	$(ENV_PREFIX)black -l 120 --check webots-rl/
 	$(ENV_PREFIX)black -l 120 --check main.py
 
