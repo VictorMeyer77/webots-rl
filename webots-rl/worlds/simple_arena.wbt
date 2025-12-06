@@ -73,4 +73,37 @@ DEF FINISH_LINE Solid {
       }
     }
   ]
+  name "finish_line"
+}
+Solid {
+  translation 0.44 0.4999 0.05
+  rotation 0.9999999999999998 -9.589759999999998e-09 -9.589789999999996e-09 1.5707953071795862
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 1
+        roughness 0.4
+      }
+      geometry Plane {
+        size 0.1 0.1
+      }
+    }
+  ]
+  name "finish_line_scene_1"
+}
+Solid {
+  translation 0.499408 0.436145 0.05
+  rotation 0 1 0 -1.5707953071795862
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 1
+        roughness 0.4
+      }
+      geometry Plane {
+        size 0.1 0.1
+      }
+    }
+  ]
+  name "finish_line_scene_2"
 }
