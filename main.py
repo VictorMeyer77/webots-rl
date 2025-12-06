@@ -46,7 +46,7 @@ def run(world_path: str, fast: bool, render: bool, port: int = None) -> None:
     webots_option += " --mode=fast " if fast else ""
     webots_option += " --no-rendering " if not render else ""
     webots_option += f" --port={port} " if port is not None else ""
-    os.system(f"{WEBOTS_BIN_PATH} {world_path} {webots_option}")  # todo specify port
+    os.system(f"{WEBOTS_BIN_PATH} {world_path} {webots_option}")
     os.remove(world_path)
 
 

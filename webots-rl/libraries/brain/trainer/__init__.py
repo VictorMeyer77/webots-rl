@@ -11,9 +11,9 @@ import random
 import string
 from abc import ABC, abstractmethod
 
+import tensorflow as tf
 from brain.environment import Environment
 from brain.utils.logger import logger
-from torch.utils.tensorboard import SummaryWriter
 
 MODEL_PATH = "/Users/victormeyer/Dev/Self/webots-rl/output/model"
 TENSORBOARD_PATH = "/Users/victormeyer/Dev/Self/webots-rl/output/train"
@@ -34,7 +34,7 @@ class Trainer(ABC):
 
     environment: Environment
     model_name: str
-    tb_writer: SummaryWriter
+    tb_writer: tf.summary.SummaryWriter
 
     def __init__(self, model_name: str, environment: Environment):
         """
@@ -48,7 +48,7 @@ class Trainer(ABC):
         self.model_name = f"{model_name}_{''.join(random.choices(string.ascii_letters + string.digits, k=4))}"
 
         tensorboard_dir = os.path.join(TENSORBOARD_PATH, self.model_name)
-        self.tb_writer = SummaryWriter(log_dir=tensorboard_dir)
+        self.tb_writer = tf.summary.create_file_writer(tensorboard_dir)
         logger().info(f"TensorBoard logging to {tensorboard_dir}")
 
     def close_tb(self) -> None:

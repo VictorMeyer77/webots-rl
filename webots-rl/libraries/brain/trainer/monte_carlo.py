@@ -16,6 +16,7 @@ algorithms (Monte Carlo, SARSA, Q-learning, etc.).
 from abc import abstractmethod
 
 import numpy as np
+import tensorflow as tf
 from brain.environment import Environment
 from brain.model.q_table import ModelQTable
 from brain.trainer import Trainer
@@ -139,9 +140,10 @@ class TrainerMonteCarlo(Trainer):
             observations, actions, rewards = self.simulation()
             g = self.update_q_table(observations, actions, rewards)
             reward = sum(rewards)
-            self.tb_writer.add_scalar("MonteCarlo/Return", g, epoch)
-            self.tb_writer.add_scalar("MonteCarlo/Reward", reward, epoch)
-            self.tb_writer.add_scalar("MonteCarlo/Epsilon", self.epsilon, epoch)
+            with self.tb_writer.as_default():
+                tf.summary.scalar("MonteCarlo/Return", g, epoch)
+                tf.summary.scalar("MonteCarlo/Reward", reward, epoch)
+                tf.summary.scalar("MonteCarlo/Epsilon", self.epsilon, epoch)
             self.environment.reset()
             logger().info(
                 f"Epoch {epoch + 1}/{epochs} completed with return {g:.4f}, "

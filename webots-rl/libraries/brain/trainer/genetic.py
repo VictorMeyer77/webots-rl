@@ -8,6 +8,7 @@ import random
 from abc import abstractmethod
 
 import numpy as np
+import tensorflow as tf
 from brain.environment import Environment
 from brain.model.genetic import ModelGenetic
 from brain.trainer import Trainer
@@ -219,7 +220,8 @@ class TrainerGenetic(Trainer):
             population_eval = self.evaluate_generation(population)
             population_eval.sort(key=lambda x: x[1], reverse=True)
             population = [individual for individual, _ in population_eval]
-            self.tb_writer.add_scalar("Genetic/Reward", population_eval[0][1], epoch)
+            with self.tb_writer.as_default():
+                tf.summary.scalar("Genetic/Reward", population_eval[0][1], epoch)
             next_gen = population[: int(self.generation_size * self.selection_rate) + 1]
             while len(next_gen) < self.generation_size:
                 parent_a, parent_b = random.sample(next_gen, 2)

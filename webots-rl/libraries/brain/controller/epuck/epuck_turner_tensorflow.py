@@ -186,7 +186,6 @@ class EpuckTurnerTensorflow(EpuckTurner):
         logger().debug(f"Model predictions (Q-values): {action_values[0]}")
 
         action = np.argmax(action_values)
-        logger().info(f"Selected action: {action} with Q-value: {action_values[0][action]:.4f}")
 
         return int(action)
 

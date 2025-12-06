@@ -30,6 +30,7 @@ Usage:
 from abc import abstractmethod
 
 import numpy as np
+import tensorflow as tf
 from brain.environment import Environment
 from brain.model.q_table import ModelQTable
 from brain.trainer import Trainer
@@ -188,8 +189,9 @@ class TrainerDoubleQLearning(Trainer):
         for epoch in range(epochs):
             self.epsilon = max(0.01, self.epsilon * self.epsilon_decay)
             reward = self.simulation()
-            self.tb_writer.add_scalar("DoubleQLearning/Reward", reward, epoch)
-            self.tb_writer.add_scalar("DoubleQLearning/Epsilon", self.epsilon, epoch)
+            with self.tb_writer.as_default():
+                tf.summary.scalar("DoubleQLearning/Reward", reward, epoch)
+                tf.summary.scalar("DoubleQLearning/Epsilon", self.epsilon, epoch)
             self.environment.reset()
             logger().info(
                 f"Epoch {epoch + 1}/{epochs} completed with " f"epsilon {self.epsilon:.4f} and reward {reward}"

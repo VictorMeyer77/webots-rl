@@ -315,16 +315,17 @@ class TrainerDeepQLearning(Trainer):
             self.per_beta = min(1.0, self.per_beta + self.per_beta_increment)
             reward = self.simulation()
             loss_avg = sum(self.episode_losses) / len(self.episode_losses) if self.episode_losses else 0.0
-            self.tb_writer.add_scalar("DeepQLearning/Reward", reward, epoch)
-            self.tb_writer.add_scalar("DeepQLearning/Epsilon", self.epsilon, epoch)
-            self.tb_writer.add_scalar("DeepQLearning/Loss", loss_avg, epoch)
-            self.tb_writer.add_scalar("DeepQLearning/PER_Beta", self.per_beta, epoch)
+            with self.tb_writer.as_default():
+                tf.summary.scalar("DeepQLearning/Reward", reward, epoch)
+                tf.summary.scalar("DeepQLearning/Epsilon", self.epsilon, epoch)
+                tf.summary.scalar("DeepQLearning/Loss", loss_avg, epoch)
+                tf.summary.scalar("DeepQLearning/PER_Beta", self.per_beta, epoch)
             self.episode_losses = []
             self.environment.reset()
             logger().info(
                 f"Epoch {epoch + 1}/{epochs} completed with " f"epsilon {self.epsilon:.4f} and reward {reward}"
             )
-            if epoch % MODEL_SAVE_FREQUENCY == 0:
+            if epoch % MODEL_SAVE_FREQUENCY == 0 and epoch != 0:
                 self.save_model()
 
         self.close_tb()
