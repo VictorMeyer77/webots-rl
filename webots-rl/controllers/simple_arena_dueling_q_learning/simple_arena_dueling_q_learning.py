@@ -1,7 +1,7 @@
 """
-E-puck Controller for Deep Q-Learning Vision-Based Navigation.
+E-puck Controller for Dueling Q-Learning Vision-Based Navigation.
 
-Main controller script for running the e-puck robot with a trained Deep Q-Learning
+Main controller script for running the e-puck robot with a trained Dueling Q-Learning
 CNN model. Supports two modes:
     - Training mode (TRAIN=1): Communicates with supervisor for RL training
     - Inference mode (TRAIN=0): Autonomous navigation using pre-trained model
@@ -42,5 +42,5 @@ if __name__ == "__main__":
         epuck.init_emitter_receiver()
         epuck.train()
     else:
-        epuck.load_model("simple_arena_deep_q_learning_UEhY")
+        epuck.load_model("simple_arena_dueling_q_learning_3Hds")
         epuck.run()

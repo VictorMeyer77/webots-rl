@@ -52,8 +52,8 @@ class TrainerDeepQLearning(Trainer):
     7. Anneal epsilon (exploration) and beta (IS correction) over training
 
     Attributes:
-        model (tf.keras.models.Sequential): Main Q-network trained at each step.
-        target_model (tf.keras.models.Sequential): Target Q-network for stable value estimates,
+        model (tf.keras.models.Model): Main Q-network trained at each step.
+        target_model (tf.keras.models.Model): Target Q-network for stable value estimates,
             updated periodically from main model.
         memory (PrioritizedExperienceReplayBuffer): Replay buffer storing experiences with priorities.
         gamma (float): Discount factor for future rewards (typically 0.95-0.99).
@@ -73,8 +73,8 @@ class TrainerDeepQLearning(Trainer):
         - simulation(): Abstract method to implement episode simulation (must be overridden)
     """
 
-    model: tf.keras.models.Sequential | None
-    target_model: tf.keras.models.Sequential | None
+    model: tf.keras.models.Model | None
+    target_model: tf.keras.models.Model | None
     memory: PrioritizedExperienceReplayBuffer
     gamma: float
     epsilon: float
@@ -90,7 +90,7 @@ class TrainerDeepQLearning(Trainer):
         self,
         environment: Environment,
         model_name: str,
-        model: tf.keras.models.Sequential,
+        model: tf.keras.models.Model,
         memory_size: int,
         gamma: float,
         epsilon: float,
@@ -113,7 +113,7 @@ class TrainerDeepQLearning(Trainer):
                 Used to interact with the simulation and collect experiences.
             model_name (str): Base name for saving model checkpoints (e.g., "robot_navigation").
                 The saved file will be "{model_name}.keras".
-            model (tf.keras.models.Sequential): The Q-network model architecture.
+            model (tf.keras.models.Model): The Q-network model architecture.
                 Should output Q-values for each action. Must be compiled with optimizer and loss.
             memory_size (int): Maximum capacity of the prioritized replay buffer.
                 Typical values: 10,000 - 100,000. Larger buffers provide more diverse experiences

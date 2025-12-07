@@ -74,7 +74,7 @@ PER_BETA_START = 0.4  # Initial importance sampling weight (annealed to 1.0)
 LEARNING_RATE = 0.0001  # Adam optimizer learning rate
 
 
-def build_model():
+def build_model() -> Sequential:
     """
     Build and compile the CNN model for vision-based Q-learning.
 

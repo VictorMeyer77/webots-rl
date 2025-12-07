@@ -26,7 +26,7 @@ class TrainerDeepQLearningSimpleArena(TrainerDeepQLearning):
         self,
         environment: Environment,
         model_name: str,
-        model: tf.keras.models.Sequential,
+        model: tf.keras.models.Model,
         memory_size: int,
         gamma: float,
         epsilon: float,
@@ -53,7 +53,7 @@ class TrainerDeepQLearningSimpleArena(TrainerDeepQLearning):
             model_name (str): Base name for saving model checkpoints.
                 Example: "simple_arena_dqn_vision"
                 Saved to: MODEL_PATH/{model_name}.keras
-            model (tf.keras.models.Sequential): Convolutional neural network for Q-value estimation.
+            model (tf.keras.models.Model): Convolutional neural network for Q-value estimation.
                 **Required architecture**:
                 - Input shape: (42, 42, 4) - stacked grayscale frames
                 - Output shape: (4,) - Q-values for 4 actions
@@ -159,7 +159,7 @@ class TrainerDeepQLearningSimpleArena(TrainerDeepQLearning):
             logger().debug(f"Taking random action {action}")
         else:
             observation = np.expand_dims(observation, axis=0)
-            action_values = self.model.predict(observation, verbose=0)
+            action_values = self.model(observation)
             action = np.argmax(action_values)
             logger().debug(f"Taking best action {action}")
         return int(action)
