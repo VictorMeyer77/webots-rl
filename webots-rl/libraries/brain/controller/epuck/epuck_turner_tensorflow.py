@@ -20,6 +20,7 @@ import tensorflow as tf
 from brain.controller.epuck import EpuckTurner
 from brain.model import MODEL_PATH, Model
 from brain.utils.logger import logger
+from brain.utils.register_tf import dueling_combine_streams
 from controller import Robot
 
 FRAME_SIZE = 4
@@ -122,7 +123,7 @@ class EpuckTurnerTensorflow(EpuckTurner):
         Args:
             name (str): Model name without file extension.
                 The file {name}.keras must exist in MODEL_PATH.
-                Example: "simple_arena_dqn" loads "simple_arena_dqn.keras"
+                Example: "simple_arena_dueling_q_learning" loads "simple_arena_dueling_q_learning.keras"
 
         File Format:
             Expected format: Keras 3 .keras format (HDF5-based)
@@ -133,33 +134,63 @@ class EpuckTurnerTensorflow(EpuckTurner):
             - Trained weights (all parameters)
             - Optimizer state (Adam parameters, etc.)
             - Loss and metrics configuration
+            - Custom objects (Lambda functions, custom layers, etc.)
+
+        Custom Objects:
+            Models with Lambda layers (e.g., dueling Q-networks) require custom_objects
+            parameter for deserialization. The dueling_combine_streams function is
+            automatically registered via @keras.saving.register_keras_serializable()
+            and imported from brain.utils.register_tf to ensure availability at load time.
         """
 
         path = os.path.join(MODEL_PATH, name + ".keras")
-        self.model = tf.keras.models.load_model(path)
+        self.model = tf.keras.models.load_model(
+            path, custom_objects={"dueling_combine_streams": dueling_combine_streams}
+        )
         self.model.summary()
         logger().info(f"Loaded TensorFlow model from {path}")
+
+    def format_camera_image(self, observation: np.ndarray) -> np.ndarray:
+        """
+        Process raw camera image for CNN input with temporal frame stacking.
+
+        Transforms a single camera observation into a stacked multi-frame tensor
+        suitable for CNN inference. This pipeline ensures consistent preprocessing
+        between training and deployment, and provides temporal context for better
+        decision making.
+
+        Processing Steps:
+            1. **Resize & Normalize**: Scale to (42, 42), convert to grayscale, normalize to [0, 1]
+            2. **Buffer Update**: Append processed frame to circular frame_buffer (FIFO)
+            3. **Frame Stacking**: Concatenate last FRAME_SIZE frames along channel axis
+            4. **Batch Dimension**: Add dimension for batch inference (single sample)
+
+        Args:
+            observation (np.ndarray): Raw camera image from Webots.
+                Expected shape: (height, width, 3) with uint8 values [0-255]
+                Typically (52, 39, 3) from e-puck camera
+
+        Returns:
+            np.ndarray: Preprocessed stacked frames ready for CNN inference.
+                Shape: (1, 42, 42, FRAME_SIZE)
+                - Dimension 0: Batch size (always 1 for single inference)
+                - Dimensions 1-2: Spatial dimensions (42x42 pixels)
+                - Dimension 3: Temporal stack (FRAME_SIZE=4 grayscale frames)
+                dtype: float32, normalized to [0.0, 1.0]
+        """
+        frame = img.format_image(observation, shape=(42, 42), grayscale=True, normalize=True)
+        self.frame_buffer.append(frame)
+        frame = img.concatenate_frames(self.frame_buffer, FRAME_SIZE)
+        frame = np.expand_dims(frame, axis=0)
+        return frame
 
     def policy(self, observation: dict) -> int:
         """
         Select action using loaded TensorFlow model (greedy policy).
 
-        Processes raw camera observation through the complete vision pipeline
-        (resize → grayscale → normalize → stack frames) and performs CNN inference
+        Processes raw camera observation through the complete vision pipeline and performs CNN inference
         to select the best action. This is a pure exploitation strategy (no exploration)
         suitable for deployment and evaluation of trained models.
-
-        Observation Processing Pipeline:
-            1. **Extract**: Get camera array from observation dict
-            2. **Convert**: Cast to uint8 [0-255] (from Webots format)
-            3. **Resize**: Scale to (42, 42) for CNN input
-            4. **Grayscale**: Convert RGB to single channel
-            5. **Normalize**: Scale to [0.0, 1.0] range
-            6. **Buffer**: Append to frame_buffer (circular deque)
-            7. **Stack**: Concatenate last 4 frames → (42, 42, 4)
-            8. **Batch**: Add dimension → (1, 42, 42, 4)
-            9. **Inference**: CNN forward pass → Q-values
-            10. **Select**: Argmax to choose best action
 
         Args:
             observation (dict): Dictionary containing sensor readings.
@@ -177,17 +208,11 @@ class EpuckTurnerTensorflow(EpuckTurner):
                 Action is chosen by argmax over predicted Q-values (greedy policy).
         """
         observation = np.array(observation["camera"]).astype(np.uint8)
-        frame = img.format_image(observation, shape=(42, 42), grayscale=True, normalize=True)
-        self.frame_buffer.append(frame)
-        frame = img.concatenate_frames(self.frame_buffer, FRAME_SIZE)
-        frame = np.expand_dims(frame, axis=0)
-
-        action_values = self.model.predict(frame, verbose=0)
-        logger().debug(f"Model predictions (Q-values): {action_values[0]}")
-
-        action = np.argmax(action_values)
-
-        return int(action)
+        frame = self.format_camera_image(observation)
+        outputs = self.model(frame)
+        logger().debug(f"Model predictions (Q-values): {outputs[0]}")
+        action = np.argmax(outputs)
+        return action
 
     def train(self) -> None:
         """Execute the controller-side training communication loop.
