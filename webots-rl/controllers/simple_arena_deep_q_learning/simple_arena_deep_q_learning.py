@@ -20,7 +20,7 @@ sys.path.append("../../libraries")
 import logging
 import os
 
-from brain.controller.epuck.epuck_turner_tensorflow import EpuckTurnerTensorflow
+from brain.controller.epuck.epuck_turner_deep_q_table import EpuckTurnerDeepQTable
 from brain.utils.logger import logger
 from controller import Robot
 
@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
     train = True if os.getenv("TRAIN") == "1" else False
     robot = Robot()
-    epuck = EpuckTurnerTensorflow(robot, TIME_STEP, MAX_SPEED)
+    epuck = EpuckTurnerDeepQTable(robot, TIME_STEP, MAX_SPEED)
     epuck.init_camera()
 
     if train:

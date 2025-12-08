@@ -18,7 +18,6 @@ Observation discretization (per distance sensor value):
 
 import numpy as np
 from brain.controller.epuck import EpuckTurner
-from brain.utils.logger import logger
 
 
 class EpuckTurnerQTable(EpuckTurner):
@@ -72,63 +71,3 @@ class EpuckTurnerQTable(EpuckTurner):
         action_values = self.model.q_table[index]
         action = np.argmax(action_values)
         return int(action)
-
-    def train(self) -> None:
-        """Execute the controller-side training communication loop.
-
-        Sequence per iteration:
-          1. Synchronize: wait for ``{'sync': 1}`` then reply ``{'ack': 1}``
-             once.
-          2. Observation: send discretized sensor data.
-          3. Action reception: wait for supervisor-selected action.
-          4. Actuation: apply action via :meth:`act` and notify completion
-             with ``{'step': step_index}``.
-          5. Repeat until simulation ends (``robot.step()`` returns ``-1``).
-
-        Notes:
-          * Exploration (epsilon-greedy) is handled supervisor-side; the
-            controller always executes the received actions.
-          * The controller does not update the Q-table; it only supplies
-            observations and executes actions.
-        """
-        step_index = 0
-        sync = False
-        step_observation = None
-        step_action = None
-
-        while self.robot.step(self.timestep) != -1:
-
-            self.queue.clear_buffer()
-
-            # (1) Initial synchronization handshake on the very first step.
-            if not sync:
-                if not self.queue.search_message("sync"):
-                    continue
-                else:
-                    self.queue.send({"ack": 1})
-                    sync = True
-                    logger().debug("Synchronization with supervisor successful.")
-
-            # (2) Send observation.
-            if step_observation is None:
-                step_observation = self.observe()
-                self.queue.send({"observation": step_observation})
-
-            # (3) Await action.
-            if step_action is None:
-                action_messages = self.queue.search_message("action")
-                if not action_messages:
-                    continue
-                else:
-                    step_action = action_messages[0]["action"]
-                    logger().debug(f"Received action {step_action}")
-
-            # (4) Execute action and notify step completion.
-            self.act(step_action)
-            self.queue.send({"step": step_index})
-
-            # (5) Prepare for next iteration.
-            step_index += 1
-            step_observation = None
-            step_action = None
-            logger().debug(f"Controller completed step {step_index}")

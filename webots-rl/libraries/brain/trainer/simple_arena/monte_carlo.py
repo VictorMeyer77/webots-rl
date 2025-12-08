@@ -187,4 +187,8 @@ class TrainerMonteCarloSimpleArena(TrainerMonteCarlo):
             step_control = False
 
         logger().info(f"Simulation terminated at step {state.step_index + 1}, success: {state.is_success}")
-        return np.array(observations, dtype=int), np.array(actions, dtype=int), np.array(rewards, dtype=float)
+        return (
+            np.array(observations, dtype=np.int64),
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+        )
