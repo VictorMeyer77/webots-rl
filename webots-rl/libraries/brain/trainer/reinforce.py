@@ -95,19 +95,6 @@ class TrainerReinforce(Trainer):
         normalize_returns (bool): Whether to standardize returns per batch.
             True: returns = (returns - mean) / (std + 1e-8)
             Helps with gradient stability but can hide signal if all episodes are similar.
-
-    Methods:
-        fit_model: Perform one policy gradient update on a batch of experiences
-        discount_returns: Compute Monte Carlo returns via backward pass
-        run: Main training loop over multiple epochs
-        save_model: Persist trained policy network to disk
-        simulation: Collect one episode trajectory (must be implemented by subclass)
-
-    Notes:
-        - This is an abstract base class; subclasses must implement simulation()
-        - REINFORCE has high variance; consider adding baseline for better performance
-        - Monitor Mean_Entropy in TensorBoard to ensure adequate exploration
-        - If rewards are very sparse, consider reward shaping or switching to Actor-Critic
     """
 
     model: tf.keras.models.Model | None
