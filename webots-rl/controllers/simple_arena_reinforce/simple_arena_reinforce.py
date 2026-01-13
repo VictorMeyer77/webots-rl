@@ -41,7 +41,7 @@ sys.path.append("../../libraries")
 import logging
 import os
 
-from brain.controller.epuck.epuck_turner_reinforce import EpuckTurnerReinforce
+from brain.controller.epuck.epuck_turner_actor import EpuckTurnerActor
 from brain.utils.logger import logger
 from controller import Robot
 
@@ -56,7 +56,7 @@ if __name__ == "__main__":
 
     train = True if os.getenv("TRAIN") == "1" else False
     robot = Robot()
-    epuck = EpuckTurnerReinforce(robot, TIME_STEP, MAX_SPEED)
+    epuck = EpuckTurnerActor(robot, TIME_STEP, MAX_SPEED, stochastic=True)
     epuck.init_distance_sensors()
 
     if train:

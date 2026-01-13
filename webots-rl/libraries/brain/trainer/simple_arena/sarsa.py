@@ -171,6 +171,8 @@ class TrainerSarsaSimpleArena(TrainerSarsa):
             state, reward = self.environment.step()
             total_reward += reward
 
+            # todo
+
             if previous_step_observation is not None:
                 self.update_q_table(
                     np.array(previous_step_observation["distance_sensors"]),
