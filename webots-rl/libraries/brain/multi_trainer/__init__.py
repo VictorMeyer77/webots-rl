@@ -18,7 +18,7 @@ SOCKET_TIMEOUT = 0.001
 class MultiTrainer(ABC):
 
     model_name: str
-    model: tf.keras.models.Model | None
+    model: tf.keras.Model | None
     optimizer: tf.keras.optimizers.Optimizer | None
     tb_writer: tf.summary.SummaryWriter
     sockets: list[tuple[socket.socket, int]] = []
@@ -28,7 +28,7 @@ class MultiTrainer(ABC):
     def __init__(
         self,
         model_name: str,
-        model: tf.keras.models.Model,
+        model: tf.keras.Model,
         optimizer: tf.keras.optimizers.Optimizer,
         nb_env: int,
         memory_size: int,

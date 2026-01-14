@@ -27,7 +27,7 @@ class TrainerPPO(MultiTrainer):
     def __init__(
         self,
         model_name: str,
-        model: tf.keras.models.Model,
+        model: tf.keras.Model,
         optimizer: tf.keras.optimizers.Optimizer,
         nb_env: int,
         num_actions: int,
