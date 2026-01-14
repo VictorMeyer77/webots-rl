@@ -1,3 +1,22 @@
+"""
+PPO (Proximal Policy Optimization) multi-environment training module.
+
+This module implements a PPO algorithm for reinforcement learning with support
+for multiple parallel environments. It uses GAE (Generalized Advantage Estimation)
+to compute advantages and communicates with environments via TCP sockets.
+
+PPO is an on-policy algorithm that uses a clipped surrogate objective to prevent
+large policy updates. It collects batches of experience from parallel environments,
+computes advantages using GAE, and performs multiple epochs of mini-batch updates
+on the collected data.
+
+Classes:
+    TrainerPPO: PPO trainer inheriting from MultiTrainer to manage multiple
+                environments simultaneously.
+
+Constants:
+    MODEL_SAVE_FREQUENCY_MINUTES: Model save frequency in minutes (10).
+"""
 import json
 import time
 
@@ -11,7 +30,55 @@ MODEL_SAVE_FREQUENCY_MINUTES = 10
 
 
 class TrainerPPO(MultiTrainer):
+    """
+    PPO trainer for multi-environment reinforcement learning.
 
+    This class implements the Proximal Policy Optimization (PPO) algorithm with
+    Generalized Advantage Estimation (GAE) to train a model across multiple
+    parallel environments. PPO is an on-policy algorithm that uses a clipped
+    surrogate objective to limit policy updates and improve training stability.
+
+    The trainer collects experience from multiple environments simultaneously,
+    computes advantages using GAE, and performs multiple epochs of updates on
+    mini-batches of the collected data. This approach improves sample efficiency
+    while maintaining training stability through policy clipping.
+
+    Attributes:
+        num_actions (int): Number of possible actions in the environment.
+        fit_step_frequency (int): Number of steps to collect before performing
+            a model update. This determines the batch size for PPO updates.
+        gamma (float): Discount factor for future rewards. Values closer to 1
+            make the agent more far-sighted, while values closer to 0 make it
+            more myopic. Typical values: 0.95-0.99.
+        entropy_coefficient (float): Coefficient for the entropy bonus term in
+            the loss function. Higher values encourage more exploration by
+            preventing premature convergence to deterministic policies.
+            Typical values: 0.01-0.1.
+        value_loss_coefficient (float): Coefficient for the value function loss
+            in the total loss. Balances the importance of value estimation
+            relative to policy improvement. Typical values: 0.5-1.0.
+        grad_norm_clip (float): Maximum norm for gradient clipping. Prevents
+            excessively large gradient updates that can destabilize training.
+            Typical values: 0.5-10.0.
+        lambda_ (float): Lambda parameter for GAE (Generalized Advantage
+            Estimation). Controls the bias-variance tradeoff in advantage
+            estimation. Values closer to 0 give lower variance but higher bias,
+            while values closer to 1 give lower bias but higher variance.
+            Typical values: 0.95-0.99.
+        ppo_epochs (int): Number of training epochs to perform on each batch
+            of collected data. Higher values improve sample efficiency but may
+            lead to overfitting. Typical values: 3-10.
+        mini_batch_size (int): Size of mini-batches for SGD updates. Smaller
+            batches can lead to noisier but potentially more effective updates.
+            Should divide evenly into (fit_step_frequency * num_env).
+        clip_ratio (float): Clipping parameter for the PPO objective. Limits
+            the ratio between new and old policies to prevent large updates.
+            Higher values allow larger policy changes. Typical values: 0.1-0.3.
+        step_count (int): Counter for the number of training steps (fit_model
+            calls) performed. Used for logging and tracking training progress.
+        last_model_save_time (float): Timestamp of the last model save operation.
+            Used to implement periodic model checkpointing.
+    """
     num_actions: int
     fit_step_frequency: int
     gamma: float
@@ -23,6 +90,7 @@ class TrainerPPO(MultiTrainer):
     mini_batch_size: int
     clip_ratio: float
     step_count: int = 0
+    last_model_save_time: float
 
     def __init__(
         self,
@@ -41,7 +109,44 @@ class TrainerPPO(MultiTrainer):
         mini_batch_size: int,
         clip_ratio: float,
     ):
+        """
+        Initializes the PPO trainer with the specified hyperparameters.
 
+        Sets up the PPO-specific parameters including the clipping ratio, number of
+        epochs, mini-batch size, and GAE lambda. Also initializes the parent
+        MultiTrainer class with the model, optimizer, and memory configuration.
+
+        Args:
+            model_name (str): Name identifier for the model, used for saving and
+                logging purposes.
+            model (tf.keras.Model): Neural network model that outputs both policy
+                logits and state values. Must have two output heads.
+            optimizer (tf.keras.optimizers.Optimizer): TensorFlow optimizer for
+                gradient-based updates (e.g., Adam, RMSprop).
+            nb_env (int): Number of parallel environments to run simultaneously.
+                More environments provide more diverse experience but require more
+                computational resources.
+            num_actions (int): Number of discrete actions available in the
+                environment's action space.
+            fit_step_frequency (int): Number of steps to collect from each
+                environment before performing a PPO update. The total batch size
+                will be fit_step_frequency * nb_env.
+            gamma (float): Discount factor for future rewards, in range [0, 1].
+            entropy_coefficient (float): Weight for the entropy bonus term that
+                encourages exploration.
+            value_loss_coefficient (float): Weight for the value function loss in
+                the total loss function.
+            grad_norm_clip (float): Maximum norm for gradient clipping to prevent
+                gradient explosion.
+            lambda_ (float): GAE lambda parameter for advantage estimation, in
+                range [0, 1].
+            ppo_epochs (int): Number of epochs to train on each batch of data.
+                More epochs improve sample efficiency but may cause overfitting.
+            mini_batch_size (int): Size of mini-batches for stochastic gradient
+                descent updates.
+            clip_ratio (float): PPO clipping parameter epsilon, typically 0.1-0.3.
+                Controls how much the policy can change in one update.
+        """
         super().__init__(
             model_name=model_name, model=model, optimizer=optimizer, nb_env=nb_env, memory_size=fit_step_frequency * 2
         )
@@ -58,25 +163,69 @@ class TrainerPPO(MultiTrainer):
         self.step_count = 0
         self.last_model_save_time = time.time()
 
-    def policy(self, observation: np.ndarray) -> (int, float):
+    def policy(self, observation: np.ndarray) -> tuple[int, float]:
+        """
+        Computes an action and its estimated value for a given observation.
+
+        Uses the current policy network to sample an action from the policy
+        distribution and estimate the state value. The action is sampled
+        stochastically from the categorical distribution defined by the policy
+        logits, which encourages exploration during training.
+
+        Args:
+            observation (np.ndarray): State observation from the environment,
+                typically a preprocessed image or feature vector.
+
+        Returns:
+            tuple[int, float]: A tuple containing:
+                - int: The selected action index sampled from the policy distribution.
+                - float: The estimated state value from the value function head.
+        """
         observation = np.expand_dims(observation, axis=0)
         logits, value = self.model(observation)
         action = tf.random.categorical(logits, 1)
         action = tf.squeeze(action, axis=1)
         return int(action.numpy()), float(value.numpy())
 
-    def compute_returns(self, rewards: np.ndarray, dones: np.ndarray, last_values: np.ndarray) -> np.ndarray:
-        returns = []
-        r = last_values
-        for t in reversed(range(len(rewards))):
-            r = rewards[t] + self.gamma * r * (1 - dones[t])
-            returns.insert(0, r)
-        return np.array(returns)
-
     def compute_gae(
         self, rewards: np.ndarray, values: np.ndarray, dones: np.ndarray, next_value: float
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Compute GAE advantages and returns."""
+        """
+        Computes GAE (Generalized Advantage Estimation) advantages and returns.
+
+        GAE is a method for estimating advantages that reduces variance while
+        maintaining reasonable bias. It uses an exponentially-weighted average of
+        temporal difference (TD) errors at different time scales, controlled by
+        the lambda parameter.
+
+        The GAE formula is:
+        A_t = sum_{l=0}^{inf} (gamma * lambda)^l * delta_{t+l}
+        where delta_t = r_t + gamma * V(s_{t+1}) - V(s_t) is the TD error.
+
+        Higher lambda values (closer to 1) reduce bias but increase variance, while
+        lower values (closer to 0) reduce variance but increase bias. The returns
+        are computed as advantages + values for training the value function.
+
+        Args:
+            rewards (np.ndarray): Rewards received at each time step for a single
+                environment, shape (steps,).
+            values (np.ndarray): Estimated state values at each time step for a
+                single environment, shape (steps,).
+            dones (np.ndarray): Episode termination indicators for a single
+                environment, shape (steps,). Used to reset advantage computation
+                at episode boundaries.
+            next_value (float): Estimated value of the state following the last
+                step in the trajectory. Used for bootstrapping the last advantage.
+                Should be 0 if the last state is terminal.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: A tuple containing:
+                - np.ndarray: GAE advantages for each time step, shape (steps,).
+                  These are used to weight policy updates.
+                - np.ndarray: Returns (advantages + values) for each time step,
+                  shape (steps,). These are used as targets for value function
+                  training.
+        """
         advantages = np.zeros_like(rewards)
         last_gae = 0
 
@@ -93,6 +242,31 @@ class TrainerPPO(MultiTrainer):
         return advantages, returns
 
     def gather_batch(self):
+        """
+        Gathers and organizes experience data from all environments from memory.
+
+        Collects data stored in the memory buffer by each environment and organizes
+        it into synchronized arrays where the first dimension is time steps and the
+        second dimension is environments. This ensures that data from different
+        environments at the same time step is aligned properly for batch processing.
+
+        The memory is cleared (via popleft) as data is gathered, preparing it for
+        the next batch of experience collection.
+
+        Returns:
+            tuple: A tuple containing five numpy arrays:
+                - observations (np.ndarray): State observations with shape
+                  (steps, num_env, height, width, frames). Contains the visual or
+                  feature inputs to the policy.
+                - actions (np.ndarray): Actions taken by the policy with shape
+                  (steps, num_env). Integer action indices.
+                - rewards (np.ndarray): Rewards received from the environment with
+                  shape (steps, num_env). Float values.
+                - dones (np.ndarray): Episode termination flags with shape
+                  (steps, num_env). Float values (0 or 1).
+                - values (np.ndarray): Value estimates from the value function with
+                  shape (steps, num_env). Used for GAE computation.
+        """
         ports = sorted(self.memory.keys())
         steps = self.memory_count()
 
@@ -124,6 +298,45 @@ class TrainerPPO(MultiTrainer):
         )
 
     def fit_model(self) -> None:
+        """
+        Trains the model using the PPO algorithm with collected experience data.
+
+        This method implements the core PPO training procedure:
+
+        1. Data Collection: Gathers experience data from all environments.
+
+        2. Advantage Estimation: Computes advantages using GAE for each environment
+           separately, properly handling episode boundaries and bootstrapping from
+           the next state values.
+
+        3. Advantage Normalization: Normalizes advantages across the entire batch
+           to reduce variance and improve training stability.
+
+        4. Old Policy Computation: Computes log probabilities under the current
+           (old) policy for all actions in the batch. These are used to compute
+           the importance sampling ratio in the PPO objective.
+
+        5. Multi-Epoch Training: Performs multiple epochs of training on the
+           collected data:
+           - Shuffles the data to break temporal correlations
+           - Processes data in mini-batches for computational efficiency
+           - Computes the PPO clipped surrogate loss to limit policy updates
+           - Trains the value function to predict returns accurately
+           - Adds an entropy bonus to encourage exploration
+           - Clips gradients to prevent instability
+
+        6. Logging: Records training metrics to TensorBoard for monitoring:
+           - Total loss and its components (policy, value, entropy)
+           - Mean reward and advantage values
+           - Clip fraction (proportion of updates that hit the clipping limit)
+
+        The PPO clipped objective prevents the policy from changing too much in
+        a single update by clipping the importance sampling ratio. This improves
+        training stability compared to standard policy gradient methods.
+
+        The method updates the global step counter after training for proper
+        metric tracking across multiple training iterations.
+        """
         observations, actions, rewards, dones, values = self.gather_batch()
 
         # Get next state values for proper bootstrapping
@@ -225,6 +438,45 @@ class TrainerPPO(MultiTrainer):
         self.step_count += 1
 
     def run(self) -> None:
+        """
+        Main communication loop that handles environment interactions and triggers training.
+
+        This method implements the main training loop that coordinates between multiple
+        parallel environments and the PPO trainer:
+
+        1. Connection Setup: Accepts TCP socket connections from all configured
+           environments, waiting until all are connected.
+
+        2. Message Processing: Continuously polls all environment connections for
+           incoming messages and handles three types of requests:
+
+           - "policy": Environment requests an action for a given observation.
+             The trainer computes an action using the current policy and sends it
+             back along with the state value estimate.
+
+           - "step": Environment reports the results of taking an action (new
+             observation, reward, done flag, value). This data is stored in memory
+             for later training.
+
+           - "terminated": Environment signals that it has completed its episodes
+             and is shutting down. The connection is closed and removed from the
+             active socket list.
+
+        3. Training Trigger: When enough experience has been collected
+           (memory_count reaches fit_step_frequency), triggers a PPO training
+           update by calling fit_model().
+
+        4. Periodic Saving: Saves the model periodically (every
+           MODEL_SAVE_FREQUENCY_MINUTES minutes) to create checkpoints during
+           long training runs.
+
+        5. Termination: When all environments have terminated, saves the final
+           model and exits the training loop.
+
+        This non-blocking architecture allows efficient parallel data collection
+        from multiple environments while periodically performing batch updates
+        on the accumulated experience.
+        """
 
         self.accept_connections()
 
