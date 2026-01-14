@@ -11,6 +11,7 @@ the supervisor-driven simulation loop and the robot controller, collecting
 experience data (observations, actions, rewards) and sending it to the trainer
 for PPO updates.
 """
+
 import json
 from collections import deque
 
@@ -38,6 +39,7 @@ class TrainerAgentPPOSimpleArena(MultiTrainerAgent):
     camera observations and receives motor commands, while the trainer provides
     action selections based on the current policy.
     """
+
     def simulation(self) -> float:
         """
         Executes a complete training episode in the Simple Arena environment.

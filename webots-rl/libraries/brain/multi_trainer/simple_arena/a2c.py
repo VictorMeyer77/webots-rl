@@ -19,6 +19,7 @@ Notes:
   * The agent blocks waiting for messages but allows Webots simulation to continue.
   * Reward computation is environment-specific (defined in self.environment.step()).
 """
+
 import json
 from collections import deque
 
@@ -62,6 +63,7 @@ class TrainerAgentA2CSimpleArena(MultiTrainerAgent):
         - connection: TCP socket to trainer
         - tcp_port: Port for trainer communication
     """
+
     def simulation(self) -> float:
         """
         Execute one complete episode in the Simple Arena environment.

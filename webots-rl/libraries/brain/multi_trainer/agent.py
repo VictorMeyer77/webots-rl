@@ -95,6 +95,7 @@ class MultiTrainerAgent(ABC):
         tcp_port (int): Port number for connecting to the trainer server.
             Each agent typically uses a unique port.
     """
+
     environment: Environment
     connection: socket.socket | None = None
     tcp_port: int

@@ -17,6 +17,7 @@ Classes:
 Constants:
     MODEL_SAVE_FREQUENCY_MINUTES: Model save frequency in minutes (10).
 """
+
 import json
 import time
 
@@ -79,6 +80,7 @@ class TrainerPPO(MultiTrainer):
         last_model_save_time (float): Timestamp of the last model save operation.
             Used to implement periodic model checkpointing.
     """
+
     num_actions: int
     fit_step_frequency: int
     gamma: float

@@ -16,6 +16,7 @@ Constants:
     TCP_HOST: Host address for TCP socket communication (localhost).
     SOCKET_TIMEOUT: Socket timeout in seconds for non-blocking operations (0.001s).
 """
+
 import os
 import random
 import socket
@@ -69,6 +70,7 @@ class MultiTrainer(ABC):
             value) for each environment. Organized by port to maintain
             per-environment memory separation.
     """
+
     model_name: str
     model: tf.keras.Model | None
     optimizer: tf.keras.optimizers.Optimizer | None
