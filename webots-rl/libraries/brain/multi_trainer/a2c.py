@@ -397,29 +397,6 @@ class TrainerA2C(MultiTrainer):
           4. Persistence: Save model checkpoints periodically.
           5. Termination: Exit when all environments disconnect.
 
-        Message Protocol:
-
-          * "policy" Request (from environment):
-              {"message_type": "policy", "observation": [[...]]}
-            Trainer Response:
-              {"action": 2, "value": 0.45}
-            Effect: Computes action using policy() and returns it with value estimate.
-
-          * "step" Message (from environment):
-              {
-                "message_type": "step",
-                "observation": [[...]],
-                "action": 2,
-                "reward": 1.0,
-                "done": false,
-                "value": 0.45
-              }
-            Effect: Stores transition (s, a, r, done, V(s)) in memory for training.
-
-          * "terminated" Message (from environment):
-              {"message_type": "terminated"}
-            Effect: Closes connection and removes environment from active set.
-
         Training Triggers:
           * fit_model() is called when memory_count() == fit_step_frequency.
           * Model checkpoint saved every MODEL_SAVE_FREQUENCY_MINUTES (10 minutes).
