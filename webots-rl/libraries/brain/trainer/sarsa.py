@@ -11,16 +11,6 @@ Key Concepts:
   * Representation: Observations are mapped to integer indices in the
     Q-table via ModelQTable.observation_to_index() assuming each component
     has identical cardinality.
-
-Usage:
-  Subclass TrainerSarsa and implement simulation(), performing one full
-  episode loop:
-      1. Initialize observation and choose action (ε-greedy).
-      2. Step environment -> (next_observation, reward, terminated).
-      3. Choose next_action (ε-greedy) if not terminated.
-      4. Call update_q_table(...).
-      5. Accumulate total reward.
-      6. Return total reward (float) to be logged.
 """
 
 from abc import abstractmethod

@@ -1,3 +1,37 @@
+"""
+Simple Arena PPO Supervisor Controller
+
+This module implements a Webots supervisor controller for training and evaluating
+reinforcement learning agents using the PPO (Proximal Policy Optimization) algorithm
+in a simple arena environment.
+
+Architecture:
+    The controller operates as a bridge between Webots simulation and the RL training
+    pipeline. It manages the simulation lifecycle, environment state, and coordinates
+    with external training processes through TCP communication.
+
+
+Environment Variables:
+    TRAIN : str
+        Set to "1" to enable training mode, any other value enables evaluation mode
+    TCP_PORT : str
+        TCP port number for trainer communication (training mode only)
+        Must match the port used by the external trainer process
+
+Simulation Parameters:
+    TIME_STEP : int
+        Simulation timestep in milliseconds (64ms = 15.625 Hz)
+        Determines the frequency of sensor readings and control updates
+
+    EPISODE_SIZE : int
+        Maximum number of steps per episode before automatic reset (500 steps)
+        Prevents infinite episodes and ensures consistent training experience
+
+    EPOCHS : int
+        Number of training episodes to execute (1000)
+        Total training duration = EPOCHS × EPISODE_SIZE × TIME_STEP
+"""
+
 import sys
 
 sys.path.append("../../libraries")

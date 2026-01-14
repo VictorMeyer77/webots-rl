@@ -38,13 +38,6 @@ Environment Variables:
     TCP_PORT (str): TCP port number for communication with the A2C training
         server (training mode only). Each parallel environment uses a unique
         port assigned by the training orchestrator.
-
-Usage:
-    Training mode (with training server running):
-        TRAIN=1 TCP_PORT=5000 webots simple_arena_a2c.wbt
-
-    Evaluation mode:
-        webots simple_arena_a2c.wbt
 """
 
 import sys

@@ -20,13 +20,6 @@ Constants:
 Environment Variables:
     TRAIN: Controls execution mode. Set to "1" for training mode, any other
         value or unset for inference mode.
-
-Usage:
-    Training mode:
-        TRAIN=1 webots simple_arena_a2c.wbt
-
-    Inference mode:
-        webots simple_arena_a2c.wbt
 """
 
 import sys
