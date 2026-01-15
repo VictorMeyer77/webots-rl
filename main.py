@@ -1,9 +1,15 @@
 import argparse
 import os
+import subprocess
+import sys
 from random import randint
 
 WEBOTS_BIN_PATH = "/Applications/Webots.app/Contents/MacOS/webots"
 WORLDS_PATH = "webots-rl/worlds"
+CONTROLLER_PATH = "webots-rl/controllers"
+WEBOTS_PORT_START = 1234
+
+sys.path.append(CONTROLLER_PATH)
 
 
 def create(world: str, controller: str, train: bool) -> str:
@@ -50,14 +56,49 @@ def run(world_path: str, fast: bool, render: bool, port: int = None) -> None:
     os.remove(world_path)
 
 
+def run_multi_env(world_path: str, controller: str, num_env: int, port_start: int) -> None:
+
+    if not os.path.exists(os.path.join(CONTROLLER_PATH, f"{controller}_server", f"{controller}_server.py")):
+        raise ValueError(
+            f"Controller server '{controller}_server.py' does not exist in '{CONTROLLER_PATH}/{controller}_server/'"
+        )
+
+    if controller == "simple_arena_a2c":
+        from simple_arena_a2c_server.simple_arena_a2c_server import trainer
+    if controller == "simple_arena_ppo":
+        from simple_arena_ppo_server.simple_arena_ppo_server import trainer
+
+    multi_trainer = trainer(num_env)
+
+    env = os.environ.copy()
+    env["TRAIN"] = "1"
+
+    for index, (_, port) in enumerate(multi_trainer.sockets):
+        env["TCP_PORT"] = str(port)
+        command = [
+            WEBOTS_BIN_PATH,
+            world_path,
+            "--batch",
+            "--mode=fast",
+            f"--port={port_start + index}",
+        ]
+        subprocess.Popen(command, env=env)
+
+    multi_trainer.run()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run simulation with specified world, controller, and supervisor.")
     parser.add_argument("--world", type=str, required=True, help="Path to the world file")
     parser.add_argument("--controller", type=str, required=True, help="Controller name or path")
     parser.add_argument("--port", type=int, required=False, help="Controller name or path")
     parser.add_argument("--train", action="store_true", help="Enable training mode")
+    parser.add_argument("--envs", type=int, default=0, help="Number of parallels environments (e.g., Actor Critic)")
     parser.add_argument("--fast", action="store_true", help="Fast running mode")
     parser.add_argument("--render", action="store_true", help="Rendering")
     args = parser.parse_args()
     world_path = create(args.world, args.controller, args.train)
-    run(world_path, fast=args.fast, render=args.render, port=args.port)
+    if args.envs > 0:
+        run_multi_env(world_path, args.controller, args.envs, args.port if args.port else WEBOTS_PORT_START)
+    else:
+        run(world_path, fast=args.fast, render=args.render, port=args.port)

@@ -26,7 +26,7 @@ class TrainerDeepQLearningSimpleArena(TrainerDeepQLearning):
         self,
         environment: Environment,
         model_name: str,
-        model: tf.keras.models.Model,
+        model: tf.keras.Model,
         memory_size: int,
         gamma: float,
         epsilon: float,
@@ -53,7 +53,7 @@ class TrainerDeepQLearningSimpleArena(TrainerDeepQLearning):
             model_name (str): Base name for saving model checkpoints.
                 Example: "simple_arena_dqn_vision"
                 Saved to: MODEL_PATH/{model_name}.keras
-            model (tf.keras.models.Model): Convolutional neural network for Q-value estimation.
+            model (tf.keras.Model): Convolutional neural network for Q-value estimation.
                 **Required architecture**:
                 - Input shape: (42, 42, 4) - stacked grayscale frames
                 - Output shape: (4,) - Q-values for 4 actions

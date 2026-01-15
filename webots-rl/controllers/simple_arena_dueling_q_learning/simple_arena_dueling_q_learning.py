@@ -5,12 +5,6 @@ Main controller script for running the e-puck robot with a trained Dueling Q-Lea
 CNN model. Supports two modes:
     - Training mode (TRAIN=1): Communicates with supervisor for RL training
     - Inference mode (TRAIN=0): Autonomous navigation using pre-trained model
-
-Usage:
-    Training: export TRAIN=1 && webots world.wbt
-    Inference: export TRAIN=0 && webots world.wbt (or just run without TRAIN set)
-
-The robot uses camera input only, processed through a CNN to select actions.
 """
 
 import sys

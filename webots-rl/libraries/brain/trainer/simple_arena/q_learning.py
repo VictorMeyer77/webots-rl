@@ -72,7 +72,7 @@ class TrainerQLearningSimpleArena(TrainerQLearning):
             epsilon_decay=epsilon_decay,
         )
 
-    def policy(self, observation: dict) -> int:
+    def policy(self, observation: dict) -> int:  # todo policy abstract
         """
         ε-greedy action selection.
 

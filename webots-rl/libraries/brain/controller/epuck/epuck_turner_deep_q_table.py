@@ -26,11 +26,11 @@ class EpuckTurnerDeepQTable(EpuckTurner):
     E-puck controller that uses a Deep Q-Learning model for action selection.
 
     Attributes:
-        model (tf.keras.models.Model | None): Loaded TensorFlow/Keras Q-network.
+        model (tf.keras.Model | None): Loaded TensorFlow/Keras Q-network.
             None until load_model() is called.
     """
 
-    model: tf.keras.models.Model | None
+    model: tf.keras.Model | None
 
     def __init__(self, robot: Robot, timestep: int, max_speed: float):
         """
