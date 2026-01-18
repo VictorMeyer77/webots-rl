@@ -47,7 +47,7 @@ Protocol Limitations:
 
 import socket
 import struct
-
+from brain.utils.logger import logger
 
 def send(conn: socket.socket, message: str) -> None:
     """
@@ -89,5 +89,6 @@ def read(conn: socket.socket) -> str | None:
             message += chunk
         message = message.decode("utf-8")
         return message
-    except socket.timeout:
+    except (TimeoutError, ConnectionResetError, ConnectionError, BrokenPipeError, OSError) as e:
+        logger().debug(f"TCP read error: {e}")
         return None

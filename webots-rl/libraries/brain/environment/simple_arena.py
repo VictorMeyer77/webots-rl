@@ -28,7 +28,7 @@ from controller import Supervisor
 
 EPUCK_DEF = "EPUCK"
 FINISH_LINE_DEF = "FINISH_LINE"
-FINISH_DISTANCE_THRESHOLD = 0.025
+FINISH_DISTANCE_THRESHOLD = 0.03
 
 
 @dataclass

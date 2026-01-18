@@ -67,6 +67,8 @@ def run_multi_env(world_path: str, controller: str, num_env: int, port_start: in
         from simple_arena_a2c_server.simple_arena_a2c_server import trainer
     if controller == "simple_arena_ppo":
         from simple_arena_ppo_server.simple_arena_ppo_server import trainer
+    if controller == "simple_arena_sac_discrete":
+        from simple_arena_sac_discrete_server.simple_arena_sac_discrete_server import trainer
 
     multi_trainer = trainer(num_env)
 

@@ -1,5 +1,5 @@
-
 import sys
+from pipes import Template
 from typing import Tuple
 
 sys.path.append("webots-rl/libraries")
@@ -7,27 +7,33 @@ sys.path.append("webots-rl/libraries")
 import logging
 
 from brain.multi_trainer import MultiTrainer
-from brain.multi_trainer.a2c import TrainerA2C
+from brain.multi_trainer.sac_discrete import TrainerSACDiscrete
 from brain.utils.logger import logger
 from tensorflow.keras.layers import Conv2D, Dense, Flatten, Input
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam, Optimizer
-import tensorflow as tf
 
 # Model Configuration
 
-MODEL_NAME = "simple_arena_sac"  # Base name for saved model files
-
+MODEL_NAME = "simple_arena_sac_discrete"  # Base name for saved model files
 NUM_ACTIONS = 4  # Number of discrete actions in the environment
+FIT_STEP_FREQUENCY = 16  # Train model every N environment steps
+GAMMA = 0.99  # Discount factor for future rewards [0,
+ALPHA = 0.2  # Entropy temperature parameter
+TAU = 0.005  # Target network update rate
+BATCH_SIZE = 64  # Mini-batch size for training
+GRAD_NORM_CLIP = 0.5  # Gradient norm clipping value
+MEMORY_SIZE = 100000  # Replay buffer size
 ACTOR_LEARNING_RATE = 0.0001
 CRITIC_LEARNING_RATE = 0.0001
+TEMPERATURE_LEARNING_RATE = 0.0001
+TARGET_ENTROPY_SCALE = -0.98
 
 logger.add_console_logger(logging.INFO)
 logger.add_file_logger(logging.INFO)
 
 
-def build_model() -> Tuple[Model, Model, Model, Model, Model, Optimizer, Optimizer]:
-
+def build_model() -> Tuple[Model, Model, Model, Optimizer, Optimizer]:
 
     def encoder(inputs):
         x = Conv2D(32, (4, 4), strides=(2, 2), activation="relu")(inputs)
@@ -53,33 +59,32 @@ def build_model() -> Tuple[Model, Model, Model, Model, Model, Optimizer, Optimiz
     q2_values = Dense(NUM_ACTIONS, activation=None, name="q2_values")(x_q2)
     critic2 = Model(inputs=inputs, outputs=q2_values, name="sac_discrete_critic2")
 
-    # Targets (copies)
-    critic1_target = tf.keras.models.clone_model(critic1)
-    critic1_target.set_weights(critic1.get_weights())
-    critic1_target.trainable = False
-
-    critic2_target = tf.keras.models.clone_model(critic2)
-    critic2_target.set_weights(critic2.get_weights())
-    critic2_target.trainable = False
-
     actor_optimizer = Adam(learning_rate=ACTOR_LEARNING_RATE)
     critic_optimizer = Adam(learning_rate=CRITIC_LEARNING_RATE)
 
-    return actor, critic1, critic2, critic1_target, critic2_target, actor_optimizer, critic_optimizer
+    return actor, critic1, critic2, actor_optimizer, critic_optimizer
+
 
 def trainer(nb_env: int) -> MultiTrainer:
 
-    model, optimizer = build_model()
-    trainer_server = TrainerA2C(
+    actor, critic1, critic2, actor_optimizer, critic_optimizer = build_model()
+    trainer_server = TrainerSACDiscrete(
         model_name=MODEL_NAME,
-        model=model,
-        optimizer=optimizer,
+        actor=actor,
+        critic1=critic1,
+        critic2=critic2,
+        actor_optimizer=actor_optimizer,
+        critic_optimizer=critic_optimizer,
         nb_env=nb_env,
         num_actions=NUM_ACTIONS,
         fit_step_frequency=FIT_STEP_FREQUENCY,
         gamma=GAMMA,
-        entropy_coefficient=ENTROPY_COEF,
-        value_loss_coefficient=VALUE_COEF,
+        alpha=ALPHA,
+        tau=TAU,
+        target_entropy_scale=TARGET_ENTROPY_SCALE,
+        temperature_learning_rate=TEMPERATURE_LEARNING_RATE,
+        batch_size=BATCH_SIZE,
         grad_norm_clip=GRAD_NORM_CLIP,
+        memory_size=MEMORY_SIZE,
     )
     return trainer_server
