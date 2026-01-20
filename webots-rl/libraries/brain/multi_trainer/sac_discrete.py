@@ -1,4 +1,3 @@
-import json
 import time
 from collections import deque
 
@@ -201,16 +200,15 @@ class TrainerSACDiscrete(MultiTrainer):
             closed_sockets = []
 
             for conn, port in sockets:
-                msg = tcp.read(conn)
-                if msg is not None:
+                obj = tcp.read(conn)
 
-                    obj = json.loads(msg)
+                if obj is not None:
                     message_type = obj["message_type"]
 
                     if message_type == "policy":
                         observation = np.array(obj["observation"], dtype=np.float32)
                         action = self.policy(observation)
-                        tcp.send(conn, json.dumps({"action": action}))
+                        tcp.send(conn, {"action": action})
 
                     elif message_type == "step":
                         observation = np.array(obj["observation"], dtype=np.float32)

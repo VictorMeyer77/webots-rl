@@ -1,4 +1,3 @@
-import json
 from collections import deque
 
 import brain.utils.image as img
@@ -13,8 +12,7 @@ class TrainerAgentSACDiscreteSimpleArena(MultiTrainerAgent):
     def tcp_send_step(
         self, observation: np.ndarray, action: int, reward: float, done: bool, next_observation: np.ndarray
     ) -> None:
-        message = json.dumps(
-            {
+        message = {
                 "message_type": "step",
                 "observation": observation.tolist(),
                 "action": action,
@@ -22,7 +20,6 @@ class TrainerAgentSACDiscreteSimpleArena(MultiTrainerAgent):
                 "done": done,
                 "next_observation": next_observation.tolist(),
             }
-        )
         tcp.send(self.connection, message)
 
     def simulation(self) -> float:
@@ -72,7 +69,6 @@ class TrainerAgentSACDiscreteSimpleArena(MultiTrainerAgent):
             if step_action is None:
                 tcp_message = tcp.read(self.connection)
                 if tcp_message is not None:
-                    tcp_message = json.loads(tcp_message)
                     step_action = tcp_message["action"]
                     queue.send({"action": step_action})
                     self.environment.last_action = step_action

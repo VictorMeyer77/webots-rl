@@ -1,78 +1,91 @@
 """
-TCP Socket Utilities for RL Training Communication
+TCP socket utilities for framed message exchange.
 
-This module provides low-level TCP socket communication utilities for exchanging
-string messages between Webots supervisor controllers and external training processes.
-It implements a simple length-prefixed message protocol to ensure reliable message
-transmission over TCP connections.
+This module provides helper functions to send and receive length-prefixed
+messages over a TCP socket. The framing format uses a 4-byte big-endian unsigned
+integer to encode the payload length, followed by the payload bytes (UTF-8
+encoded JSON).
 
-Protocol Design:
-    Messages are transmitted using a length-prefix protocol:
-    1. First 4 bytes: Message length as big-endian unsigned integer (>I)
-    2. Remaining bytes: UTF-8 encoded message content
+Framing protocol:
+    [4 bytes: payload length (big-endian)] + [payload bytes (UTF-8 JSON)]
 
-    This protocol ensures:
-    - Complete message reception (no partial reads)
-    - Support for variable-length messages
-    - Binary-safe transmission of text data
-    - Cross-platform compatibility (big-endian byte order)
+The framing is necessary because TCP is a stream protocol that does not preserve
+message boundaries. Without framing, the receiver cannot distinguish where one
+message ends and another begins. A fixed-size header allows the receiver to know
+exactly how many bytes to read for the complete message.
 
-Message Format:
-    [4 bytes: length][N bytes: UTF-8 data]
-    Example: "hello" → [0x00, 0x00, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o']
+Functions:
+    send(conn, message): Serialize a dict to JSON and send with length prefix.
+    read(conn): Read one framed message and return the decoded JSON object.
 
-Use Cases:
-    - Sending observation data from Webots to trainer
-    - Receiving action commands from trainer to Webots
-    - Exchanging control signals (reset, done, config)
-    - Synchronizing episode boundaries between processes
+Error handling:
+    Both functions catch network errors (TimeoutError, ConnectionError, OSError)
+    and log them via the project logger. The `read()` function also catches
+    json.JSONDecodeError and returns None on any error.
 
-Thread Safety:
-    These functions are NOT thread-safe. Concurrent calls on the same socket
-    may result in interleaved messages or protocol errors. Use external locking
-    if multiple threads access the same connection.
-
-Performance Considerations:
-    - Uses blocking I/O (synchronous communication)
-    - recv() loops until complete message is received
-    - No internal buffering beyond Python's socket buffers
-    - Suitable for moderate message rates (<1000 msg/sec)
-
-Protocol Limitations:
-    - Maximum message size: 4GB (2^32-1 bytes)
-    - No message compression or encryption
-    - No automatic reconnection on failure
-    - Single message per call (no batching)
+Notes:
+    - The `recv()` call may return fewer bytes than requested due to TCP
+      fragmentation. The `read()` function loops until the full payload is
+      received to handle this correctly.
+    - If the connection is closed during reception, `read()` raises
+      ConnectionError with a descriptive message.
+    - The `send()` function uses `sendall()` to ensure all bytes are transmitted,
+      but may raise an exception if the connection fails mid-transmission.
+    - Both functions expect an active socket connection; they raise
+      ConnectionError if the socket is not initialized.
 """
 
+import json
 import socket
 import struct
 from brain.utils.logger import logger
 
-def send(conn: socket.socket, message: str) -> None:
+def send(conn: socket.socket, message: dict) -> None:
     """
-    Send a UTF-8 encoded string message with a 4-byte length prefix.
+    Serialize a dictionary to JSON and send it with a 4-byte length prefix.
+
+    The message is serialized to JSON, encoded as UTF-8, and sent with a
+    4-byte big-endian length header followed by the payload bytes.
 
     Args:
-        message (str): Message to send.
+        conn: Active TCP socket connection.
+        message: Dictionary to serialize and send as JSON.
+
     Raises:
-        ConnectionError: If socket is not initialized.
+        ConnectionError: If the socket is not initialized.
     """
     if not conn:
         raise ConnectionError("Socket not initialized")
-    buffer = message.encode("utf-8")
+    message_json = json.dumps(message)
+    buffer = message_json.encode("utf-8")
     msg_len = struct.pack(">I", len(buffer))
-    conn.sendall(msg_len + buffer)
+    try:
+        conn.sendall(msg_len + buffer)
+    except (TimeoutError, ConnectionError, OSError) as e:
+        logger().debug(f"TCP send error: {e}")
 
-
-def read(conn: socket.socket) -> str | None:
+def read(conn: socket.socket) -> dict | None:
     """
-    Read a length-prefixed UTF-8 string message.
+    Read one framed message and return the decoded JSON object.
+
+    Reads a 4-byte big-endian length header, then reads exactly that many
+    payload bytes, decodes UTF-8, and parses JSON. Handles TCP fragmentation
+    by looping until the full payload is received.
+
+    Args:
+        conn: Active TCP socket connection.
 
     Returns:
-        str: Received message, or empty string on timeout.
+        Decoded JSON object (dict), or None if the connection is closed or
+        an error occurs (network error or JSON decode error).
+
     Raises:
-        ConnectionError: If socket is not initialized or connection lost.
+        ConnectionError: If the socket is not initialized or if the connection
+                        is lost during reception (no data received when expected).
+
+    Notes:
+        This function returns None instead of raising on errors to allow the
+        caller to handle connection failures gracefully (e.g., retry logic).
     """
     if not conn:
         raise ConnectionError("Socket not initialized")
@@ -87,8 +100,8 @@ def read(conn: socket.socket) -> str | None:
             if not chunk:
                 raise ConnectionError("Connection lost during reception")
             message += chunk
-        message = message.decode("utf-8")
+        message = json.loads(message.decode("utf-8"))
         return message
-    except (TimeoutError, ConnectionResetError, ConnectionError, BrokenPipeError, OSError) as e:
+    except (TimeoutError, ConnectionError, OSError, json.JSONDecodeError) as e:
         logger().debug(f"TCP read error: {e}")
         return None
