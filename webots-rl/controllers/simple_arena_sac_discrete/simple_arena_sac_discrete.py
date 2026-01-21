@@ -27,5 +27,5 @@ if __name__ == "__main__":
         epuck.init_emitter_receiver()
         epuck.train()
     else:
-        epuck.load_model("simple_arena_sac_discrete_MT3E")
+        epuck.load_model("simple_arena_sac_discrete_4QaX")
         epuck.run()

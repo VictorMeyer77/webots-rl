@@ -38,7 +38,9 @@ Notes:
 import json
 import socket
 import struct
+
 from brain.utils.logger import logger
+
 
 def send(conn: socket.socket, message: dict) -> None:
     """
@@ -63,6 +65,7 @@ def send(conn: socket.socket, message: dict) -> None:
         conn.sendall(msg_len + buffer)
     except (TimeoutError, ConnectionError, OSError) as e:
         logger().debug(f"TCP send error: {e}")
+
 
 def read(conn: socket.socket) -> dict | None:
     """

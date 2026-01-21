@@ -13,13 +13,13 @@ class TrainerAgentSACDiscreteSimpleArena(MultiTrainerAgent):
         self, observation: np.ndarray, action: int, reward: float, done: bool, next_observation: np.ndarray
     ) -> None:
         message = {
-                "message_type": "step",
-                "observation": observation.tolist(),
-                "action": action,
-                "reward": reward,
-                "done": done,
-                "next_observation": next_observation.tolist(),
-            }
+            "message_type": "step",
+            "observation": observation.tolist(),
+            "action": action,
+            "reward": reward,
+            "done": done,
+            "next_observation": next_observation.tolist(),
+        }
         tcp.send(self.connection, message)
 
     def simulation(self) -> float:

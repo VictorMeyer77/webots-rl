@@ -124,15 +124,17 @@ class EpuckTurnerActor(EpuckTurner):
 
         return int(tf.argmax(logits, axis=-1)[0].numpy())
 
-        #out = self.model(x, training=False)
-        #logits = self._extract_logits(out)
+        # out = self.model(x, training=False)
+        # logits = self._extract_logits(out)
+
+
 #
-        #if self.stochastic:
-        #    # SAC: Sample from temperature-scaled softmax distribution
-        #    # Temperature is learned during training, baked into logits at inference
-        #    probs = tf.nn.softmax(logits, axis=-1)
-        #    action = tf.random.categorical(tf.math.log(probs), 1)[0, 0].numpy()
-        #    return int(action)
-        #else:
-        #    # Deterministic: Select action with highest probability
-        #    return int(tf.argmax(logits, axis=-1)[0].numpy())
+# if self.stochastic:
+#    # SAC: Sample from temperature-scaled softmax distribution
+#    # Temperature is learned during training, baked into logits at inference
+#    probs = tf.nn.softmax(logits, axis=-1)
+#    action = tf.random.categorical(tf.math.log(probs), 1)[0, 0].numpy()
+#    return int(action)
+# else:
+#    # Deterministic: Select action with highest probability
+#    return int(tf.argmax(logits, axis=-1)[0].numpy())

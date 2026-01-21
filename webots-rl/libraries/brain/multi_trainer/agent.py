@@ -317,13 +317,13 @@ class MultiTrainerAgent(ABC):
             * All transitions are stored, including terminal ones (done=True).
         """
         message = {
-                "message_type": "step",
-                "observation": observation.tolist(),
-                "action": action,
-                "reward": reward,
-                "done": done,
-                "value": value,
-            }
+            "message_type": "step",
+            "observation": observation.tolist(),
+            "action": action,
+            "reward": reward,
+            "done": done,
+            "value": value,
+        }
         tcp.send(self.connection, message)
 
     def tcp_send_terminated(self) -> None:
@@ -355,6 +355,6 @@ class MultiTrainerAgent(ABC):
             * If all agents terminate, the trainer saves the model and exits.
         """
         message = {
-                "message_type": "terminated",
-            }
+            "message_type": "terminated",
+        }
         tcp.send(self.connection, message)

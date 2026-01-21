@@ -1,5 +1,4 @@
 import sys
-from pipes import Template
 from typing import Tuple
 
 sys.path.append("webots-rl/libraries")
@@ -17,7 +16,7 @@ from tensorflow.keras.optimizers import Adam, Optimizer
 
 MODEL_NAME = "simple_arena_sac_discrete"  # Base name for saved model files
 NUM_ACTIONS = 4  # Number of discrete actions in the environment
-FIT_STEP_FREQUENCY = 16  # Train model every N environment steps
+FIT_STEP_FREQUENCY = 64  # Train model every N environment steps
 GAMMA = 0.99  # Discount factor for future rewards [0,
 ALPHA = 0.2  # Entropy temperature parameter
 TAU = 0.005  # Target network update rate

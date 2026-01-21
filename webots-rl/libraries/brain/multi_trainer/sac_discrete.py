@@ -54,7 +54,7 @@ class TrainerSACDiscrete(MultiTrainer):
         self.fit_step_frequency = fit_step_frequency
 
         self.gamma = gamma
-        #self.alpha = alpha
+        # self.alpha = alpha
         self.tau = tau
         self.batch_size = batch_size
         self.grad_norm_clip = grad_norm_clip
@@ -127,9 +127,7 @@ class TrainerSACDiscrete(MultiTrainer):
 
             entropy = -tf.reduce_mean(tf.reduce_sum(pi * log_pi, axis=-1))
 
-            alpha_loss = -tf.reduce_mean(
-                self.log_alpha * tf.stop_gradient(entropy - self.target_entropy)
-            )
+            alpha_loss = -tf.reduce_mean(self.log_alpha * tf.stop_gradient(entropy - self.target_entropy))
 
         # Gradients critic
         critic_vars = self.critic1.trainable_variables + self.critic2.trainable_variables
@@ -179,7 +177,9 @@ class TrainerSACDiscrete(MultiTrainer):
             return
 
         observations, actions, rewards, dones, next_observations = self._sample_batch()
-        critic_loss, actor_loss, entropy, alpha_loss = self.train_step(observations, actions, rewards, dones, next_observations)
+        critic_loss, actor_loss, entropy, alpha_loss = self.train_step(
+            observations, actions, rewards, dones, next_observations
+        )
 
         with self.tb_writer.as_default():
             tf.summary.scalar("SAC_Discrete/Critic_Loss", critic_loss, step=self.train_step_count)
