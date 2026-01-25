@@ -18,7 +18,6 @@ Constants:
     MODEL_SAVE_FREQUENCY_MINUTES: Model save frequency in minutes (10).
 """
 
-import json
 import time
 
 import brain.utils.tcp_socket as tcp
@@ -489,16 +488,15 @@ class TrainerPPO(MultiTrainer):
             closed_sockets = []
 
             for conn, port in sockets:
-                msg = tcp.read(conn)
+                obj = tcp.read(conn)
 
-                if msg is not None:
-                    obj = json.loads(msg)
+                if obj is not None:
                     message_type = obj["message_type"]
 
                     if message_type == "policy":
                         observation = np.array(obj["observation"])
                         action, value = self.policy(observation)
-                        tcp.send(conn, json.dumps({"action": action, "value": value}))
+                        tcp.send(conn, {"action": action, "value": value})
 
                     elif message_type == "step":
                         self.memory_append(

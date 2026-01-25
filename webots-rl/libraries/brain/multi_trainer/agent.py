@@ -59,7 +59,6 @@ Notes:
   * The agent expects the trainer to be running before initialization.
 """
 
-import json
 import socket
 import time
 from abc import ABC, abstractmethod
@@ -264,7 +263,7 @@ class MultiTrainerAgent(ABC):
               network latency.
             * The trainer's response includes both action and value for efficiency.
         """
-        message = json.dumps({"message_type": "policy", "observation": observation.tolist()})
+        message = {"message_type": "policy", "observation": observation.tolist()}
         tcp.send(self.connection, message)
 
     def tcp_send_step(self, observation: np.ndarray, action: int, reward: float, done: bool, value: float) -> None:
@@ -317,16 +316,14 @@ class MultiTrainerAgent(ABC):
               bootstrap from V(s_{t+1}) for this transition.
             * All transitions are stored, including terminal ones (done=True).
         """
-        message = json.dumps(
-            {
-                "message_type": "step",
-                "observation": observation.tolist(),
-                "action": action,
-                "reward": reward,
-                "done": done,
-                "value": value,
-            }
-        )
+        message = {
+            "message_type": "step",
+            "observation": observation.tolist(),
+            "action": action,
+            "reward": reward,
+            "done": done,
+            "value": value,
+        }
         tcp.send(self.connection, message)
 
     def tcp_send_terminated(self) -> None:
@@ -357,9 +354,7 @@ class MultiTrainerAgent(ABC):
               its active socket list.
             * If all agents terminate, the trainer saves the model and exits.
         """
-        message = json.dumps(
-            {
-                "message_type": "terminated",
-            }
-        )
+        message = {
+            "message_type": "terminated",
+        }
         tcp.send(self.connection, message)

@@ -12,7 +12,6 @@ experience data (observations, actions, rewards) and sending it to the trainer
 for PPO updates.
 """
 
-import json
 from collections import deque
 
 import brain.utils.image as img
@@ -131,7 +130,6 @@ class TrainerAgentPPOSimpleArena(MultiTrainerAgent):
             if step_action is None:
                 tcp_message = tcp.read(self.connection)
                 if tcp_message is not None:
-                    tcp_message = json.loads(tcp_message)
                     step_action = tcp_message["action"]
                     step_value = tcp_message["value"]
                     queue.send({"action": step_action})

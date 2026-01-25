@@ -20,7 +20,6 @@ Notes:
   * Reward computation is environment-specific (defined in self.environment.step()).
 """
 
-import json
 from collections import deque
 
 import brain.utils.image as img
@@ -189,7 +188,6 @@ class TrainerAgentA2CSimpleArena(MultiTrainerAgent):
             if step_action is None:
                 tcp_message = tcp.read(self.connection)
                 if tcp_message is not None:
-                    tcp_message = json.loads(tcp_message)
                     step_action = tcp_message["action"]
                     step_value = tcp_message["value"]
                     queue.send({"action": step_action})
