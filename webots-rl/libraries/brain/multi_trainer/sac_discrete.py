@@ -1,3 +1,5 @@
+# uncommented and unstable
+
 import time
 from collections import deque
 
@@ -30,7 +32,8 @@ class TrainerSACDiscrete(MultiTrainer):
         temperature_learning_rate: float,
         batch_size: int,
         grad_norm_clip: float,
-        memory_size: int,
+        replay_size: int,
+        min_replay_size: int,
     ):
 
         super().__init__(model_name=model_name, model=actor, optimizer=actor_optimizer, nb_env=nb_env, memory_size=1)
@@ -68,7 +71,8 @@ class TrainerSACDiscrete(MultiTrainer):
         self.alpha_optimizer = tf.keras.optimizers.Adam(learning_rate=temperature_learning_rate)
 
         # todo merge with parent
-        self.replay = deque(maxlen=memory_size)
+        self.replay = deque(maxlen=replay_size)
+        self.min_replay_size = min_replay_size
 
     @property
     def alpha(self):
@@ -173,7 +177,7 @@ class TrainerSACDiscrete(MultiTrainer):
         )
 
     def fit_model(self) -> None:
-        if len(self.replay) < self.batch_size:
+        if len(self.replay) < self.batch_size or len(self.replay) < self.min_replay_size:
             return
 
         observations, actions, rewards, dones, next_observations = self._sample_batch()

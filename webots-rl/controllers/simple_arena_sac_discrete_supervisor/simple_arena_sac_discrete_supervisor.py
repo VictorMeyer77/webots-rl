@@ -1,3 +1,5 @@
+# uncommented and unstable
+
 import sys
 
 sys.path.append("../../libraries")
@@ -13,8 +15,8 @@ from controller import Supervisor
 
 # Simulation Parameters
 TIME_STEP = 64  # Simulation timestep in milliseconds (15.625 Hz)
-EPISODE_SIZE = 500  # Maximum steps per episode before timeout
-EPOCHS = 1000  # Number of training episodes
+EPISODE_SIZE = 1000  # Maximum steps per episode before timeout
+EPOCHS = 2000  # Number of training episodes
 
 if __name__ == "__main__":
     # Setup logging

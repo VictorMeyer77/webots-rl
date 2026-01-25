@@ -1,3 +1,4 @@
+# uncommented and unstable
 import sys
 from typing import Tuple
 
@@ -15,18 +16,19 @@ from tensorflow.keras.optimizers import Adam, Optimizer
 # Model Configuration
 
 MODEL_NAME = "simple_arena_sac_discrete"  # Base name for saved model files
-NUM_ACTIONS = 4  # Number of discrete actions in the environment
+NUM_ACTIONS = 3  # Number of discrete actions in the environment
 FIT_STEP_FREQUENCY = 64  # Train model every N environment steps
 GAMMA = 0.99  # Discount factor for future rewards [0,
 ALPHA = 0.2  # Entropy temperature parameter
 TAU = 0.005  # Target network update rate
 BATCH_SIZE = 64  # Mini-batch size for training
-GRAD_NORM_CLIP = 0.5  # Gradient norm clipping value
-MEMORY_SIZE = 100000  # Replay buffer size
-ACTOR_LEARNING_RATE = 0.0001
-CRITIC_LEARNING_RATE = 0.0001
+GRAD_NORM_CLIP = 10.0  # Gradient norm clipping value
+REPLAY_SIZE = 100000  # Replay buffer size
+MIN_REPLAY_SIZE = 5000  # Minimum replay buffer size before training
+ACTOR_LEARNING_RATE = 0.0003
+CRITIC_LEARNING_RATE = 0.0003
 TEMPERATURE_LEARNING_RATE = 0.0001
-TARGET_ENTROPY_SCALE = -0.98
+TARGET_ENTROPY_SCALE = -0.5
 
 logger.add_console_logger(logging.INFO)
 logger.add_file_logger(logging.INFO)
@@ -84,6 +86,7 @@ def trainer(nb_env: int) -> MultiTrainer:
         temperature_learning_rate=TEMPERATURE_LEARNING_RATE,
         batch_size=BATCH_SIZE,
         grad_norm_clip=GRAD_NORM_CLIP,
-        memory_size=MEMORY_SIZE,
+        replay_size=REPLAY_SIZE,
+        min_replay_size=MIN_REPLAY_SIZE,
     )
     return trainer_server

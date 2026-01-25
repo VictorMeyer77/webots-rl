@@ -1,3 +1,5 @@
+# uncommented and unstable
+
 from collections import deque
 
 import brain.utils.image as img
@@ -90,6 +92,7 @@ class TrainerAgentSACDiscreteSimpleArena(MultiTrainerAgent):
 
             # (5) Environment step: obtain new state and reward, update q_table.
             state, reward = self.environment.step()
+            reward *= 100.0
             total_reward += reward
 
             # (6) Termination check: update q_table and exit loop if episode ends.
