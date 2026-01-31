@@ -12,7 +12,7 @@ A FastAPI-based API server designed to facilitate communication and coordination
 ```bash
 # Clone the repository
 git clone https://github.com/VictorMeyer77/webots-rl.git
-cd backtrain
+cd webots-rl/backtrain
 
 # Install dependencies
 uv sync
