@@ -98,3 +98,4 @@ log_file_dir=log                # Directory path for log files
 
 ### Devops
 - [ ] **CI/CD**: Set up continuous integration and deployment pipelines
+- [ ] **Clean command**: Add clean command to remove build artifacts and temporary files
