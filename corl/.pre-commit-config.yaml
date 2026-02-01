@@ -1,0 +1,77 @@
+# Pre-commit hooks configuration
+# See https://pre-commit.com for more information
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+      - id: end-of-file-fixer
+        name: Fix end of files
+      - id: check-yaml
+        name: Check YAML syntax
+      - id: mixed-line-ending
+        name: Fix mixed line endings
+
+  # Python code formatting with ruff
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.0
+    hooks:
+      - id: ruff
+        name: Ruff linter
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+        name: Ruff formatter
+
+  # Type checking with mypy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.9.0
+    hooks:
+      - id: mypy
+        name: Type check with mypy
+        additional_dependencies:
+          - types-requests
+          - pydantic
+        args: [--ignore-missing-imports, --no-strict-optional, --explicit-package-bases]
+
+  # Run tests with pytest
+  - repo: local
+    hooks:
+      - id: pytest
+        name: Run pytest tests
+        entry: uv run pytest corl/tests
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        exclude: '^\.\./'
+
+      - id: pytest-cov
+        name: Check test coverage
+        entry: uv run pytest --cov=corl --cov-report=term-missing --cov-fail-under=80
+        language: system
+        types: [python]
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+  # Import sorting
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: Sort imports with isort
+        args: ["--profile", "black"]
+
+# Configuration for pre-commit stages
+default_stages: [pre-commit]
+
+# Fail fast on first error
+fail_fast: false
+
+# Minimum pre-commit version
+minimum_pre_commit_version: 3.0.0
+
+files: ^corl/
