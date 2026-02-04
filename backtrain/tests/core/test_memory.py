@@ -390,18 +390,18 @@ def test_memory_episode_boundary():
     assert terminal_msg.done is True
 
 
-def test_memory_parallel_environments():
-    """Test memory handles parallel environment instances correctly."""
+def test_memory_parallel_workers():
+    """Test memory handles parallel running instances correctly."""
     memory = Memory(capacity=20)
 
-    # Simulate 3 parallel environments at same step
-    for env_id in range(3):
+    # Simulate 3 parallel workers at same step
+    for worker_id in range(3):
         msg = EnvironmentSchema(
-            done=False, reward=float(env_id), data={"env_id": env_id}
+            done=False, reward=float(worker_id), data={"worker_id": worker_id}
         )
-        memory.add(("train_001", env_id, 1, 10), msg)
+        memory.add(("train_001", worker_id, 1, 10), msg)
 
-    # Verify all environments stored independently
-    for env_id in range(3):
-        retrieved = memory.get(("train_001", env_id, 1, 10))
-        assert retrieved.data["env_id"] == env_id
+    # Verify all workers stored independently
+    for worker_id in range(3):
+        retrieved = memory.get(("train_001", worker_id, 1, 10))
+        assert retrieved.data["worker_id"] == worker_id

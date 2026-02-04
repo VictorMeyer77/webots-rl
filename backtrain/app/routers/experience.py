@@ -27,18 +27,20 @@ router = APIRouter(prefix="/experience", tags=["experience"])
 
 def _get_experience(
     train_id: str,
-    env_id: int,
+    worker_id: int,
     episode_id: int,
     step: int,
     environment_memory: Memory,
     observation_memory: Memory,
     action_memory: Memory,
 ) -> ExperienceSchema | None:
-    key = (train_id, env_id, episode_id, step)
+    key = (train_id, worker_id, episode_id, step)
     environment = environment_memory.get(key)
     observation = observation_memory.get(key)
     action = action_memory.get(key)
-    next_observation = observation_memory.get((train_id, env_id, episode_id, step + 1))
+    next_observation = observation_memory.get(
+        (train_id, worker_id, episode_id, step + 1)
+    )
     """Aggregate and retrieve a complete experience tuple from memory.
 
     Combines data from three independent memory channels (observation, action,
@@ -47,7 +49,7 @@ def _get_experience(
 
     Args:
         train_id: Training session identifier.
-        env_id: Environment instance ID for parallel environments (0-indexed).
+        worker_id: Running instance ID for parallel workers (0-indexed).
         episode_id: Episode number within the training session.
         step: Time step within the episode (0-indexed).
         environment_memory: Memory instance for environment state messages.
@@ -76,7 +78,7 @@ def _get_experience(
 
 
 @router.get(
-    "/{train_id}/{env_id}/{episode_id}/{step}",
+    "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Retrieve complete experience tuple for RL training",
     description=(
         "Aggregates observation, action, and environment data into a complete "
@@ -109,7 +111,7 @@ def _get_experience(
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "Experience not found for train_id=exp_001, env_id=0, episode_id=5, step=10"
+                        "detail": "Experience not found for train_id=exp_001, worker_id=0, episode_id=5, step=10"
                     }
                 }
             },
@@ -125,10 +127,10 @@ def get_experience_step(
         max_length=100,
         description="Training session identifier",
     ),
-    env_id: int = Path(
+    worker_id: int = Path(
         ...,
         ge=0,
-        description="Environment instance ID for parallel environments (0-indexed)",
+        description="Running instance ID for parallel workers (0-indexed)",
     ),
     episode_id: int = Path(
         ...,
@@ -152,7 +154,7 @@ def get_experience_step(
 
     Args:
         train_id: Unique identifier for the training session/experiment.
-        env_id: Environment instance number (for parallel environment execution).
+        worker_id: Running instance number (for parallel environment execution).
         episode_id: Episode number within the training session.
         step: Time step to retrieve experience for.
         environment_memory: Injected environment memory instance (dependency injection).
@@ -176,7 +178,7 @@ def get_experience_step(
     """
     experience = _get_experience(
         train_id,
-        env_id,
+        worker_id,
         episode_id,
         step,
         environment_memory,
@@ -187,7 +189,7 @@ def get_experience_step(
     if experience is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Experience not found for train_id={train_id}, env_id={env_id}, episode_id={episode_id}, step={step}",
+            detail=f"Experience not found for train_id={train_id}, worker_id={worker_id}, episode_id={episode_id}, step={step}",
         )
 
     return experience

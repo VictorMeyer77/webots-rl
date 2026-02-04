@@ -43,9 +43,11 @@ class ActionSchema(BaseModel):
 
     Attributes:
         action: Integer identifier for the action to execute.
+        executed: Boolean flag indicating if the action has been executed.
     """
 
     action: int
+    executed: bool = False
 
 
 class ExperienceSchema(BaseModel):
@@ -66,3 +68,30 @@ class ExperienceSchema(BaseModel):
     action: ActionSchema
     environment: EnvironmentSchema
     next_observation: ObservationSchema | None
+
+
+class TrainIdSchema(BaseModel):
+    """Request model for creating a new training session."""
+
+    train_id: str
+
+
+class WorkerIdSchema(BaseModel):
+    """Response model for adding a worker to a training session."""
+
+    worker_id: int
+
+
+class EpisodeIdSchema(BaseModel):
+    """Response model for retrieving an episode ID."""
+
+    episode_id: int
+
+
+class SystemInfoSchema(BaseModel):
+    """Response model for system information endpoint."""
+
+    supervisor: dict[str, dict[int, int]]
+    action_memory: dict[str, int | float]
+    environment_memory: dict[str, int | float]
+    observation_memory: dict[str, int | float]

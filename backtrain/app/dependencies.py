@@ -6,10 +6,12 @@ the application state. These dependencies are used to inject memory storage
 into API route handlers for managing environment states, observations, and actions.
 """
 
+from app.core.memory import Memory
+from app.core.supervisor import Supervisor
 from fastapi import Request
 
 
-def get_environment_memory(request: Request):
+def get_environment_memory(request: Request) -> Memory:
     """
     Retrieve the environment memory.
 
@@ -25,7 +27,7 @@ def get_environment_memory(request: Request):
     return request.app.state.environment_memory
 
 
-def get_observation_memory(request: Request):
+def get_observation_memory(request: Request) -> Memory:
     """
     Retrieve the observation memory.
 
@@ -41,7 +43,7 @@ def get_observation_memory(request: Request):
     return request.app.state.observation_memory
 
 
-def get_action_memory(request: Request):
+def get_action_memory(request: Request) -> Memory:
     """
     Retrieve the action memory.
 
@@ -55,3 +57,19 @@ def get_action_memory(request: Request):
         The action memory instance stored in the application state.
     """
     return request.app.state.action_memory
+
+
+def get_supervisor(request: Request) -> Supervisor:
+    """
+    Retrieve the supervisor instance.
+
+    This dependency function provides access to the supervisor that manages
+    the overall training process.
+
+    Args:
+        request: The FastAPI request object containing the application state.
+
+    Returns:
+        The supervisor instance stored in the application state.
+    """
+    return request.app.state.supervisor

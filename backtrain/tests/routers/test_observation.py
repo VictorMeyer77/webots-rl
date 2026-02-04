@@ -71,9 +71,10 @@ def test_add_observation_step_multiple_observations(
         ("train_001", 1, 1, 0, {"sensors": [0.7, 0.8]}),
     ]
 
-    for train_id, env_id, episode_id, step, data in observations:
+    for train_id, worker_id, episode_id, step, data in observations:
         response = client.post(
-            f"/observation/{train_id}/{env_id}/{episode_id}/{step}", json={"data": data}
+            f"/observation/{train_id}/{worker_id}/{episode_id}/{step}",
+            json={"data": data},
         )
         assert response.status_code == 200
 
@@ -108,8 +109,8 @@ def test_add_observation_step_invalid_train_id(client, mock_get_observation_memo
     assert response.status_code == 404
 
 
-def test_add_observation_step_negative_env_id(client, mock_get_observation_memory):
-    """Test validation error for negative env_id."""
+def test_add_observation_step_negative_worker_id(client, mock_get_observation_memory):
+    """Test validation error for negative worker_id."""
     payload = {"data": {"value": 1.0}}
 
     response = client.post("/observation/train_001/-1/1/10", json=payload)
@@ -161,7 +162,7 @@ def test_get_observation_step_not_found(client, mock_get_observation_memory):
     assert "detail" in data
     assert "Observation not found" in data["detail"]
     assert "train_id=train_001" in data["detail"]
-    assert "env_id=0" in data["detail"]
+    assert "worker_id=0" in data["detail"]
     assert "episode_id=1" in data["detail"]
     assert "step=10" in data["detail"]
 
@@ -301,25 +302,25 @@ def test_observation_with_negative_values(client, mock_get_observation_memory):
     assert data["velocity"] == [-0.5, -0.8]
 
 
-def test_parallel_environments(client, mock_get_observation_memory):
-    """Test handling multiple parallel environment instances."""
+def test_parallel_workers(client, mock_get_observation_memory):
+    """Test handling multiple parallel running instances."""
     num_envs = 5
 
-    # Add observations for parallel environments
-    for env_id in range(num_envs):
+    # Add observations for parallel workers
+    for worker_id in range(num_envs):
         response = client.post(
-            f"/observation/train_001/{env_id}/1/10",
-            json={"data": {"env_id": env_id, "value": float(env_id * 10)}},
+            f"/observation/train_001/{worker_id}/1/10",
+            json={"data": {"worker_id": worker_id, "value": float(worker_id * 10)}},
         )
         assert response.status_code == 200
 
     # Retrieve and verify each
-    for env_id in range(num_envs):
-        response = client.get(f"/observation/train_001/{env_id}/1/10")
+    for worker_id in range(num_envs):
+        response = client.get(f"/observation/train_001/{worker_id}/1/10")
         assert response.status_code == 200
         data = response.json()["data"]
-        assert data["env_id"] == env_id
-        assert data["value"] == env_id * 10
+        assert data["worker_id"] == worker_id
+        assert data["value"] == worker_id * 10
 
 
 def test_episode_progression(client, mock_get_observation_memory):

@@ -18,13 +18,13 @@ Architecture Overview:
 Message Routing:
     The hierarchical key structure enables efficient message routing:
     - train_id (str): Training session/experiment identifier
-    - env_id (int): Parallel environment instance (for multi-env setups)
+    - worker_id (int): Parallel running instance (for multi-env setups)
     - episode_id (int): Episode number within session
     - step (int): Time step within episode
 
     This allows components to:
     - Subscribe to specific training sessions
-    - Handle parallel environments independently
+    - Handle parallel workers independently
     - Process episodes in sequence or parallel
     - Access individual time steps for debugging
 
@@ -91,7 +91,7 @@ class Memory:
         capacity is exceeded, the oldest unpublished message is evicted.
 
         Args:
-            key (Key): Hierarchical routing key (train_id, env_id, episode_id, step).
+            key (Key): Hierarchical routing key (train_id, worker_id, episode_id, step).
             value: Message payload (EnvironmentSchema, ObservationSchema, or ActionSchema).
         """
         self.memory[key] = value

@@ -18,15 +18,20 @@ import uvicorn
 from app.core.config import settings
 from app.core.logger import get_logger, setup_logging
 from app.core.memory import Memory
+from app.core.supervisor import Supervisor
+from app.routers import router as root_router
 from app.routers.action import router as action_router
 from app.routers.environment import router as environment_router
 from app.routers.experience import router as experience_router
 from app.routers.observation import router as observation_router
+from app.routers.supervisor import router as supervisor_router
 from fastapi import FastAPI
 
 # Configure application-wide logging
 setup_logging()
 logger = get_logger(__name__)
+
+API_PREFIX = "/api/v1"
 
 
 @asynccontextmanager
@@ -53,6 +58,7 @@ async def lifespan(app: FastAPI):
     app.state.environment_memory = Memory(capacity=settings.memory_capacity)
     app.state.observation_memory = Memory(capacity=settings.memory_capacity)
     app.state.action_memory = Memory(capacity=settings.memory_capacity)
+    app.state.supervisor = Supervisor()
     yield
 
 
@@ -60,10 +66,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # Register API routers for handling different aspects of the RL system
-app.include_router(environment_router, prefix="/api/v1")
-app.include_router(observation_router, prefix="/api/v1")
-app.include_router(action_router, prefix="/api/v1")
-app.include_router(experience_router, prefix="/api/v1")
+app.include_router(root_router, prefix=API_PREFIX)
+app.include_router(environment_router, prefix=API_PREFIX)
+app.include_router(observation_router, prefix=API_PREFIX)
+app.include_router(action_router, prefix=API_PREFIX)
+app.include_router(experience_router, prefix=API_PREFIX)
+app.include_router(supervisor_router, prefix=API_PREFIX)
 
 
 @app.get(

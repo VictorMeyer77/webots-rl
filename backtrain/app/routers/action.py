@@ -7,13 +7,13 @@ agents for execution.
 
 Endpoints:
     - GET  /health                                  : Memory health monitoring
-    - POST /{train_id}/{env_id}/{episode_id}/{step} : Publish action
-    - GET  /{train_id}/{env_id}/{episode_id}/{step} : Consume action
+    - POST /{train_id}/{worker_id}/{episode_id}/{step} : Publish action
+    - GET  /{train_id}/{worker_id}/{episode_id}/{step} : Consume action
 
 Key Structure:
     All endpoints use a 4-level hierarchical key for message routing:
     - train_id (str): Training session/experiment identifier
-    - env_id (int): Parallel environment instance (0-indexed)
+    - worker_id (int): Parallel running instance (0-indexed)
     - episode_id (int): Episode number within training session
     - step (int): Time step within episode
 
@@ -79,7 +79,7 @@ def check_action_memory_health(
 
 
 @router.post(
-    "/{train_id}/{env_id}/{episode_id}/{step}",
+    "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Publish action message",
     description="Trainer publishes an action for the agent to consume. "
     "The action is stored with a hierarchical key for organized retrieval.",
@@ -95,12 +95,12 @@ def check_action_memory_health(
         },
     },
 )
-@router.post("/{train_id}/{env_id}/{episode_id}/{step}")
+@router.post("/{train_id}/{worker_id}/{episode_id}/{step}")
 def add_action_step(
     train_id: str = Path(
         ..., min_length=1, description="The training session identifier"
     ),
-    env_id: int = Path(..., ge=0, description="The environment instance identifier"),
+    worker_id: int = Path(..., ge=0, description="The running instance identifier"),
     episode_id: int = Path(..., ge=0, description="The episode identifier"),
     step: int = Path(..., ge=0, description="The step identifier within the episode"),
     payload: ActionSchema = ...,
@@ -112,7 +112,7 @@ def add_action_step(
 
     Args:
         train_id: Unique identifier for the training session/experiment.
-        env_id: Environment instance number (for parallel environments).
+        worker_id: Running instance number (for parallel workers).
         episode_id: Episode number within the training session.
         step: Time step within the current episode.
         payload: Action data conforming to ActionSchema.
@@ -123,13 +123,13 @@ def add_action_step(
             - status (str): "stored" if successful
 
     """
-    key = (train_id, env_id, episode_id, step)
+    key = (train_id, worker_id, episode_id, step)
     memory.add(key, payload)
     return {"status": "stored"}
 
 
 @router.get(
-    "/{train_id}/{env_id}/{episode_id}/{step}",
+    "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Consume action message",
     description="Agent retrieves an action published by the trainer. "
     "Returns 404 if action not yet published or has been evicted.",
@@ -151,7 +151,7 @@ def add_action_step(
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "Action not found for train_id=exp_001, env_id=0, episode_id=5, step=10"
+                        "detail": "Action not found for train_id=exp_001, worker_id=0, episode_id=5, step=10"
                     }
                 }
             },
@@ -162,7 +162,7 @@ def get_action_step(
     train_id: str = Path(
         ..., min_length=1, description="The training session identifier"
     ),
-    env_id: int = Path(..., ge=0, description="The environment instance identifier"),
+    worker_id: int = Path(..., ge=0, description="The running instance identifier"),
     episode_id: int = Path(..., ge=0, description="The episode identifier"),
     step: int = Path(..., ge=0, description="The step identifier within the episode"),
     memory: Memory = Depends(get_action_memory),
@@ -173,7 +173,7 @@ def get_action_step(
 
     Args:
         train_id: Training session identifier.
-        env_id: Environment instance number.
+        worker_id: Running instance number.
         episode_id: Episode number.
         step: Time step to retrieve action for.
         memory: Injected action memory instance.
@@ -185,13 +185,13 @@ def get_action_step(
     Raises:
         HTTPException: 404 if action not found.
     """
-    key = (train_id, env_id, episode_id, step)
+    key = (train_id, worker_id, episode_id, step)
     value = memory.get(key)
 
     if value is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Action not found for train_id={train_id}, env_id={env_id}, episode_id={episode_id}, step={step}",
+            detail=f"Action not found for train_id={train_id}, worker_id={worker_id}, episode_id={episode_id}, step={step}",
         )
 
     return value

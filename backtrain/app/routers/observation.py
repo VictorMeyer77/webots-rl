@@ -8,7 +8,7 @@ Error Handling:
     - 404 (GET): Observation not found
         * Observation hasn't been published yet
         * Observation evicted from memory
-        * Invalid key (train_id, env_id, episode_id, or step doesn't exist)
+        * Invalid key (train_id, worker_id, episode_id, or step doesn't exist)
 
     - 422 (POST): Invalid observation data
         * Data not JSON-serializable
@@ -24,7 +24,7 @@ router = APIRouter(prefix="/observation", tags=["observation"])
 
 
 @router.post(
-    "/{train_id}/{env_id}/{episode_id}/{step}",
+    "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Publish observation to memory",
     description=("Agent publishes observation for consumption by trainer."),
     response_description="Confirmation that observation was stored successfully",
@@ -59,10 +59,10 @@ def add_observation_step(
         max_length=100,
         description="Training session identifier",
     ),
-    env_id: int = Path(
+    worker_id: int = Path(
         ...,
         ge=0,
-        description="Environment instance ID for parallel environments (0-indexed)",
+        description="Running instance ID for parallel workers (0-indexed)",
     ),
     episode_id: int = Path(
         ...,
@@ -85,7 +85,7 @@ def add_observation_step(
 
     Args:
         train_id: Unique identifier for the training session/experiment.
-        env_id: Environment instance number (for parallel environment execution).
+        worker_id: Running instance number (for parallel environment execution).
         episode_id: Episode number within the training session.
         step: Time step within the current episode.
         payload: ObservationSchema containing observation data and optional metadata.
@@ -94,15 +94,15 @@ def add_observation_step(
     Returns:
         dict: Confirmation message with status "stored".
     """
-    key = (train_id, env_id, episode_id, step)
+    key = (train_id, worker_id, episode_id, step)
     memory.add(key, payload)
     return {"status": "stored"}
 
 
 @router.get(
-    "/{train_id}/{env_id}/{episode_id}/{step}",
+    "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Retrieve observation from memory",
-    description=("Trainer retrieve observation state from memory."),
+    description="Trainer retrieve observation state from memory.",
     response_description="Observation data.",
     response_model=ObservationSchema,
     responses={
@@ -121,7 +121,7 @@ def add_observation_step(
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "Observation not found for train_id=exp_001, env_id=0, episode_id=5, step=10"
+                        "detail": "Observation not found for train_id=exp_001, worker_id=0, episode_id=5, step=10"
                     }
                 }
             },
@@ -135,10 +135,10 @@ def get_observation_step(
         max_length=100,
         description="Training session identifier",
     ),
-    env_id: int = Path(
+    worker_id: int = Path(
         ...,
         ge=0,
-        description="Environment instance ID for parallel environments (0-indexed)",
+        description="Running instance ID for parallel workers (0-indexed)",
     ),
     episode_id: int = Path(
         ...,
@@ -156,7 +156,7 @@ def get_observation_step(
 
     Args:
         train_id: Unique identifier for the training session/experiment.
-        env_id: Environment instance number (for parallel environment execution).
+        worker_id: Running instance number (for parallel environment execution).
         episode_id: Episode number within the training session.
         step: Time step within the current episode.
         memory: Injected observation memory instance (dependency injection).
@@ -171,13 +171,13 @@ def get_observation_step(
             - Observation evicted from memory
             - Invalid key
     """
-    key = (train_id, env_id, episode_id, step)
+    key = (train_id, worker_id, episode_id, step)
     value = memory.get(key)
 
     if value is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Observation not found for train_id={train_id}, env_id={env_id}, episode_id={episode_id}, step={step}",
+            detail=f"Observation not found for train_id={train_id}, worker_id={worker_id}, episode_id={episode_id}, step={step}",
         )
 
     return value

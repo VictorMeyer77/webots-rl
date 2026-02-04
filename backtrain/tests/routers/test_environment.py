@@ -105,9 +105,9 @@ def test_add_environment_step_multiple_states(client, mock_get_environment_memor
         ("train_001", 1, 1, 0, True, 10.0),
     ]
 
-    for train_id, env_id, episode_id, step, done, reward in states:
+    for train_id, worker_id, episode_id, step, done, reward in states:
         response = client.post(
-            f"/environment/{train_id}/{env_id}/{episode_id}/{step}",
+            f"/environment/{train_id}/{worker_id}/{episode_id}/{step}",
             json={"done": done, "reward": reward, "data": {}},
         )
         assert response.status_code == 200
@@ -170,8 +170,8 @@ def test_add_environment_step_invalid_train_id(client, mock_get_environment_memo
     assert response.status_code == 404
 
 
-def test_add_environment_step_negative_env_id(client, mock_get_environment_memory):
-    """Test validation error for negative env_id."""
+def test_add_environment_step_negative_worker_id(client, mock_get_environment_memory):
+    """Test validation error for negative worker_id."""
     payload = {"done": False, "reward": 1.0, "data": {}}
 
     response = client.post("/environment/train_001/-1/1/10", json=payload)
@@ -225,7 +225,7 @@ def test_get_environment_step_not_found(client, mock_get_environment_memory):
     assert "detail" in data
     assert "Environment not found" in data["detail"]
     assert "train_id=train_001" in data["detail"]
-    assert "env_id=0" in data["detail"]
+    assert "worker_id=0" in data["detail"]
     assert "episode_id=1" in data["detail"]
     assert "step=10" in data["detail"]
 
@@ -364,29 +364,29 @@ def test_environment_terminal_state(client, mock_get_environment_memory):
     assert data["data"]["reason"] == "goal_reached"
 
 
-def test_parallel_environments(client, mock_get_environment_memory):
-    """Test handling multiple parallel environment instances."""
+def test_parallel_workers(client, mock_get_environment_memory):
+    """Test handling multiple parallel running instances."""
     num_envs = 5
 
-    # Add environment states for parallel environments
-    for env_id in range(num_envs):
+    # Add environment states for parallel workers
+    for worker_id in range(num_envs):
         response = client.post(
-            f"/environment/train_001/{env_id}/1/10",
+            f"/environment/train_001/{worker_id}/1/10",
             json={
                 "done": False,
-                "reward": float(env_id * 10),
-                "data": {"env_id": env_id},
+                "reward": float(worker_id * 10),
+                "data": {"worker_id": worker_id},
             },
         )
         assert response.status_code == 200
 
     # Retrieve and verify each
-    for env_id in range(num_envs):
-        response = client.get(f"/environment/train_001/{env_id}/1/10")
+    for worker_id in range(num_envs):
+        response = client.get(f"/environment/train_001/{worker_id}/1/10")
         assert response.status_code == 200
         data = response.json()
-        assert data["reward"] == env_id * 10
-        assert data["data"]["env_id"] == env_id
+        assert data["reward"] == worker_id * 10
+        assert data["data"]["worker_id"] == worker_id
 
 
 def test_episode_progression(client, mock_get_environment_memory):

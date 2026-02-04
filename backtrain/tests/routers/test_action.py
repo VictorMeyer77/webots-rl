@@ -100,9 +100,9 @@ def test_add_action_step_multiple_actions(client, mock_get_action_memory):
         ("train_001", 1, 1, 0, 3),
     ]
 
-    for train_id, env_id, episode_id, step, action_value in actions:
+    for train_id, worker_id, episode_id, step, action_value in actions:
         response = client.post(
-            f"/action/{train_id}/{env_id}/{episode_id}/{step}",
+            f"/action/{train_id}/{worker_id}/{episode_id}/{step}",
             json={"action": action_value},
         )
         assert response.status_code == 200
@@ -138,8 +138,8 @@ def test_add_action_step_invalid_train_id(client, mock_get_action_memory):
     assert response.status_code == 404  # FastAPI returns 404 for missing path params
 
 
-def test_add_action_step_negative_env_id(client, mock_get_action_memory):
-    """Test validation error for negative env_id."""
+def test_add_action_step_negative_worker_id(client, mock_get_action_memory):
+    """Test validation error for negative worker_id."""
     payload = {"action": 1}
 
     response = client.post("/action/train_001/-1/1/10", json=payload)
@@ -188,7 +188,7 @@ def test_get_action_step_not_found(client, mock_get_action_memory):
     assert "detail" in data
     assert "Action not found" in data["detail"]
     assert "train_id=train_001" in data["detail"]
-    assert "env_id=0" in data["detail"]
+    assert "worker_id=0" in data["detail"]
     assert "episode_id=1" in data["detail"]
     assert "step=10" in data["detail"]
 
@@ -265,22 +265,22 @@ def test_action_with_large_values(client, mock_get_action_memory):
     assert get_response.json()["action"] == large_action
 
 
-def test_parallel_environments(client, mock_get_action_memory):
-    """Test handling multiple parallel environment instances."""
+def test_parallel_workers(client, mock_get_action_memory):
+    """Test handling multiple parallel running instances."""
     num_envs = 5
 
-    # Add actions for parallel environments
-    for env_id in range(num_envs):
+    # Add actions for parallel workers
+    for worker_id in range(num_envs):
         response = client.post(
-            f"/action/train_001/{env_id}/1/10", json={"action": env_id * 10}
+            f"/action/train_001/{worker_id}/1/10", json={"action": worker_id * 10}
         )
         assert response.status_code == 200
 
     # Retrieve and verify each
-    for env_id in range(num_envs):
-        response = client.get(f"/action/train_001/{env_id}/1/10")
+    for worker_id in range(num_envs):
+        response = client.get(f"/action/train_001/{worker_id}/1/10")
         assert response.status_code == 200
-        assert response.json()["action"] == env_id * 10
+        assert response.json()["action"] == worker_id * 10
 
 
 def test_episode_progression(client, mock_get_action_memory):
@@ -308,3 +308,47 @@ def test_train_id_with_special_characters(client, mock_get_action_memory):
 
         get_response = client.get(f"/action/{train_id}/0/1/10")
         assert get_response.status_code == 200
+
+
+def test_action_schema_with_executed_field(client, mock_get_action_memory):
+    """Test action schema with executed field."""
+    payload = {"action": 5, "executed": True}
+
+    response = client.post("/action/train_001/0/1/10", json=payload)
+    assert response.status_code == 200
+
+    # Retrieve and verify executed field
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.status_code == 200
+    data = get_response.json()
+    assert data["action"] == 5
+    assert data["executed"] is True
+
+
+def test_action_schema_executed_defaults_to_false(client, mock_get_action_memory):
+    """Test that executed field defaults to False when not provided."""
+    payload = {"action": 3}
+
+    response = client.post("/action/train_001/0/1/10", json=payload)
+    assert response.status_code == 200
+
+    # Retrieve and verify executed defaults to False
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.status_code == 200
+    data = get_response.json()
+    assert data["action"] == 3
+    assert data["executed"] is False
+
+
+def test_action_schema_executed_false_explicitly(client, mock_get_action_memory):
+    """Test setting executed field explicitly to False."""
+    payload = {"action": 7, "executed": False}
+
+    response = client.post("/action/train_001/0/1/10", json=payload)
+    assert response.status_code == 200
+
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.status_code == 200
+    data = get_response.json()
+    assert data["action"] == 7
+    assert data["executed"] is False

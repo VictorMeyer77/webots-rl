@@ -275,8 +275,8 @@ def test_get_experience_step_invalid_train_id(client, mock_memories):
     assert response.status_code == 404
 
 
-def test_get_experience_step_negative_env_id(client, mock_memories):
-    """Test validation error for negative env_id."""
+def test_get_experience_step_negative_worker_id(client, mock_memories):
+    """Test validation error for negative worker_id."""
     response = client.get("/experience/train_001/-1/1/10")
 
     assert response.status_code == 422
@@ -299,13 +299,13 @@ def test_get_experience_step_negative_step(client, mock_memories):
 def test_get_experience_step_episode_sequence(client, mock_memories):
     """Test retrieving experiences from a sequence of episode steps."""
     train_id = "train_001"
-    env_id = 0
+    worker_id = 0
     episode_id = 1
 
     # Create a sequence of 5 steps
     for step in range(5):
-        key = (train_id, env_id, episode_id, step)
-        next_key = (train_id, env_id, episode_id, step + 1)
+        key = (train_id, worker_id, episode_id, step)
+        next_key = (train_id, worker_id, episode_id, step + 1)
 
         is_terminal = step == 4
 
@@ -328,7 +328,7 @@ def test_get_experience_step_episode_sequence(client, mock_memories):
 
     # Verify each step
     for step in range(5):
-        response = client.get(f"/experience/{train_id}/{env_id}/{episode_id}/{step}")
+        response = client.get(f"/experience/{train_id}/{worker_id}/{episode_id}/{step}")
         assert response.status_code == 200
         data = response.json()
         assert data["observation"]["data"]["position"] == step
@@ -341,34 +341,36 @@ def test_get_experience_step_episode_sequence(client, mock_memories):
             assert data["next_observation"] is None
 
 
-def test_get_experience_step_parallel_environments(client, mock_memories):
-    """Test retrieving experiences from multiple parallel environments."""
+def test_get_experience_step_parallel_workers(client, mock_memories):
+    """Test retrieving experiences from multiple parallel workers."""
     num_envs = 5
     train_id = "train_001"
     episode_id = 1
     step = 10
 
     # Add experiences for each parallel environment
-    for env_id in range(num_envs):
-        key = (train_id, env_id, episode_id, step)
+    for worker_id in range(num_envs):
+        key = (train_id, worker_id, episode_id, step)
 
         mock_memories["environment"].add(
             key,
             EnvironmentSchema(
-                done=True, reward=float(env_id * 10), data={"env_id": env_id}
+                done=True, reward=float(worker_id * 10), data={"worker_id": worker_id}
             ),
         )
-        mock_memories["observation"].add(key, ObservationSchema(data={"env": env_id}))
-        mock_memories["action"].add(key, ActionSchema(action=env_id))
+        mock_memories["observation"].add(
+            key, ObservationSchema(data={"env": worker_id})
+        )
+        mock_memories["action"].add(key, ActionSchema(action=worker_id))
 
     # Retrieve and verify each environment's experience
-    for env_id in range(num_envs):
-        response = client.get(f"/experience/{train_id}/{env_id}/{episode_id}/{step}")
+    for worker_id in range(num_envs):
+        response = client.get(f"/experience/{train_id}/{worker_id}/{episode_id}/{step}")
         assert response.status_code == 200
         data = response.json()
-        assert data["environment"]["reward"] == env_id * 10
-        assert data["observation"]["data"]["env"] == env_id
-        assert data["action"]["action"] == env_id
+        assert data["environment"]["reward"] == worker_id * 10
+        assert data["observation"]["data"]["env"] == worker_id
+        assert data["action"]["action"] == worker_id
 
 
 def test_get_experience_step_complex_observation_data(client, mock_memories):
@@ -515,11 +517,11 @@ def test_get_experience_step_after_partial_eviction(app):
 def test_get_experience_step_multiple_episodes(client, mock_memories):
     """Test retrieving experiences across multiple episodes."""
     train_id = "train_001"
-    env_id = 0
+    worker_id = 0
 
     for episode_id in range(3):
         for step in range(3):
-            key = (train_id, env_id, episode_id, step)
+            key = (train_id, worker_id, episode_id, step)
 
             is_terminal = step == 2
 
@@ -538,19 +540,19 @@ def test_get_experience_step_multiple_episodes(client, mock_memories):
 
             if not is_terminal:
                 mock_memories["observation"].add(
-                    (train_id, env_id, episode_id, step + 1),
+                    (train_id, worker_id, episode_id, step + 1),
                     ObservationSchema(data={"episode": episode_id, "step": step + 1}),
                 )
 
     # Verify experiences from different episodes
-    response1 = client.get(f"/experience/{train_id}/{env_id}/0/1")
+    response1 = client.get(f"/experience/{train_id}/{worker_id}/0/1")
     assert response1.status_code == 200
     assert response1.json()["environment"]["reward"] == 1.0
 
-    response2 = client.get(f"/experience/{train_id}/{env_id}/1/1")
+    response2 = client.get(f"/experience/{train_id}/{worker_id}/1/1")
     assert response2.status_code == 200
     assert response2.json()["environment"]["reward"] == 11.0
 
-    response3 = client.get(f"/experience/{train_id}/{env_id}/2/1")
+    response3 = client.get(f"/experience/{train_id}/{worker_id}/2/1")
     assert response3.status_code == 200
     assert response3.json()["environment"]["reward"] == 21.0

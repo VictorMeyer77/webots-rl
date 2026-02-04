@@ -5,13 +5,13 @@ messages in a distributed reinforcement learning system.
 
 Endpoints:
     - GET  /health                                      : Memory health monitoring
-    - POST /{train_id}/{env_id}/{episode_id}/{step}     : Publish env state
-    - GET  /{train_id}/{env_id}/{episode_id}/{step}     : Consume env state
+    - POST /{train_id}/{worker_id}/{episode_id}/{step}     : Publish env state
+    - GET  /{train_id}/{worker_id}/{episode_id}/{step}     : Consume env state
 
 Key Structure:
     All endpoints use a 4-level hierarchical key for message routing:
     - train_id (str): Training session/experiment identifier
-    - env_id (int): Parallel environment instance (0-indexed)
+    - worker_id (int): Parallel running instance (0-indexed)
     - episode_id (int): Episode number within training session
     - step (int): Time step within episode
 
@@ -76,7 +76,7 @@ def check_environment_memory_health(
 
 
 @router.post(
-    "/{train_id}/{env_id}/{episode_id}/{step}",
+    "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Publish environment state message",
     description="Environment publishes state (reward, done, data) after action execution. "
     "Trainer consumes this state for decision-making and learning.",
@@ -105,17 +105,17 @@ def check_environment_memory_health(
         },
     },
 )
-@router.post("/{train_id}/{env_id}/{episode_id}/{step}")
+@router.post("/{train_id}/{worker_id}/{episode_id}/{step}")
 def add_environment_step(
     train_id: str = Path(
         ...,
         min_length=1,
         description="Training session identifier (e.g., 'exp_001', 'dqn_cartpole_2024')",
     ),
-    env_id: int = Path(
+    worker_id: int = Path(
         ...,
         ge=0,
-        description="Environment instance ID for parallel environments (0-indexed)",
+        description="Running instance ID for parallel workers (0-indexed)",
     ),
     episode_id: int = Path(
         ...,
@@ -137,7 +137,7 @@ def add_environment_step(
 
     Args:
         train_id: Unique identifier for the training session/experiment.
-        env_id: Environment instance number (for parallel environments).
+        worker_id: Running instance number (for parallel workers).
         episode_id: Episode number within the training session.
         step: Time step within the current episode.
         payload: Environment state data conforming to EnvironmentSchema.
@@ -147,13 +147,13 @@ def add_environment_step(
         dict: Status confirmation with key:
             - status (str): "stored" if successful
     """
-    key = (train_id, env_id, episode_id, step)
+    key = (train_id, worker_id, episode_id, step)
     memory.add(key, payload)
     return {"status": "stored"}
 
 
 @router.get(
-    "/{train_id}/{env_id}/{episode_id}/{step}",
+    "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Consume environment state message",
     description="Trainer retrieves state published by environment. "
     "Returns 404 if state not yet published or has been evicted from memory.",
@@ -177,7 +177,7 @@ def add_environment_step(
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "Environment not found for train_id=exp_001, env_id=0, episode_id=5, step=10"
+                        "detail": "Environment not found for train_id=exp_001, worker_id=0, episode_id=5, step=10"
                     }
                 }
             },
@@ -190,10 +190,10 @@ def get_environment_step(
         min_length=1,
         description="Training session identifier",
     ),
-    env_id: int = Path(
+    worker_id: int = Path(
         ...,
         ge=0,
-        description="Environment instance ID",
+        description="Running instance ID",
     ),
     episode_id: int = Path(
         ...,
@@ -213,7 +213,7 @@ def get_environment_step(
 
     Args:
         train_id: Training session identifier.
-        env_id: Environment instance number.
+        worker_id: Running instance number.
         episode_id: Episode number.
         step: Time step to retrieve state for.
         memory: Injected environment memory instance.
@@ -228,16 +228,16 @@ def get_environment_step(
         HTTPException: 404 if environment state not found. Reasons:
             - Environment hasn't published state yet (timing issue)
             - State was evicted due to memory capacity limits
-            - Invalid key (wrong train_id/env_id/episode_id/step)
+            - Invalid key (wrong train_id/worker_id/episode_id/step)
             - Environment brick crashed before publishing
     """
-    key = (train_id, env_id, episode_id, step)
+    key = (train_id, worker_id, episode_id, step)
     value = memory.get(key)
 
     if value is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Environment not found for train_id={train_id}, env_id={env_id}, episode_id={episode_id}, step={step}",
+            detail=f"Environment not found for train_id={train_id}, worker_id={worker_id}, episode_id={episode_id}, step={step}",
         )
 
     return value
