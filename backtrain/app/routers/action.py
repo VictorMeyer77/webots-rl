@@ -25,7 +25,8 @@ Error Handling:
 
 from app.core.memory import Memory
 from app.dependencies import get_action_memory
-from app.schemas import ActionSchema
+from app.schemas import ActionSchema, SuccessResponseSchema
+from app.schemas.health import MemoryStatsSchema
 from fastapi import APIRouter, Depends, HTTPException, Path
 
 router = APIRouter(prefix="/action", tags=["action"])
@@ -34,48 +35,48 @@ router = APIRouter(prefix="/action", tags=["action"])
 @router.get(
     "/health",
     summary="Monitor action memory health",
-    description="Retrieve memory usage statistics for monitoring and capacity planning",
-    response_description="Memory statistics including size, capacity, and usage percentage",
+    description="Retrieve real-time memory usage statistics for the action communication channel. "
+    "Provides metrics for monitoring system health, detecting bottlenecks, and capacity planning.",
+    response_description="Memory statistics including size, capacity, remaining slots, and usage percentage",
+    response_model=MemoryStatsSchema,
     responses={
         200: {
-            "description": "Memory health statistics",
+            "description": "Memory health statistics retrieved successfully",
             "content": {
                 "application/json": {
                     "example": {
-                        "stats": {
-                            "size": 4523,
-                            "capacity": 10000,
-                            "remaining": 5477,
-                            "usage_percent": 45.23,
-                        }
+                        "size": 4523,
+                        "capacity": 10000,
+                        "remaining": 5477,
+                        "usage_percent": 45.23,
                     }
                 }
             },
         }
     },
 )
-@router.get("/health")
 def check_action_memory_health(
     memory: Memory = Depends(get_action_memory),
-) -> dict:
-    """Get action memory health statistics.
+) -> MemoryStatsSchema:
+    """Retrieve action memory health statistics.
 
     Provides real-time metrics about the action communication channel's current
-    state. Useful for monitoring system health and capacity planning.
+    state, including memory usage, capacity, and availability. This endpoint is
+    useful for monitoring system health, detecting potential bottlenecks, and
+    capacity planning.
 
     Args:
-        memory: Injected action memory instance via dependency injection.
+        memory: Action memory instance injected via dependency injection.
+            Manages the storage and retrieval of action messages.
 
     Returns:
-        dict: Dictionary containing:
-            - stats (dict): Memory statistics with fields:
-                - size (int): Current number of stored actions
-                - capacity (int): Maximum action capacity
-                - remaining (int): Available slots before eviction
-                - usage_percent (float): Percentage of capacity used
+        MemoryStatsSchema: Memory statistics containing:
+            - size (int): Current number of stored action messages
+            - capacity (int): Maximum number of actions that can be stored
+            - remaining (int): Available slots before eviction occurs (capacity - size)
+            - usage_percent (float): Percentage of capacity currently used (0.0 to 100.0)
     """
-    stats = memory.stats()
-    return {"stats": stats}
+    return memory.stats()
 
 
 @router.post(
@@ -88,7 +89,7 @@ def check_action_memory_health(
     responses={
         200: {
             "description": "Action stored successfully",
-            "content": {"application/json": {"example": {"status": "stored"}}},
+            "content": {"application/json": {"example": {"status": "success"}}},
         },
         422: {
             "description": "Validation error - invalid action schema or path parameters"
@@ -105,7 +106,7 @@ def add_action_step(
     step: int = Path(..., ge=0, description="The step identifier within the episode"),
     payload: ActionSchema = ...,
     memory: Memory = Depends(get_action_memory),
-) -> dict:
+) -> SuccessResponseSchema:
     """Publish an action.
 
     This endpoint enables asynchronous communication to publish actions.
@@ -119,13 +120,12 @@ def add_action_step(
         memory: Injected action memory instance.
 
     Returns:
-        dict: Status confirmation with key:
-            - status (str): "stored" if successful
+        SuccessResponseSchema: Confirmation that the action was stored successfully.
 
     """
     key = (train_id, worker_id, episode_id, step)
     memory.add(key, payload)
-    return {"status": "stored"}
+    return SuccessResponseSchema()
 
 
 @router.get(

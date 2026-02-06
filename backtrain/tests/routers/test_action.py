@@ -51,11 +51,10 @@ def test_check_action_memory_health_empty(client, mock_get_action_memory):
 
     assert response.status_code == 200
     data = response.json()
-    assert "stats" in data
-    assert data["stats"]["size"] == 0
-    assert data["stats"]["capacity"] == 100
-    assert data["stats"]["remaining"] == 100
-    assert data["stats"]["usage_percent"] == 0.0
+    assert data["size"] == 0
+    assert data["capacity"] == 100
+    assert data["remaining"] == 100
+    assert data["usage_percent"] == 0.0
 
 
 def test_check_action_memory_health_with_data(client, mock_get_action_memory):
@@ -70,10 +69,10 @@ def test_check_action_memory_health_with_data(client, mock_get_action_memory):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["stats"]["size"] == 5
-    assert data["stats"]["capacity"] == 100
-    assert data["stats"]["remaining"] == 95
-    assert data["stats"]["usage_percent"] == 5.0
+    assert data["size"] == 5
+    assert data["capacity"] == 100
+    assert data["remaining"] == 95
+    assert data["usage_percent"] == 5.0
 
 
 def test_add_action_step_success(client, mock_get_action_memory):
@@ -83,7 +82,7 @@ def test_add_action_step_success(client, mock_get_action_memory):
     response = client.post("/action/train_001/0/1/10", json=payload)
 
     assert response.status_code == 200
-    assert response.json() == {"status": "stored"}
+    assert response.json() == {"status": "success"}
 
     # Verify it was stored
     memory = mock_get_action_memory
@@ -235,7 +234,7 @@ def test_add_and_get_action_workflow(client, mock_get_action_memory):
     # Add action
     add_response = client.post("/action/exp_001/2/5/100", json={"action": 42})
     assert add_response.status_code == 200
-    assert add_response.json()["status"] == "stored"
+    assert add_response.json()["status"] == "success"
 
     # Retrieve action
     get_response = client.get("/action/exp_001/2/5/100")

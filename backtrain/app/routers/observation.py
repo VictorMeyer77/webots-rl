@@ -17,10 +17,58 @@ Error Handling:
 
 from app.core.memory import Memory
 from app.dependencies import get_observation_memory
-from app.schemas import ObservationSchema
+from app.schemas import ObservationSchema, SuccessResponseSchema
+from app.schemas.health import MemoryStatsSchema
 from fastapi import APIRouter, Depends, HTTPException, Path
 
 router = APIRouter(prefix="/observation", tags=["observation"])
+
+
+@router.get(
+    "/health",
+    summary="Monitor observation memory health",
+    description="Retrieve real-time memory usage statistics for the observation communication channel. "
+    "Provides metrics for monitoring system health, detecting bottlenecks, and capacity planning.",
+    response_description="Memory statistics including size, capacity, remaining slots, and usage percentage",
+    response_model=MemoryStatsSchema,
+    responses={
+        200: {
+            "description": "Memory health statistics retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "size": 4523,
+                        "capacity": 10000,
+                        "remaining": 5477,
+                        "usage_percent": 45.23,
+                    }
+                }
+            },
+        }
+    },
+)
+def check_observation_memory_health(
+    memory: Memory = Depends(get_observation_memory),
+) -> MemoryStatsSchema:
+    """Retrieve observation memory health statistics.
+
+    Provides real-time metrics about the observation communication channel's current
+    state, including memory usage, capacity, and availability. This endpoint is
+    useful for monitoring system health, detecting potential bottlenecks, and
+    capacity planning.
+
+    Args:
+        memory: Observation memory instance injected via dependency injection.
+            Manages the storage and retrieval of observation messages.
+
+    Returns:
+        MemoryStatsSchema: Memory statistics containing:
+            - size (int): Current number of stored observation messages
+            - capacity (int): Maximum number of observations that can be stored
+            - remaining (int): Available slots before eviction occurs (capacity - size)
+            - usage_percent (float): Percentage of capacity currently used (0.0 to 100.0)
+    """
+    return memory.stats()
 
 
 @router.post(
@@ -32,7 +80,7 @@ router = APIRouter(prefix="/observation", tags=["observation"])
     responses={
         200: {
             "description": "Observation stored successfully",
-            "content": {"application/json": {"example": {"status": "stored"}}},
+            "content": {"application/json": {"example": {"status": "success"}}},
         },
         422: {
             "description": "Invalid observation data (schema validation failed)",
@@ -76,7 +124,7 @@ def add_observation_step(
     ),
     payload: ObservationSchema = ...,
     memory: Memory = Depends(get_observation_memory),
-) -> dict:
+) -> SuccessResponseSchema:
     """Publish observation state to memory.
 
     The observation is stored in memory
@@ -92,11 +140,11 @@ def add_observation_step(
         memory: Injected observation memory instance (dependency injection).
 
     Returns:
-        dict: Confirmation message with status "stored".
+        SuccessResponseSchema: Confirmation of successful storage with status message.
     """
     key = (train_id, worker_id, episode_id, step)
     memory.add(key, payload)
-    return {"status": "stored"}
+    return SuccessResponseSchema()
 
 
 @router.get(

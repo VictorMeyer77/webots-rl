@@ -12,7 +12,7 @@ from app.dependencies import (
     get_observation_memory,
     get_supervisor,
 )
-from app.schemas import SystemInfoSchema
+from app.schemas.health import SystemInfoSchema
 from fastapi import APIRouter, Depends
 
 router = APIRouter()
@@ -21,35 +21,43 @@ router = APIRouter()
 @router.get(
     "/health",
     response_model=SystemInfoSchema,
-    summary="System health check",
-    description="Get comprehensive health status of all system components including training sessions and memory stores.",
-    response_description="Health metrics for supervisor and all memory components",
-    tags=["Health"],
-    status_code=200,
+    summary="System health and status check",
+    description="Retrieve comprehensive system health information including all training sessions, "
+    "workers, and memory usage statistics across all communication channels. "
+    "This endpoint provides a complete overview of the system's current state, "
+    "useful for monitoring, debugging, and capacity planning.",
     responses={
         200: {
-            "description": "Health check successful",
+            "description": "System health information retrieved successfully",
             "content": {
                 "application/json": {
                     "example": {
-                        "supervisor": {"train_001": {0: 5, 1: 3}, "train_002": {0: 10}},
+                        "supervisor": [
+                            {
+                                "id": "train_001",
+                                "workers": [
+                                    {"id": 0, "episode_id": 42, "status": True},
+                                    {"id": 1, "episode_id": 38, "status": False},
+                                ],
+                            }
+                        ],
                         "action_memory": {
-                            "size": 1000,
-                            "capacity": 10000,
-                            "remaining": 9000,
-                            "usage_percent": 10.0,
-                        },
-                        "observation_memory": {
-                            "size": 1500,
-                            "capacity": 10000,
-                            "remaining": 8500,
+                            "size": 150,
+                            "capacity": 1000,
+                            "remaining": 850,
                             "usage_percent": 15.0,
                         },
+                        "observation_memory": {
+                            "size": 200,
+                            "capacity": 1000,
+                            "remaining": 800,
+                            "usage_percent": 20.0,
+                        },
                         "environment_memory": {
-                            "size": 800,
-                            "capacity": 10000,
-                            "remaining": 9200,
-                            "usage_percent": 8.0,
+                            "size": 100,
+                            "capacity": 1000,
+                            "remaining": 900,
+                            "usage_percent": 10.0,
                         },
                     }
                 }
@@ -63,32 +71,32 @@ async def health(
     observation_memory: Memory = Depends(get_observation_memory),
     environment_memory: Memory = Depends(get_environment_memory),
 ) -> SystemInfoSchema:
-    """Get health status of all system components.
+    """Retrieve comprehensive system health and status information.
 
-    Returns comprehensive health information about:
-    - Supervisor: Current training sessions and worker states
-    - Action Memory: Storage statistics and usage metrics
-    - Observation Memory: Storage statistics and usage metrics
-    - Environment Memory: Storage statistics and usage metrics
+    Provides a complete snapshot of the system's current state, including:
+    - All active training sessions with their registered workers
+    - Worker status and episode progress for each training session
+    - Memory usage statistics for action, observation, and environment channels
+    - Capacity metrics and remaining space for each memory component
+
+    This endpoint is designed for:
+    - Health monitoring and alerting systems
+    - Capacity planning and resource optimization
+    - Debugging training session issues
+    - Real-time system status dashboards
 
     Args:
-        supervisor: Supervisor instance provided by dependency injection.
-        action_memory: Action memory store provided by dependency injection.
-        observation_memory: Observation memory store provided by dependency injection.
-        environment_memory: Environment memory store provided by dependency injection.
+        supervisor: Supervisor instance managing all training sessions.
+        action_memory: Memory instance for agent action messages.
+        observation_memory: Memory instance for environment observation messages.
+        environment_memory: Memory instance for environment state messages.
 
     Returns:
-        Dictionary containing health metrics for all components:
-        - 'supervisor': Training session data with worker assignments and episode IDs
-        - 'action_memory': Statistics about action memory usage
-        - 'observation_memory': Statistics about observation memory usage
-        - 'environment_memory': Statistics about environment memory usage
-
-    HTTP Status Codes:
-        200: Health check successful, all components accessible
+        Complete system information including supervisor state and memory statistics
+        for all communication channels.
     """
     return SystemInfoSchema(
-        supervisor=supervisor.training,
+        supervisor=supervisor.trainings,
         action_memory=action_memory.stats(),
         observation_memory=observation_memory.stats(),
         environment_memory=environment_memory.stats(),

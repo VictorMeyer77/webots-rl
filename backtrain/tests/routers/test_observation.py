@@ -45,6 +45,39 @@ def client(app, mock_get_observation_memory):
     return TestClient(app)
 
 
+def test_check_observation_memory_health_empty(client, mock_get_observation_memory):
+    """Test health check returns correct stats for empty memory."""
+    response = client.get("/observation/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["size"] == 0
+    assert data["capacity"] == 100
+    assert data["remaining"] == 100
+    assert data["usage_percent"] == 0.0
+
+
+def test_check_observation_memory_health_with_data(client, mock_get_observation_memory):
+    """Test health check returns correct stats when memory contains data."""
+    memory = mock_get_observation_memory
+
+    # Add some observations
+    for i in range(5):
+        memory.add(
+            ("train_001", 0, 1, i),
+            ObservationSchema(data={"position": [1.0, 2.0], "velocity": [0.5, -0.3]}),
+        )
+
+    response = client.get("/observation/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["size"] == 5
+    assert data["capacity"] == 100
+    assert data["remaining"] == 95
+    assert data["usage_percent"] == 5.0
+
+
 def test_add_observation_step_success(client, mock_get_observation_memory):
     """Test successfully adding an observation."""
     payload = {"data": {"position": [1.0, 2.0], "velocity": [0.5, -0.3]}}
@@ -52,7 +85,7 @@ def test_add_observation_step_success(client, mock_get_observation_memory):
     response = client.post("/observation/train_001/0/1/10", json=payload)
 
     assert response.status_code == 200
-    assert response.json() == {"status": "stored"}
+    assert response.json() == {"status": "success"}
 
     # Verify it was stored
     memory = mock_get_observation_memory
@@ -212,7 +245,7 @@ def test_add_and_get_observation_workflow(client, mock_get_observation_memory):
         json={"data": {"position": [10.0, 20.0], "velocity": [1.0, 2.0]}},
     )
     assert add_response.status_code == 200
-    assert add_response.json()["status"] == "stored"
+    assert add_response.json()["status"] == "success"
 
     # Retrieve observation
     get_response = client.get("/observation/exp_001/2/5/100")

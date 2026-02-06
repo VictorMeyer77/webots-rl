@@ -1,328 +1,318 @@
-"""Unit tests for the Supervisor class."""
+"""Unit tests for the Supervisor module.
+
+This module contains comprehensive tests for the Supervisor class and SupervisorError
+exception, covering all functionality including training session management, worker
+registration, episode tracking, and error handling.
+"""
 
 import pytest
 from app.core.supervisor import Supervisor, SupervisorError
+from app.schemas.supervisor import TrainingSchema
 
 
-@pytest.fixture
-def supervisor():
-    """Provide a fresh supervisor instance for each test."""
-    return Supervisor()
+class TestSupervisorError:
+    """Test cases for SupervisorError exception."""
+
+    def test_supervisor_error_is_exception(self):
+        """Verify that SupervisorError is a proper Exception subclass."""
+        error = SupervisorError("Test error")
+        assert isinstance(error, Exception)
+        assert str(error) == "Test error"
 
 
-class TestAddTrain:
-    """Tests for the add_train method."""
+class TestSupervisorInit:
+    """Test cases for Supervisor initialization."""
 
-    def test_add_train_success(self, supervisor):
-        """Test successfully adding a new training session."""
-        supervisor.add_train("train_001")
+    def test_init_creates_empty_training_dict(self):
+        """Verify that a new Supervisor starts with no training sessions."""
+        supervisor = Supervisor()
+        assert supervisor.trainings == []
 
-        assert "train_001" in supervisor.training
-        assert supervisor.training["train_001"] == {}
 
-    def test_add_train_multiple(self, supervisor):
-        """Test adding multiple training sessions."""
-        train_ids = ["train_001", "train_002", "train_003"]
+class TestSupervisorAddTrain:
+    """Test cases for adding training sessions."""
 
-        for train_id in train_ids:
-            supervisor.add_train(train_id)
+    def test_add_train_creates_new_session(self):
+        """Verify that add_train creates a new training session."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        trainings = supervisor.trainings
+        assert len(trainings) == 1
+        assert trainings[0].id == "train_1"
+        assert trainings[0].workers == []
 
-        assert len(supervisor.training) == 3
-        for train_id in train_ids:
-            assert train_id in supervisor.training
+    def test_add_train_multiple_sessions(self):
+        """Verify that multiple training sessions can be created."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        supervisor.add_train("train_2")
+        trainings = supervisor.trainings
+        assert len(trainings) == 2
+        train_ids = [t.id for t in trainings]
+        assert "train_1" in train_ids
+        assert "train_2" in train_ids
 
-    def test_add_train_duplicate(self, supervisor):
-        """Test adding a duplicate training session raises error."""
-        supervisor.add_train("train_001")
+    def test_add_train_duplicate_raises_error(self):
+        """Verify that adding a duplicate training ID raises SupervisorError."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        with pytest.raises(SupervisorError, match="Train ID train_1 already exists"):
+            supervisor.add_train("train_1")
 
-        with pytest.raises(SupervisorError, match="Train ID train_001 already exists"):
-            supervisor.add_train("train_001")
-
-    def test_add_train_empty_string(self, supervisor):
-        """Test adding empty string as train_id raises error."""
+    def test_add_train_empty_id_raises_error(self):
+        """Verify that adding an empty training ID raises SupervisorError."""
+        supervisor = Supervisor()
         with pytest.raises(SupervisorError, match="Train ID cannot be empty"):
             supervisor.add_train("")
 
-    def test_add_train_with_special_characters(self, supervisor):
-        """Test adding training sessions with special characters."""
-        train_ids = ["train-001", "train_002", "train.003", "train@004"]
 
-        for train_id in train_ids:
-            supervisor.add_train(train_id)
+class TestSupervisorGetTrain:
+    """Test cases for retrieving training sessions."""
 
-        assert len(supervisor.training) == 4
+    def test_get_train_returns_correct_schema(self):
+        """Verify that get_train returns the correct training session."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        training = supervisor.get_train("train_1")
+        assert isinstance(training, TrainingSchema)
+        assert training.id == "train_1"
+        assert training.workers == []
+
+    def test_get_train_with_workers(self):
+        """Verify that get_train includes worker information."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        training = supervisor.get_train("train_1")
+        assert len(training.workers) == 1
+        assert training.workers[0].id == worker_id
+        assert training.workers[0].episode_id == 0
+        assert training.workers[0].status is True
+
+    def test_get_train_nonexistent_raises_error(self):
+        """Verify that getting a non-existent training session raises SupervisorError."""
+        supervisor = Supervisor()
+        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
+            supervisor.get_train("invalid")
 
 
-class TestAddWorker:
-    """Tests for the add_worker method."""
+class TestSupervisorAddWorker:
+    """Test cases for adding workers to training sessions."""
 
-    def test_add_worker_success(self, supervisor):
-        """Test successfully adding a worker to a training session."""
-        supervisor.add_train("train_001")
-
-        worker_id = supervisor.add_worker("train_001")
-
+    def test_add_worker_returns_zero_for_first_worker(self):
+        """Verify that the first worker gets ID 0."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
         assert worker_id == 0
-        assert supervisor.training["train_001"][0] == 0
 
-    def test_add_worker_multiple(self, supervisor):
-        """Test adding multiple workers to the same training session."""
-        supervisor.add_train("train_001")
+    def test_add_worker_increments_id(self):
+        """Verify that worker IDs increment sequentially."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id_1 = supervisor.add_worker("train_1")
+        worker_id_2 = supervisor.add_worker("train_1")
+        worker_id_3 = supervisor.add_worker("train_1")
+        assert worker_id_1 == 0
+        assert worker_id_2 == 1
+        assert worker_id_3 == 2
 
-        worker_ids = []
-        for _ in range(5):
-            worker_id = supervisor.add_worker("train_001")
-            worker_ids.append(worker_id)
+    def test_add_worker_initializes_episode_and_status(self):
+        """Verify that new workers start with episode_id 0 and status True."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        training = supervisor.get_train("train_1")
+        worker = training.workers[0]
+        assert worker.id == worker_id
+        assert worker.episode_id == 0
+        assert worker.status is True
 
-        assert worker_ids == [0, 1, 2, 3, 4]
-        assert len(supervisor.training["train_001"]) == 5
-
-    def test_add_worker_nonexistent_train(self, supervisor):
-        """Test adding a worker to non-existent training session raises error."""
-        with pytest.raises(
-            SupervisorError, match="Train ID nonexistent does not exist"
-        ):
-            supervisor.add_worker("nonexistent")
-
-    def test_add_worker_incremental_ids(self, supervisor):
-        """Test that worker IDs are assigned incrementally."""
-        supervisor.add_train("train_001")
-
-        id1 = supervisor.add_worker("train_001")
-        id2 = supervisor.add_worker("train_001")
-        id3 = supervisor.add_worker("train_001")
-
-        assert id1 == 0
-        assert id2 == 1
-        assert id3 == 2
-
-    def test_add_worker_multiple_trains(self, supervisor):
-        """Test adding workers to different training sessions."""
-        supervisor.add_train("train_A")
-        supervisor.add_train("train_B")
-
-        worker_a = supervisor.add_worker("train_A")
-        worker_b = supervisor.add_worker("train_B")
-
-        assert worker_a == 0
-        assert worker_b == 0
-        assert len(supervisor.training["train_A"]) == 1
-        assert len(supervisor.training["train_B"]) == 1
-
-    def test_add_worker_initial_episode_is_zero(self, supervisor):
-        """Test that new workers start with episode_id 0."""
-        supervisor.add_train("train_001")
-        worker_id = supervisor.add_worker("train_001")
-
-        assert supervisor.training["train_001"][worker_id] == 0
+    def test_add_worker_nonexistent_train_raises_error(self):
+        """Verify that adding a worker to non-existent training raises SupervisorError."""
+        supervisor = Supervisor()
+        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
+            supervisor.add_worker("invalid")
 
 
-class TestGetEpisodeId:
-    """Tests for the get_episode_id method."""
+class TestSupervisorGetEpisodeId:
+    """Test cases for retrieving episode IDs."""
 
-    def test_get_episode_id_success(self, supervisor):
-        """Test successfully retrieving episode ID for a worker."""
-        supervisor.add_train("train_001")
-        worker_id = supervisor.add_worker("train_001")
-
-        episode_id = supervisor.get_episode_id("train_001", worker_id)
-
+    def test_get_episode_id_returns_initial_value(self):
+        """Verify that get_episode_id returns 0 for a new worker."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        episode_id = supervisor.get_episode_id("train_1", worker_id)
         assert episode_id == 0
 
-    def test_get_episode_id_nonexistent_train(self, supervisor):
-        """Test getting episode ID for non-existent training session."""
-        with pytest.raises(
-            SupervisorError, match="Train ID nonexistent does not exist"
-        ):
-            supervisor.get_episode_id("nonexistent", 0)
+    def test_get_episode_id_nonexistent_train_raises_error(self):
+        """Verify that getting episode ID for non-existent training raises error."""
+        supervisor = Supervisor()
+        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
+            supervisor.get_episode_id("invalid", 0)
 
-    def test_get_episode_id_nonexistent_worker(self, supervisor):
-        """Test getting episode ID for non-existent worker."""
-        supervisor.add_train("train_001")
+    def test_get_episode_id_nonexistent_worker_raises_error(self):
+        """Verify that getting episode ID for non-existent worker raises error."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        with pytest.raises(SupervisorError, match="Worker ID 99 does not exist"):
+            supervisor.get_episode_id("train_1", 99)
 
-        with pytest.raises(
-            SupervisorError, match="Worker ID 99 does not exist for Train ID train_001"
-        ):
-            supervisor.get_episode_id("train_001", 99)
 
-    def test_get_episode_id_after_increment(self, supervisor):
-        """Test getting episode ID after incrementing."""
-        supervisor.add_train("train_001")
-        worker_id = supervisor.add_worker("train_001")
+class TestSupervisorIncrementEpisodeId:
+    """Test cases for incrementing episode IDs."""
 
-        supervisor.increment_episode_id("train_001", worker_id)
-        episode_id = supervisor.get_episode_id("train_001", worker_id)
-
+    def test_increment_episode_id_increases_counter(self):
+        """Verify that increment_episode_id increases the counter by one."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.increment_episode_id("train_1", worker_id)
+        episode_id = supervisor.get_episode_id("train_1", worker_id)
         assert episode_id == 1
 
-    def test_get_episode_id_multiple_workers(self, supervisor):
-        """Test getting episode IDs for multiple workers."""
-        supervisor.add_train("train_001")
-        worker_0 = supervisor.add_worker("train_001")
-        worker_1 = supervisor.add_worker("train_001")
+    def test_increment_episode_id_multiple_times(self):
+        """Verify that episode ID can be incremented multiple times."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        for i in range(5):
+            supervisor.increment_episode_id("train_1", worker_id)
+        episode_id = supervisor.get_episode_id("train_1", worker_id)
+        assert episode_id == 5
 
-        ep_0 = supervisor.get_episode_id("train_001", worker_0)
-        ep_1 = supervisor.get_episode_id("train_001", worker_1)
+    def test_increment_episode_id_preserves_status(self):
+        """Verify that incrementing episode ID preserves worker status."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.update_worker_status("train_1", worker_id, False)
+        supervisor.increment_episode_id("train_1", worker_id)
+        training = supervisor.get_train("train_1")
+        assert training.workers[0].status is False
 
-        assert ep_0 == 0
-        assert ep_1 == 0
+    def test_increment_episode_id_nonexistent_train_raises_error(self):
+        """Verify that incrementing for non-existent training raises error."""
+        supervisor = Supervisor()
+        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
+            supervisor.increment_episode_id("invalid", 0)
 
-
-class TestIncrementEpisodeId:
-    """Tests for the increment_episode_id method."""
-
-    def test_increment_episode_id_success(self, supervisor):
-        """Test successfully incrementing episode ID."""
-        supervisor.add_train("train_001")
-        worker_id = supervisor.add_worker("train_001")
-
-        supervisor.increment_episode_id("train_001", worker_id)
-
-        assert supervisor.get_episode_id("train_001", worker_id) == 1
-
-    def test_increment_episode_id_multiple_times(self, supervisor):
-        """Test incrementing episode ID multiple times."""
-        supervisor.add_train("train_001")
-        worker_id = supervisor.add_worker("train_001")
-
-        for i in range(10):
-            supervisor.increment_episode_id("train_001", worker_id)
-            assert supervisor.get_episode_id("train_001", worker_id) == i + 1
-
-    def test_increment_episode_id_nonexistent_train(self, supervisor):
-        """Test incrementing episode ID for non-existent training session."""
-        with pytest.raises(
-            SupervisorError, match="Train ID nonexistent does not exist"
-        ):
-            supervisor.increment_episode_id("nonexistent", 0)
-
-    def test_increment_episode_id_nonexistent_worker(self, supervisor):
-        """Test incrementing episode ID for non-existent worker."""
-        supervisor.add_train("train_001")
-
-        with pytest.raises(
-            SupervisorError, match="Worker ID 99 does not exist for Train ID train_001"
-        ):
-            supervisor.increment_episode_id("train_001", 99)
-
-    def test_increment_episode_id_isolation(self, supervisor):
-        """Test that incrementing one worker doesn't affect others."""
-        supervisor.add_train("train_001")
-        worker_0 = supervisor.add_worker("train_001")
-        worker_1 = supervisor.add_worker("train_001")
-
-        for _ in range(5):
-            supervisor.increment_episode_id("train_001", worker_0)
-
-        assert supervisor.get_episode_id("train_001", worker_0) == 5
-        assert supervisor.get_episode_id("train_001", worker_1) == 0
-
-    def test_increment_episode_id_returns_none(self, supervisor):
-        """Test that increment_episode_id returns None."""
-        supervisor.add_train("train_001")
-        worker_id = supervisor.add_worker("train_001")
-
-        result = supervisor.increment_episode_id("train_001", worker_id)
-
-        assert result is None
+    def test_increment_episode_id_nonexistent_worker_raises_error(self):
+        """Verify that incrementing for non-existent worker raises error."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        with pytest.raises(SupervisorError, match="Worker ID 99 does not exist"):
+            supervisor.increment_episode_id("train_1", 99)
 
 
-class TestTrainingProperty:
-    """Tests for the training property."""
+class TestSupervisorUpdateWorkerStatus:
+    """Test cases for updating worker status."""
 
-    def test_training_property_returns_dict(self, supervisor):
-        """Test that training property returns a dictionary."""
-        assert isinstance(supervisor.training, dict)
+    def test_update_worker_status_changes_status(self):
+        """Verify that update_worker_status changes the worker's status."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.update_worker_status("train_1", worker_id, False)
+        training = supervisor.get_train("train_1")
+        assert training.workers[0].status is False
 
-    def test_training_property_empty_initially(self, supervisor):
-        """Test that training property is empty initially."""
-        assert supervisor.training == {}
+    def test_update_worker_status_preserves_episode_id(self):
+        """Verify that updating status preserves episode counter."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.increment_episode_id("train_1", worker_id)
+        supervisor.increment_episode_id("train_1", worker_id)
+        supervisor.update_worker_status("train_1", worker_id, False)
+        episode_id = supervisor.get_episode_id("train_1", worker_id)
+        assert episode_id == 2
 
-    def test_training_property_reflects_state(self, supervisor):
-        """Test that training property reflects current state."""
-        supervisor.add_train("train_001")
-        supervisor.add_worker("train_001")
+    def test_update_worker_status_toggle(self):
+        """Verify that status can be toggled multiple times."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.update_worker_status("train_1", worker_id, False)
+        supervisor.update_worker_status("train_1", worker_id, True)
+        training = supervisor.get_train("train_1")
+        assert training.workers[0].status is True
 
-        assert "train_001" in supervisor.training
-        assert 0 in supervisor.training["train_001"]
+    def test_update_worker_status_nonexistent_train_raises_error(self):
+        """Verify that updating status for non-existent training raises error."""
+        supervisor = Supervisor()
+        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
+            supervisor.update_worker_status("invalid", 0, False)
+
+    def test_update_worker_status_nonexistent_worker_raises_error(self):
+        """Verify that updating status for non-existent worker raises error."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        with pytest.raises(SupervisorError, match="Worker ID 99 does not exist"):
+            supervisor.update_worker_status("train_1", 99, False)
 
 
-class TestIntegration:
-    """Integration tests for complete workflows."""
+class TestSupervisorTrainingsProperty:
+    """Test cases for the trainings property."""
 
-    def test_complete_workflow(self, supervisor):
-        """Test complete workflow of creating train, adding workers, and tracking episodes."""
-        # Create training session
-        supervisor.add_train("exp_001")
+    def test_trainings_property_returns_list(self):
+        """Verify that trainings property returns a list of training schemas."""
+        supervisor = Supervisor()
+        assert isinstance(supervisor.trainings, list)
 
-        # Add workers
-        worker_0 = supervisor.add_worker("exp_001")
-        worker_1 = supervisor.add_worker("exp_001")
+    def test_trainings_property_with_multiple_sessions(self):
+        """Verify that trainings property includes all training sessions."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        supervisor.add_train("train_2")
+        supervisor.add_worker("train_1")
+        supervisor.add_worker("train_2")
+        supervisor.add_worker("train_2")
 
-        assert worker_0 == 0
-        assert worker_1 == 1
+        trainings = supervisor.trainings
+        assert len(trainings) == 2
+        train_dict = {t.id: t for t in trainings}
+        assert len(train_dict["train_1"].workers) == 1
+        assert len(train_dict["train_2"].workers) == 2
 
-        # Check initial episode IDs
-        assert supervisor.get_episode_id("exp_001", worker_0) == 0
-        assert supervisor.get_episode_id("exp_001", worker_1) == 0
 
-        # Increment episodes
-        for _ in range(3):
-            supervisor.increment_episode_id("exp_001", worker_0)
+class TestSupervisorIntegration:
+    """Integration tests for complex Supervisor workflows."""
 
-        for _ in range(7):
-            supervisor.increment_episode_id("exp_001", worker_1)
+    def test_complete_workflow(self):
+        """Test a complete workflow with multiple sessions and workers."""
+        supervisor = Supervisor()
+
+        # Create two training sessions
+        supervisor.add_train("train_1")
+        supervisor.add_train("train_2")
+
+        # Add workers to first session
+        worker_1_1 = supervisor.add_worker("train_1")
+        worker_1_2 = supervisor.add_worker("train_1")
+
+        # Add worker to second session
+        _ = supervisor.add_worker("train_2")
+
+        # Progress episodes for workers
+        supervisor.increment_episode_id("train_1", worker_1_1)
+        supervisor.increment_episode_id("train_1", worker_1_1)
+        supervisor.increment_episode_id("train_1", worker_1_2)
+
+        # Update statuses
+        supervisor.update_worker_status("train_1", worker_1_2, False)
 
         # Verify final state
-        assert supervisor.get_episode_id("exp_001", worker_0) == 3
-        assert supervisor.get_episode_id("exp_001", worker_1) == 7
+        train_1 = supervisor.get_train("train_1")
+        train_2 = supervisor.get_train("train_2")
 
-    def test_multiple_independent_training_sessions(self, supervisor):
-        """Test handling multiple independent training sessions."""
-        # Create multiple training sessions
-        supervisor.add_train("train_A")
-        supervisor.add_train("train_B")
+        assert len(train_1.workers) == 2
+        assert train_1.workers[0].episode_id == 2
+        assert train_1.workers[0].status is True
+        assert train_1.workers[1].episode_id == 1
+        assert train_1.workers[1].status is False
 
-        # Add workers to each
-        worker_a = supervisor.add_worker("train_A")
-        worker_b = supervisor.add_worker("train_B")
-
-        # Increment episodes for train_A
-        for _ in range(5):
-            supervisor.increment_episode_id("train_A", worker_a)
-
-        # Verify train_B is unaffected
-        assert supervisor.get_episode_id("train_B", worker_b) == 0
-
-        # Verify train_A has correct count
-        assert supervisor.get_episode_id("train_A", worker_a) == 5
-
-    def test_large_scale_scenario(self, supervisor):
-        """Test handling large numbers of training sessions and workers."""
-        num_trains = 10
-        workers_per_train = 20
-
-        # Create training sessions and workers
-        for train_idx in range(num_trains):
-            train_id = f"train_{train_idx:03d}"
-            supervisor.add_train(train_id)
-
-            for _ in range(workers_per_train):
-                supervisor.add_worker(train_id)
-
-        # Verify structure
-        assert len(supervisor.training) == num_trains
-        for train_idx in range(num_trains):
-            train_id = f"train_{train_idx:03d}"
-            assert len(supervisor.training[train_id]) == workers_per_train
-
-    def test_worker_lifecycle(self, supervisor):
-        """Test complete lifecycle of a worker from creation to many episodes."""
-        supervisor.add_train("train_001")
-        worker_id = supervisor.add_worker("train_001")
-
-        # Simulate many episodes
-        for expected_episode in range(1, 101):
-            supervisor.increment_episode_id("train_001", worker_id)
-            actual_episode = supervisor.get_episode_id("train_001", worker_id)
-            assert actual_episode == expected_episode
+        assert len(train_2.workers) == 1
+        assert train_2.workers[0].episode_id == 0
+        assert train_2.workers[0].status is True

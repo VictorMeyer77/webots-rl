@@ -47,6 +47,7 @@ Type Safety:
 from collections import OrderedDict
 
 from app.schemas import ActionSchema, EnvironmentSchema, ObservationSchema
+from app.schemas.health import MemoryStatsSchema
 
 Key = tuple[str, int, int, int]
 
@@ -147,7 +148,7 @@ class Memory:
         """
         self.memory.clear()
 
-    def stats(self) -> dict[str, int | float]:
+    def stats(self) -> MemoryStatsSchema:
         """Get memory usage statistics for monitoring and capacity planning.
 
         Provides real-time metrics about the communication channel's current state,
@@ -155,17 +156,19 @@ class Memory:
         capacity allocation across bricks.
 
         Returns:
-            dict[str, int | float]: Dictionary containing memory statistics with keys:
-                - size (int): Current number of messages stored
-                - capacity (int): Maximum message capacity
-                - remaining (int): Available slots before eviction starts
-                - usage_percent (float): Percentage of capacity used (0-100), rounded to 2 decimals
+            MemoryStatsSchema: Memory statistics containing:
+                - size (int): Current number of stored messages
+                - capacity (int): Maximum number of messages that can be stored
+                - remaining (int): Available slots before eviction occurs (capacity - size)
+                - usage_percent (float): Percentage of capacity currently used (0.0 to 100.0)
         """
-        return {
-            "size": len(self.memory),
-            "capacity": self.capacity,
-            "remaining": self.capacity - len(self.memory),
-            "usage_percent": round((len(self.memory) / self.capacity * 100), 2)
-            if self.capacity > 0
-            else 0.0,
-        }
+        return MemoryStatsSchema(
+            size=len(self.memory),
+            capacity=self.capacity,
+            remaining=self.capacity - len(self.memory),
+            usage_percent=(
+                round((len(self.memory) / self.capacity * 100), 2)
+                if self.capacity > 0
+                else 0.0
+            ),
+        )

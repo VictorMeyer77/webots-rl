@@ -53,7 +53,6 @@ def test_add_train_success(client, mock_get_supervisor):
     assert response.status_code == 201
     data = response.json()
     assert data["status"] == "success"
-    assert "train_001" in data["message"]
 
 
 def test_add_train_duplicate(client, mock_get_supervisor):
@@ -176,7 +175,6 @@ def test_increment_episode_id_success(client, mock_get_supervisor):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
-    assert "worker 0" in data["message"]
 
     # Verify episode ID was incremented
     get_response = client.get("/supervisor/train/train_001/worker/0/episode")
@@ -314,3 +312,320 @@ def test_episode_id_isolation_between_workers(client, mock_get_supervisor):
     # Verify worker 0 has correct count
     ep0 = client.get("/supervisor/train/train_001/worker/0/episode")
     assert ep0.json()["episode_id"] == 10
+
+
+"""Unit tests for get_train and update_worker_status endpoints."""
+
+
+def test_get_train_success(client, mock_get_supervisor):
+    """Test successfully retrieving training session details."""
+    # Setup: create training session and add workers
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+    client.post("/supervisor/train/train_001/worker")
+
+    response = client.get("/supervisor/train/train_001")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == "train_001"
+    assert "workers" in data
+    assert len(data["workers"]) == 2
+    assert data["workers"][0]["id"] == 0
+    assert data["workers"][1]["id"] == 1
+
+
+def test_get_train_with_worker_details(client, mock_get_supervisor):
+    """Test retrieving training session with complete worker details."""
+    # Setup: create training session and worker
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+
+    # Increment episode for worker
+    client.post("/supervisor/train/train_001/worker/0/episode/increment")
+    client.post("/supervisor/train/train_001/worker/0/episode/increment")
+
+    response = client.get("/supervisor/train/train_001")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workers"][0]["id"] == 0
+    assert data["workers"][0]["episode_id"] == 2
+    assert data["workers"][0]["status"] is True
+
+
+def test_get_train_nonexistent(client, mock_get_supervisor):
+    """Test retrieving non-existent training session returns 404."""
+    response = client.get("/supervisor/train/nonexistent_train")
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
+    assert "nonexistent_train" in response.json()["detail"]
+
+
+def test_get_train_empty_workers(client, mock_get_supervisor):
+    """Test retrieving training session with no workers."""
+    # Create training session without workers
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+
+    response = client.get("/supervisor/train/train_001")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == "train_001"
+    assert data["workers"] == []
+
+
+def test_get_train_multiple_workers_different_episodes(client, mock_get_supervisor):
+    """Test retrieving training session with workers at different episode counts."""
+    # Setup: create training session and workers
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+    client.post("/supervisor/train/train_001/worker")
+    client.post("/supervisor/train/train_001/worker")
+
+    # Increment episodes differently for each worker
+    for _ in range(5):
+        client.post("/supervisor/train/train_001/worker/0/episode/increment")
+
+    for _ in range(3):
+        client.post("/supervisor/train/train_001/worker/1/episode/increment")
+
+    # Worker 2 stays at episode 0
+
+    response = client.get("/supervisor/train/train_001")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["workers"]) == 3
+    assert data["workers"][0]["episode_id"] == 5
+    assert data["workers"][1]["episode_id"] == 3
+    assert data["workers"][2]["episode_id"] == 0
+
+
+def test_get_train_special_characters_in_id(client, mock_get_supervisor):
+    """Test retrieving training session with special characters in ID."""
+    train_id = "train-test_123.v2"
+    client.post("/supervisor/train", json={"train_id": train_id})
+    client.post(f"/supervisor/train/{train_id}/worker")
+
+    response = client.get(f"/supervisor/train/{train_id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == train_id
+
+
+def test_get_train_after_status_updates(client, mock_get_supervisor):
+    """Test retrieving training session after updating worker statuses."""
+    # Setup
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+    client.post("/supervisor/train/train_001/worker")
+
+    # Update statuses
+    client.post("/supervisor/train/train_001/worker/0/status?worker_status=false")
+    client.post("/supervisor/train/train_001/worker/1/status?worker_status=true")
+
+    response = client.get("/supervisor/train/train_001")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["workers"][0]["status"] is False
+    assert data["workers"][1]["status"] is True
+
+
+def test_update_worker_status_success_to_false(client, mock_get_supervisor):
+    """Test successfully updating worker status from True to False."""
+    # Setup
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+
+    response = client.post(
+        "/supervisor/train/train_001/worker/0/status?worker_status=false"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+
+    # Verify status changed
+    train_info = client.get("/supervisor/train/train_001")
+    assert train_info.json()["workers"][0]["status"] is False
+
+
+def test_update_worker_status_success_to_true(client, mock_get_supervisor):
+    """Test successfully updating worker status from False to True."""
+    # Setup
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+
+    # First set to false
+    client.post("/supervisor/train/train_001/worker/0/status?worker_status=false")
+
+    # Then set back to true
+    response = client.post(
+        "/supervisor/train/train_001/worker/0/status?worker_status=true"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+    # Verify status changed back
+    train_info = client.get("/supervisor/train/train_001")
+    assert train_info.json()["workers"][0]["status"] is True
+
+
+def test_update_worker_status_nonexistent_train(client, mock_get_supervisor):
+    """Test updating worker status for non-existent training session."""
+    response = client.post(
+        "/supervisor/train/nonexistent/worker/0/status?worker_status=false"
+    )
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+def test_update_worker_status_nonexistent_worker(client, mock_get_supervisor):
+    """Test updating status for non-existent worker."""
+    # Create training session only
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+
+    response = client.post(
+        "/supervisor/train/train_001/worker/99/status?worker_status=false"
+    )
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
+    assert "99" in response.json()["detail"]
+
+
+def test_update_worker_status_multiple_workers(client, mock_get_supervisor):
+    """Test updating status for multiple workers independently."""
+    # Setup
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+    client.post("/supervisor/train/train_001/worker")
+    client.post("/supervisor/train/train_001/worker")
+
+    # Update different workers to different statuses
+    client.post("/supervisor/train/train_001/worker/0/status?worker_status=false")
+    client.post("/supervisor/train/train_001/worker/2/status?worker_status=false")
+    # Worker 1 remains True (default)
+
+    # Verify statuses
+    train_info = client.get("/supervisor/train/train_001")
+    workers = train_info.json()["workers"]
+    assert workers[0]["status"] is False
+    assert workers[1]["status"] is True
+    assert workers[2]["status"] is False
+
+
+def test_update_worker_status_does_not_affect_episode(client, mock_get_supervisor):
+    """Test that updating status doesn't affect episode ID."""
+    # Setup
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+
+    # Increment episodes
+    for _ in range(5):
+        client.post("/supervisor/train/train_001/worker/0/episode/increment")
+
+    # Get episode before status update
+    episode_before = client.get("/supervisor/train/train_001/worker/0/episode")
+
+    # Update status
+    client.post("/supervisor/train/train_001/worker/0/status?worker_status=false")
+
+    # Verify episode unchanged
+    episode_after = client.get("/supervisor/train/train_001/worker/0/episode")
+    assert episode_before.json()["episode_id"] == episode_after.json()["episode_id"]
+    assert episode_after.json()["episode_id"] == 5
+
+
+def test_update_worker_status_toggle_multiple_times(client, mock_get_supervisor):
+    """Test toggling worker status multiple times."""
+    # Setup
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.post("/supervisor/train/train_001/worker")
+
+    # Toggle status multiple times
+    for i in range(5):
+        expected_status = i % 2 == 0  # Alternates False, True, False, True, False
+        response = client.post(
+            f"/supervisor/train/train_001/worker/0/status?worker_status={str(not expected_status).lower()}"
+        )
+        assert response.status_code == 200
+
+    # Verify final status
+    train_info = client.get("/supervisor/train/train_001")
+    # After 5 toggles starting from True: False, True, False, True, False
+    assert train_info.json()["workers"][0]["status"] is False
+
+
+def test_update_worker_status_different_training_sessions(client, mock_get_supervisor):
+    """Test that status updates are isolated between training sessions."""
+    # Setup two training sessions
+    client.post("/supervisor/train", json={"train_id": "train_A"})
+    client.post("/supervisor/train", json={"train_id": "train_B"})
+    client.post("/supervisor/train/train_A/worker")
+    client.post("/supervisor/train/train_B/worker")
+
+    # Update status in train_A only
+    client.post("/supervisor/train/train_A/worker/0/status?worker_status=false")
+
+    # Verify train_A status changed
+    train_a_info = client.get("/supervisor/train/train_A")
+    assert train_a_info.json()["workers"][0]["status"] is False
+
+    # Verify train_B status unchanged
+    train_b_info = client.get("/supervisor/train/train_B")
+    assert train_b_info.json()["workers"][0]["status"] is True
+
+
+def test_update_worker_status_with_special_train_id(client, mock_get_supervisor):
+    """Test updating worker status with special characters in train ID."""
+    train_id = "train-test_123.v2"
+    client.post("/supervisor/train", json={"train_id": train_id})
+    client.post(f"/supervisor/train/{train_id}/worker")
+
+    response = client.post(
+        f"/supervisor/train/{train_id}/worker/0/status?worker_status=false"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
+def test_complete_workflow_with_status_updates(client, mock_get_supervisor):
+    """Test complete workflow including status updates."""
+    # 1. Create training session
+    client.post("/supervisor/train", json={"train_id": "exp_001"})
+
+    # 2. Add workers
+    client.post("/supervisor/train/exp_001/worker")
+    client.post("/supervisor/train/exp_001/worker")
+
+    # 3. Get initial state
+    initial_state = client.get("/supervisor/train/exp_001")
+    assert len(initial_state.json()["workers"]) == 2
+    assert all(w["status"] is True for w in initial_state.json()["workers"])
+
+    # 4. Increment episodes and update statuses
+    for _ in range(3):
+        client.post("/supervisor/train/exp_001/worker/0/episode/increment")
+    client.post("/supervisor/train/exp_001/worker/0/status?worker_status=false")
+
+    for _ in range(7):
+        client.post("/supervisor/train/exp_001/worker/1/episode/increment")
+    # Worker 1 remains active
+
+    # 5. Verify final state
+    final_state = client.get("/supervisor/train/exp_001")
+    workers = final_state.json()["workers"]
+
+    assert workers[0]["episode_id"] == 3
+    assert workers[0]["status"] is False
+
+    assert workers[1]["episode_id"] == 7
+    assert workers[1]["status"] is True

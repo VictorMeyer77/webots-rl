@@ -3,6 +3,7 @@
 import pytest
 from app.core.memory import Key, Memory
 from app.schemas import ActionSchema, EnvironmentSchema, ObservationSchema
+from app.schemas.health import MemoryStatsSchema
 
 
 @pytest.fixture
@@ -203,10 +204,11 @@ def test_memory_stats_empty():
 
     stats = memory.stats()
 
-    assert stats["size"] == 0
-    assert stats["capacity"] == 100
-    assert stats["remaining"] == 100
-    assert stats["usage_percent"] == 0.0
+    assert isinstance(stats, MemoryStatsSchema)
+    assert stats.size == 0
+    assert stats.capacity == 100
+    assert stats.remaining == 100
+    assert stats.usage_percent == 0.0
 
 
 def test_memory_stats_partially_filled(sample_environment_message):
@@ -218,10 +220,11 @@ def test_memory_stats_partially_filled(sample_environment_message):
 
     stats = memory.stats()
 
-    assert stats["size"] == 3
-    assert stats["capacity"] == 10
-    assert stats["remaining"] == 7
-    assert stats["usage_percent"] == 30.0
+    assert isinstance(stats, MemoryStatsSchema)
+    assert stats.size == 3
+    assert stats.capacity == 10
+    assert stats.remaining == 7
+    assert stats.usage_percent == 30.0
 
 
 def test_memory_stats_full(sample_environment_message):
@@ -233,10 +236,11 @@ def test_memory_stats_full(sample_environment_message):
 
     stats = memory.stats()
 
-    assert stats["size"] == 5
-    assert stats["capacity"] == 5
-    assert stats["remaining"] == 0
-    assert stats["usage_percent"] == 100.0
+    assert isinstance(stats, MemoryStatsSchema)
+    assert stats.size == 5
+    assert stats.capacity == 5
+    assert stats.remaining == 0
+    assert stats.usage_percent == 100.0
 
 
 def test_memory_stats_zero_capacity():
@@ -245,10 +249,11 @@ def test_memory_stats_zero_capacity():
 
     stats = memory.stats()
 
-    assert stats["size"] == 0
-    assert stats["capacity"] == 0
-    assert stats["remaining"] == 0
-    assert stats["usage_percent"] == 0.0
+    assert isinstance(stats, MemoryStatsSchema)
+    assert stats.size == 0
+    assert stats.capacity == 0
+    assert stats.remaining == 0
+    assert stats.usage_percent == 0.0
 
 
 def test_memory_stats_usage_percent_rounding(sample_environment_message):
@@ -258,7 +263,8 @@ def test_memory_stats_usage_percent_rounding(sample_environment_message):
 
     stats = memory.stats()
 
-    assert stats["usage_percent"] == 33.33
+    assert isinstance(stats, MemoryStatsSchema)
+    assert stats.usage_percent == 33.33
 
 
 def test_memory_mixed_message_types(

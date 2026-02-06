@@ -22,7 +22,6 @@ from app.core.supervisor import Supervisor
 from app.routers import router as root_router
 from app.routers.action import router as action_router
 from app.routers.environment import router as environment_router
-from app.routers.experience import router as experience_router
 from app.routers.observation import router as observation_router
 from app.routers.supervisor import router as supervisor_router
 from fastapi import FastAPI
@@ -70,34 +69,7 @@ app.include_router(root_router, prefix=API_PREFIX)
 app.include_router(environment_router, prefix=API_PREFIX)
 app.include_router(observation_router, prefix=API_PREFIX)
 app.include_router(action_router, prefix=API_PREFIX)
-app.include_router(experience_router, prefix=API_PREFIX)
 app.include_router(supervisor_router, prefix=API_PREFIX)
-
-
-@app.get(
-    "/health",
-    summary="Monitor application health status",
-    description="Health check endpoint to verify the application is running",
-    response_description="Application health status",
-    responses={
-        200: {
-            "description": "Memory health statistics",
-            "content": {"application/json": {"example": {"status": "healthy"}}},
-        }
-    },
-)
-async def health_check():
-    """
-    Health check endpoint to verify the application is running.
-
-    This endpoint is used by monitoring systems, load balancers, and
-    orchestration tools.
-
-    Returns:
-        dict: A dictionary containing the application status.
-            - status: Always returns "healthy" when the application is running.
-    """
-    return {"status": "healthy"}
 
 
 if __name__ == "__main__":

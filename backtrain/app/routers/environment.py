@@ -23,7 +23,8 @@ Error Handling:
 
 from app.core.memory import Memory
 from app.dependencies import get_environment_memory
-from app.schemas import EnvironmentSchema
+from app.schemas import EnvironmentSchema, SuccessResponseSchema
+from app.schemas.health import MemoryStatsSchema
 from fastapi import APIRouter, Depends, HTTPException, Path
 
 router = APIRouter(prefix="/environment", tags=["environment"])
@@ -32,20 +33,20 @@ router = APIRouter(prefix="/environment", tags=["environment"])
 @router.get(
     "/health",
     summary="Monitor environment memory health",
-    description="Retrieve memory usage statistics for monitoring environment message capacity and backpressure detection",
-    response_description="Memory statistics including size, capacity, and usage percentage",
+    description="Retrieve real-time memory usage statistics for the environment communication channel. "
+    "Provides metrics for monitoring system health, detecting bottlenecks, and capacity planning.",
+    response_description="Memory statistics including size, capacity, remaining slots, and usage percentage",
+    response_model=MemoryStatsSchema,
     responses={
         200: {
-            "description": "Memory health statistics",
+            "description": "Memory health statistics retrieved successfully",
             "content": {
                 "application/json": {
                     "example": {
-                        "stats": {
-                            "size": 3842,
-                            "capacity": 10000,
-                            "remaining": 6158,
-                            "usage_percent": 38.42,
-                        }
+                        "size": 3842,
+                        "capacity": 10000,
+                        "remaining": 6158,
+                        "usage_percent": 38.42,
                     }
                 }
             },
@@ -54,25 +55,26 @@ router = APIRouter(prefix="/environment", tags=["environment"])
 )
 def check_environment_memory_health(
     memory: Memory = Depends(get_environment_memory),
-) -> dict:
-    """Get environment memory health statistics.
+) -> MemoryStatsSchema:
+    """Retrieve environment memory health statistics.
 
     Provides real-time metrics about the environment communication channel's current
-    state. Useful for monitoring system health and capacity planning.
+    state, including memory usage, capacity, and availability. This endpoint is
+    useful for monitoring system health, detecting potential bottlenecks, and
+    capacity planning.
 
     Args:
-        memory: Injected environment memory instance via dependency injection.
+        memory: Environment memory instance injected via dependency injection.
+            Manages the storage and retrieval of environment state messages.
 
     Returns:
-        dict: Dictionary containing:
-            - stats (dict): Memory statistics with fields:
-                - size (int): Current number of stored environment states
-                - capacity (int): Maximum environment message capacity
-                - remaining (int): Available slots before eviction
-                - usage_percent (float): Percentage of capacity used
+        MemoryStatsSchema: Memory statistics containing:
+            - size (int): Current number of stored environment states
+            - capacity (int): Maximum number of environment messages that can be stored
+            - remaining (int): Available slots before eviction occurs (capacity - size)
+            - usage_percent (float): Percentage of capacity currently used (0.0 to 100.0)
     """
-    stats = memory.stats()
-    return {"stats": stats}
+    return memory.stats()
 
 
 @router.post(
@@ -85,7 +87,7 @@ def check_environment_memory_health(
     responses={
         200: {
             "description": "Environment state stored successfully",
-            "content": {"application/json": {"example": {"status": "stored"}}},
+            "content": {"application/json": {"example": {"status": "success"}}},
         },
         422: {
             "description": "Validation error - invalid environment schema or path parameters",
@@ -129,7 +131,7 @@ def add_environment_step(
     ),
     payload: EnvironmentSchema = ...,
     memory: Memory = Depends(get_environment_memory),
-) -> dict:
+) -> SuccessResponseSchema:
     """Publish environment state after action execution.
 
     This endpoint enables environment to communicate the results of action
@@ -144,12 +146,12 @@ def add_environment_step(
         memory: Injected environment memory instance.
 
     Returns:
-        dict: Status confirmation with key:
-            - status (str): "stored" if successful
+        SuccessResponseSchema: Confirmation that environment state was stored successfully.
+
     """
     key = (train_id, worker_id, episode_id, step)
     memory.add(key, payload)
-    return {"status": "stored"}
+    return SuccessResponseSchema()
 
 
 @router.get(
