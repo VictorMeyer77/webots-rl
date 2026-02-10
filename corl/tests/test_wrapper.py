@@ -1,10 +1,9 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import requests
 
 from corl.api.wrapper import Wrapper
-from corl.api.schemas import Action, Observation, Environment
-from corl.api import Endpoint
+from corl.api.schemas import Action, Observation, Environment, Endpoint
 from corl.utils.config import Config
 
 

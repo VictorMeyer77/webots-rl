@@ -45,8 +45,7 @@ import logging
 
 import requests
 
-from corl.api import Endpoint
-from corl.api.schemas import Environment, Action, Observation
+from corl.api.schemas import Environment, Action, Observation, Endpoint
 from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -418,7 +417,7 @@ class Wrapper:
             worker_id,
             episode_id,
             step,
-            action.__dict__(),
+            action.to_dict(),
         )
         return stored
 
@@ -489,7 +488,7 @@ class Wrapper:
             worker_id,
             episode_id,
             step,
-            observation.__dict__(),
+            observation.to_dict(),
         )
         return stored
 
@@ -528,7 +527,7 @@ class Wrapper:
             worker_id,
             episode_id,
             step,
-            state.__dict__(),
+            state.to_dict(),
         )
 
     def get_environment(
