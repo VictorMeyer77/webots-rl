@@ -14,7 +14,7 @@ maintaining consistent state through a centralized coordination service.
 Typical workflow:
     1. Create a training session with POST /supervisor/train
     2. Register workers with POST /supervisor/train/{train_id}/worker
-    3. Workers query their episode ID with GET /supervisor/train/{train_id}/worker/{worker_id}/episode
+    3. Workers query their episode ID with GET /supervisor/train/{train_id}/worker/{worker_id}
     4. Workers increment their episode counter with POST /supervisor/train/{train_id}/worker/{worker_id}/episode/increment
     5. Optionally, update worker status with POST /supervisor/train/{train_id}/worker/{worker_id}/status
 
@@ -26,10 +26,11 @@ from app.core.supervisor import Supervisor, SupervisorError
 from app.dependencies import get_supervisor
 from app.schemas import SuccessResponseSchema
 from app.schemas.supervisor import (
-    EpisodeIdSchema,
     TrainIdSchema,
     TrainingSchema,
     WorkerIdSchema,
+    WorkerSchema,
+    WorkerStatusSchema,
 )
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -81,6 +82,7 @@ def add_train(
 
 @router.get(
     "/train/{train_id}",
+    response_model=TrainingSchema,
     summary="Get training session details",
     description="Retrieve detailed information about a specific training session, "
     "including all registered workers, their episode IDs, and active status. "
@@ -113,6 +115,18 @@ def add_train(
 def get_train(
     train_id: str, supervisor: Supervisor = Depends(get_supervisor)
 ) -> TrainingSchema:
+    """Retrieve detailed information about a training session.
+
+    Args:
+        train_id: Training session identifier.
+        supervisor: Supervisor instance injected as dependency.
+
+    Returns:
+        TrainingSchema: Training session details including ID and list of workers.
+
+    Raises:
+        HTTPException: 404 if the training session doesn't exist.
+    """
     try:
         return supervisor.get_train(train_id)
     except SupervisorError as e:
@@ -188,7 +202,7 @@ def add_worker(
 def update_worker_status(
     train_id: str,
     worker_id: int,
-    worker_status: bool,
+    request: WorkerStatusSchema,
     supervisor: Supervisor = Depends(get_supervisor),
 ) -> SuccessResponseSchema:
     """Update the active status of a specific worker.
@@ -196,7 +210,7 @@ def update_worker_status(
     Args:
         train_id: Training session identifier.
         worker_id: Worker identifier.
-        worker_status: New active status for the worker (True for active, False for inactive).
+        request: Request body containing the new worker status.
         supervisor: Supervisor instance injected as dependency.
 
     Returns:
@@ -206,53 +220,63 @@ def update_worker_status(
         HTTPException: 404 if the training session or worker doesn't exist.
     """
     try:
-        supervisor.update_worker_status(train_id, worker_id, worker_status)
+        supervisor.update_worker_status(train_id, worker_id, request.worker_status)
         return SuccessResponseSchema()
     except SupervisorError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.get(
-    "/train/{train_id}/worker/{worker_id}/episode",
-    summary="Get current episode ID for a worker",
-    description="Retrieve the current episode ID that a specific worker is on. "
-    "This is useful for tracking training progress across parallel workers.",
+    "/train/{train_id}/worker/{worker_id}",
+    summary="Get worker details",
+    description="Retrieve complete information about a specific worker in a training session, "
+    "including its unique ID, current episode counter, and active status flag. "
+    "This endpoint is useful for checking worker state before taking actions or "
+    "for monitoring progress across parallel training workers.",
     responses={
         200: {
-            "description": "Episode ID retrieved successfully",
-            "content": {"application/json": {"example": {"episode_id": 42}}},
+            "description": "Worker details retrieved successfully",
+            "content": {
+                "application/json": {
+                    "example": {"id": 0, "episode_id": 42, "status": True}
+                }
+            },
         },
         404: {
             "description": "Training session or worker not found",
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "Worker ID 5 does not exist in train train_001."
+                        "detail": "Worker ID 5 does not exist for Train ID train_001."
                     }
                 }
             },
         },
     },
 )
-def get_episode_id(
+def get_worker(
     train_id: str, worker_id: int, supervisor: Supervisor = Depends(get_supervisor)
-) -> EpisodeIdSchema:
-    """Retrieve the current episode ID for a specific worker.
+) -> WorkerSchema:
+    """Retrieve detailed information about a specific worker.
+
+    Fetches the current state of a worker within a training session, including
+    its unique identifier, episode counter (number of completed episodes), and
+    active status flag (True if worker is active, False if paused/inactive).
 
     Args:
         train_id: Training session identifier.
-        worker_id: Worker identifier.
+        worker_id: Worker identifier within the training session.
         supervisor: Supervisor instance injected as dependency.
 
     Returns:
-        The current episode ID for the specified worker.
+        WorkerSchema: Complete worker information including ID, episode counter,
+            and active status.
 
     Raises:
         HTTPException: 404 if the training session or worker doesn't exist.
     """
     try:
-        episode_id = supervisor.get_episode_id(train_id, worker_id)
-        return EpisodeIdSchema(episode_id=episode_id)
+        return supervisor.get_worker(train_id, worker_id)
     except SupervisorError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -272,7 +296,7 @@ def get_episode_id(
             "content": {
                 "application/json": {
                     "example": {
-                        "detail": "Worker ID 5 does not exist in train train_001."
+                        "detail": "Worker ID 5 does not exist for Train ID train_001."
                     }
                 }
             },

@@ -5,8 +5,10 @@ messages in a distributed reinforcement learning system.
 
 Endpoints:
     - GET  /health                                      : Memory health monitoring
-    - POST /{train_id}/{worker_id}/{episode_id}/{step}     : Publish env state
-    - GET  /{train_id}/{worker_id}/{episode_id}/{step}     : Consume env state
+    - POST /{train_id}/{worker_id}/{episode_id}/{step}  : Publish single env state
+    - GET  /{train_id}/{worker_id}/{episode_id}/{step}  : Consume single env state
+    - POST /batch                                       : Retrieve multiple env states (batch GET)
+    - POST /batch/publish                               : Publish multiple env states (batch POST)
 
 Key Structure:
     All endpoints use a 4-level hierarchical key for message routing:
@@ -24,6 +26,13 @@ Error Handling:
 from app.core.memory import Memory
 from app.dependencies import get_environment_memory
 from app.schemas import EnvironmentSchema, SuccessResponseSchema
+from app.schemas.batch import (
+    BatchGetRequestSchema,
+    BatchGetResponseSchema,
+    BatchItemSchema,
+    BatchPostRequestSchema,
+    BatchPostResponseSchema,
+)
 from app.schemas.health import MemoryStatsSchema
 from fastapi import APIRouter, Depends, HTTPException, Path
 
@@ -107,7 +116,6 @@ def check_environment_memory_health(
         },
     },
 )
-@router.post("/{train_id}/{worker_id}/{episode_id}/{step}")
 def add_environment_step(
     train_id: str = Path(
         ...,
@@ -211,7 +219,7 @@ def get_environment_step(
 ) -> EnvironmentSchema:
     """Retrieve environment state for trainer learning.
 
-    This endpoint enables trainer consume environment states published by environment.
+    This endpoint enables trainers to consume environment states published by environments.
 
     Args:
         train_id: Training session identifier.
@@ -243,3 +251,167 @@ def get_environment_step(
         )
 
     return value
+
+
+@router.post(
+    "/batch",
+    summary="Retrieve multiple environment states in batch",
+    description="Retrieve multiple environment states in a single request by providing a list of keys. "
+    "This endpoint is more efficient than making multiple individual GET requests. "
+    "Returns results for all requested keys, indicating which were found and which were not.",
+    response_description="Batch results containing environment states and retrieval status for each key",
+    response_model=BatchGetResponseSchema,
+    responses={
+        200: {
+            "description": "Batch retrieval completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "results": [
+                            {
+                                "key": {
+                                    "train_id": "exp_001",
+                                    "worker_id": 0,
+                                    "episode_id": 5,
+                                    "step": 10,
+                                },
+                                "value": {
+                                    "done": False,
+                                    "reward": 1.5,
+                                    "data": {
+                                        "position": [0.5, 1.2],
+                                        "velocity": [0.1, -0.05],
+                                    },
+                                },
+                                "found": True,
+                            },
+                            {
+                                "key": {
+                                    "train_id": "exp_001",
+                                    "worker_id": 0,
+                                    "episode_id": 5,
+                                    "step": 11,
+                                },
+                                "value": None,
+                                "found": False,
+                            },
+                        ],
+                        "total": 2,
+                        "found": 1,
+                        "missing": 1,
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Validation error - invalid request payload",
+        },
+    },
+)
+def get_environment_batch(
+    payload: BatchGetRequestSchema,
+    memory: Memory = Depends(get_environment_memory),
+) -> BatchGetResponseSchema:
+    """Retrieve multiple environment states in a single batch request.
+
+    This endpoint provides efficient retrieval of multiple environment states by accepting
+    a list of keys and returning all corresponding states in a single response.
+    Unlike individual GET requests, this endpoint does not raise errors for
+    missing environment states - instead, it indicates in the response which states were
+    found and which were not.
+
+    Args:
+        payload: Batch request containing a list of environment state keys to retrieve.
+        memory: Injected environment memory instance.
+
+    Returns:
+        BatchGetResponseSchema: Batch response containing:
+            - results: List of environment state results with keys, states, and found status
+            - total: Total number of keys requested
+            - found: Count of successfully retrieved environment states
+            - missing: Count of environment states not found in memory
+    """
+    results = []
+    found_count = 0
+    missing_count = 0
+
+    for key_schema in payload.keys:
+        key = (
+            key_schema.train_id,
+            key_schema.worker_id,
+            key_schema.episode_id,
+            key_schema.step,
+        )
+        value = memory.get(key)
+
+        results.append(BatchItemSchema(key=key_schema, value=value))
+        found_count += 1 if value is not None else 0
+        missing_count += 1 if value is None else 0
+
+    return BatchGetResponseSchema(
+        results=results,
+        total=len(payload.keys),
+        found=found_count,
+        missing=missing_count,
+    )
+
+
+@router.post(
+    "/batch/publish",
+    summary="Publish multiple environment states in batch",
+    description="Publish multiple environment states in a single request. "
+    "This endpoint is more efficient than making multiple individual POST requests. "
+    "All environment states are stored in memory with their respective keys.",
+    response_description="Confirmation of batch publish operation with counts",
+    response_model=BatchPostResponseSchema,
+    responses={
+        200: {
+            "description": "Batch publish completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "total": 10,
+                        "published": 10,
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Validation error - invalid request payload",
+        },
+    },
+)
+def post_environment_batch(
+    payload: BatchPostRequestSchema,
+    memory: Memory = Depends(get_environment_memory),
+) -> BatchPostResponseSchema:
+    """Publish multiple environment states in a single batch request.
+
+    This endpoint provides efficient publishing of multiple environment states by accepting
+    a list of environment items (key + environment data) and storing all of them in memory.
+    This is useful for bulk operations, reducing network overhead and improving
+    throughput when publishing many environment states at once.
+
+    Args:
+        payload: Batch publish request containing a list of items (key-value pairs) to store.
+        memory: Injected environment memory instance.
+
+    Returns:
+        BatchPostResponseSchema: Batch response containing:
+            - status: Success status message
+            - total: Total number of items in the request
+    """
+
+    for item in payload.items:
+        key = (
+            item.key.train_id,
+            item.key.worker_id,
+            item.key.episode_id,
+            item.key.step,
+        )
+        memory.add(key, item.value)
+
+    return BatchPostResponseSchema(
+        total=len(payload.items),
+    )

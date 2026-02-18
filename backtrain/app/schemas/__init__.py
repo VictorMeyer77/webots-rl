@@ -7,7 +7,24 @@ It includes schemas for observations, actions and environment states.
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class StepKeySchema(BaseModel):
+    """
+    Represents the unique key for a specific step in the training process.
+
+    Attributes:
+        train_id: Unique identifier for the training session/experiment.
+        worker_id: Parallel worker instance identifier (0-indexed).
+        episode_id: Episode number within the training session.
+        step: Time step number within the episode.
+    """
+
+    train_id: str = Field(..., min_length=1)
+    worker_id: int = Field(..., ge=0)
+    episode_id: int = Field(..., ge=0)
+    step: int = Field(..., ge=0)
 
 
 class EnvironmentSchema(BaseModel):
@@ -42,7 +59,7 @@ class ActionSchema(BaseModel):
 
     Attributes:
         action: Integer identifier for the action to execute.
-        executed: Boolean flag indicating if the action has been executed.
+        executed: Boolean flag indicating if the action has been executed (defaults to False).
     """
 
     action: int
@@ -54,7 +71,7 @@ class SuccessResponseSchema(BaseModel):
     Represents a generic success response for API endpoints.
 
     Attributes:
-        status: A string indicating the success status of the operation.
+        status: A string indicating the success status of the operation (defaults to "success").
     """
 
     status: str = "success"

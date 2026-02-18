@@ -4,6 +4,13 @@ This module provides FastAPI endpoints for publishing and consuming observation
 messages in a distributed reinforcement learning system.
 Observations represent data captured by the agent to choose actions.
 
+Endpoints:
+    - GET  /health                                     : Memory health monitoring
+    - POST /{train_id}/{worker_id}/{episode_id}/{step} : Publish single observation
+    - GET  /{train_id}/{worker_id}/{episode_id}/{step} : Consume single observation
+    - POST /batch                                      : Retrieve multiple observations (batch GET)
+    - POST /batch/publish                              : Publish multiple observations (batch POST)
+
 Error Handling:
     - 404 (GET): Observation not found
         * Observation hasn't been published yet
@@ -18,6 +25,13 @@ Error Handling:
 from app.core.memory import Memory
 from app.dependencies import get_observation_memory
 from app.schemas import ObservationSchema, SuccessResponseSchema
+from app.schemas.batch import (
+    BatchGetRequestSchema,
+    BatchGetResponseSchema,
+    BatchItemSchema,
+    BatchPostRequestSchema,
+    BatchPostResponseSchema,
+)
 from app.schemas.health import MemoryStatsSchema
 from fastapi import APIRouter, Depends, HTTPException, Path
 
@@ -150,7 +164,7 @@ def add_observation_step(
 @router.get(
     "/{train_id}/{worker_id}/{episode_id}/{step}",
     summary="Retrieve observation from memory",
-    description="Trainer retrieve observation state from memory.",
+    description="Trainers retrieve observation state from memory.",
     response_description="Observation data.",
     response_model=ObservationSchema,
     responses={
@@ -229,3 +243,165 @@ def get_observation_step(
         )
 
     return value
+
+
+@router.post(
+    "/batch",
+    summary="Retrieve multiple observations in batch",
+    description="Retrieve multiple observations in a single request by providing a list of keys. "
+    "This endpoint is more efficient than making multiple individual GET requests. "
+    "Returns results for all requested keys, indicating which were found and which were not.",
+    response_description="Batch results containing observations and retrieval status for each key",
+    response_model=BatchGetResponseSchema,
+    responses={
+        200: {
+            "description": "Batch retrieval completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "results": [
+                            {
+                                "key": {
+                                    "train_id": "exp_001",
+                                    "worker_id": 0,
+                                    "episode_id": 5,
+                                    "step": 10,
+                                },
+                                "value": {
+                                    "data": {
+                                        "position": [0.5, 1.2],
+                                        "velocity": [0.1, -0.05],
+                                    }
+                                },
+                                "found": True,
+                            },
+                            {
+                                "key": {
+                                    "train_id": "exp_001",
+                                    "worker_id": 0,
+                                    "episode_id": 5,
+                                    "step": 11,
+                                },
+                                "value": None,
+                                "found": False,
+                            },
+                        ],
+                        "total": 2,
+                        "found": 1,
+                        "missing": 1,
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Validation error - invalid request payload",
+        },
+    },
+)
+def get_observation_batch(
+    payload: BatchGetRequestSchema,
+    memory: Memory = Depends(get_observation_memory),
+) -> BatchGetResponseSchema:
+    """Retrieve multiple observations in a single batch request.
+
+    This endpoint provides efficient retrieval of multiple observations by accepting
+    a list of keys and returning all corresponding observations in a single response.
+    Unlike individual GET requests, this endpoint does not raise errors for
+    missing observations - instead, it indicates in the response which observations were
+    found and which were not.
+
+    Args:
+        payload: Batch request containing a list of observation keys to retrieve.
+        memory: Injected observation memory instance.
+
+    Returns:
+        BatchGetResponseSchema: Batch response containing:
+            - results: List of observation results with keys, observations, and found status
+            - total: Total number of keys requested
+            - found: Count of successfully retrieved observations
+            - missing: Count of observations not found in memory
+    """
+    results = []
+    found_count = 0
+    missing_count = 0
+
+    for key_schema in payload.keys:
+        key = (
+            key_schema.train_id,
+            key_schema.worker_id,
+            key_schema.episode_id,
+            key_schema.step,
+        )
+        value = memory.get(key)
+
+        results.append(BatchItemSchema(key=key_schema, value=value))
+        found_count += 1 if value is not None else 0
+        missing_count += 1 if value is None else 0
+
+    return BatchGetResponseSchema(
+        results=results,
+        total=len(payload.keys),
+        found=found_count,
+        missing=missing_count,
+    )
+
+
+@router.post(
+    "/batch/publish",
+    summary="Publish multiple observations in batch",
+    description="Publish multiple observations in a single request. "
+    "This endpoint is more efficient than making multiple individual POST requests. "
+    "All observations are stored in memory with their respective keys.",
+    response_description="Confirmation of batch publish operation with counts",
+    response_model=BatchPostResponseSchema,
+    responses={
+        200: {
+            "description": "Batch publish completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "total": 10,
+                        "published": 10,
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Validation error - invalid request payload",
+        },
+    },
+)
+def post_observation_batch(
+    payload: BatchPostRequestSchema,
+    memory: Memory = Depends(get_observation_memory),
+) -> BatchPostResponseSchema:
+    """Publish multiple observations in a single batch request.
+
+    This endpoint provides efficient publishing of multiple observations by accepting
+    a list of observation items (key + observation data) and storing all of them in memory.
+    This is useful for bulk operations, reducing network overhead and improving
+    throughput when publishing many observations at once.
+
+    Args:
+        payload: Batch publish request containing a list of items (key-value pairs) to store.
+        memory: Injected observation memory instance.
+
+    Returns:
+        BatchPostResponseSchema: Batch response containing:
+            - status: Success status message
+            - total: Total number of items published
+    """
+
+    for item in payload.items:
+        key = (
+            item.key.train_id,
+            item.key.worker_id,
+            item.key.episode_id,
+            item.key.step,
+        )
+        memory.add(key, item.value)
+
+    return BatchPostResponseSchema(
+        total=len(payload.items),
+    )

@@ -72,7 +72,7 @@ API_HOST="0.0.0.0"              # Host address for the API server (Not used with
 API_PORT=8000                   # Port number for the API server (Not used with `fastapi dev` command - use --port flag instead)
 
 # Memory Configuration
-MEMORY_CAPACITY=100000          # Maximum number of experiences to store in replay memory
+MEMORY_CAPACITY=1000            # Maximum number of experiences to store in replay memory
 
 # Logging Configuration
 LOG_CONSOLE_LEVEL=INFO          # Console log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -92,7 +92,7 @@ LOG_FILE_DIR=log                # Directory path for log files
 - [ ] **Separate capacities**: Allow different capacities for each memory type instead of sharing one value
 
 ### Performance
-- [ ] **Batch operations**: Support batch inserts for experiences
+- [x] **Batch operations**: Support batch inserts for experiences
 
 ### Deployment
 - [x] **Monitoring**: Add application metrics (e.g., Prometheus, health checks)

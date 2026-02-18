@@ -1,13 +1,13 @@
-"""Unit tests for logging configuration and utilities."""
+"""Unit tests for the logging configuration and utilities."""
 
+import json
 import logging
-import logging.handlers
 import os
-import sys
-from unittest.mock import Mock, patch
+import tempfile
+from unittest.mock import patch
 
-import pytest
 from app.core.logger import (
+    JsonFormatter,
     _get_console_handler,
     _get_file_handler,
     get_logger,
@@ -15,252 +15,615 @@ from app.core.logger import (
 )
 
 
-@pytest.fixture
-def mock_settings(monkeypatch):
-    """Fixture to mock settings with default values."""
-    from app.core import config
+class TestJsonFormatter:
+    """Test suite for the JsonFormatter class."""
 
-    mock_settings_obj = Mock()
-    mock_settings_obj.log_console_handler = True
-    mock_settings_obj.log_console_level = "INFO"
-    mock_settings_obj.log_file_handler = False
-    mock_settings_obj.log_file_level = "DEBUG"
-    mock_settings_obj.log_file_dir = "log"
+    def test_json_formatter_basic_format(self):
+        """Test that JsonFormatter produces valid JSON output."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
 
-    monkeypatch.setattr(config, "settings", mock_settings_obj)
-    return mock_settings_obj
+        result = formatter.format(record)
+
+        # Verify it's valid JSON
+        parsed = json.loads(result)
+        assert isinstance(parsed, dict)
+
+    def test_json_formatter_contains_timestamp(self):
+        """Test that JsonFormatter includes timestamp field."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert "timestamp" in parsed
+        assert isinstance(parsed["timestamp"], str)
+
+    def test_json_formatter_contains_logger_name(self):
+        """Test that JsonFormatter includes logger name."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="my.custom.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["logger"] == "my.custom.logger"
+
+    def test_json_formatter_contains_module(self):
+        """Test that JsonFormatter includes module name."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/test_module.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.module = "test_module"
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["module"] == "test_module"
+
+    def test_json_formatter_contains_function(self):
+        """Test that JsonFormatter includes function name."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="my_test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["function"] == "my_test_function"
+
+    def test_json_formatter_contains_thread(self):
+        """Test that JsonFormatter includes thread name."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "WorkerThread-1"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["thread"] == "WorkerThread-1"
+
+    def test_json_formatter_contains_level(self):
+        """Test that JsonFormatter includes log level."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.WARNING,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["level"] == "WARNING"
+
+    def test_json_formatter_contains_message(self):
+        """Test that JsonFormatter includes the log message."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="This is a test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["message"] == "This is a test message"
+
+    def test_json_formatter_with_different_log_levels(self):
+        """Test JsonFormatter with various log levels."""
+        formatter = JsonFormatter()
+        levels = [
+            (logging.DEBUG, "DEBUG"),
+            (logging.INFO, "INFO"),
+            (logging.WARNING, "WARNING"),
+            (logging.ERROR, "ERROR"),
+            (logging.CRITICAL, "CRITICAL"),
+        ]
+
+        for level_num, level_name in levels:
+            record = logging.LogRecord(
+                name="test.logger",
+                level=level_num,
+                pathname="/path/to/file.py",
+                lineno=42,
+                msg="Test message",
+                args=(),
+                exc_info=None,
+                func="test_function",
+            )
+            record.threadName = "MainThread"
+
+            result = formatter.format(record)
+            parsed = json.loads(result)
+
+            assert parsed["level"] == level_name
+
+    def test_json_formatter_with_formatted_message(self):
+        """Test JsonFormatter with string formatting in message."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Value is %s and count is %d",
+            args=("test", 42),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["message"] == "Value is test and count is 42"
+
+    def test_json_formatter_all_required_fields(self):
+        """Test that JsonFormatter includes all required fields."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+        record.module = "test_module"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        required_fields = [
+            "timestamp",
+            "logger",
+            "module",
+            "function",
+            "thread",
+            "level",
+            "message",
+        ]
+        for field in required_fields:
+            assert field in parsed, f"Field '{field}' is missing from JSON output"
+
+    def test_json_formatter_output_is_single_line(self):
+        """Test that JsonFormatter produces single-line JSON (no pretty printing)."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+
+        # Single-line JSON should not contain newlines (except possibly at the end)
+        assert result.strip().count("\n") == 0
+
+    def test_json_formatter_with_special_characters_in_message(self):
+        """Test JsonFormatter handles special characters in log message."""
+        formatter = JsonFormatter()
+        special_message = 'Message with "quotes" and \\backslashes\\ and \nnewlines'
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg=special_message,
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        # JSON parsing should handle escaping correctly
+        assert parsed["message"] == special_message
+
+    def test_json_formatter_with_unicode_characters(self):
+        """Test JsonFormatter handles unicode characters in log message."""
+        formatter = JsonFormatter()
+        unicode_message = "Message with unicode: 你好, мир, 🎉"
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg=unicode_message,
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["message"] == unicode_message
+
+    def test_json_formatter_with_empty_message(self):
+        """Test JsonFormatter handles empty log message."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert parsed["message"] == ""
+        assert "message" in parsed
+
+    def test_json_formatter_with_exception_info(self):
+        """Test that JsonFormatter includes exception information when present."""
+        import sys
+
+        formatter = JsonFormatter()
+
+        # Create an exception
+        try:
+            raise ValueError("Test exception")
+        except ValueError:
+            exc_info = sys.exc_info()
+
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.ERROR,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="An error occurred",
+            args=(),
+            exc_info=exc_info,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert "exception" in parsed
+        assert "ValueError: Test exception" in parsed["exception"]
+        assert "Traceback" in parsed["exception"]
+
+    def test_json_formatter_with_stack_info(self):
+        """Test that JsonFormatter includes stack info when present."""
+        formatter = JsonFormatter()
+        record = logging.LogRecord(
+            name="test.logger",
+            level=logging.INFO,
+            pathname="/path/to/file.py",
+            lineno=42,
+            msg="Test message with stack",
+            args=(),
+            exc_info=None,
+            func="test_function",
+        )
+        record.threadName = "MainThread"
+        record.stack_info = "Stack trace information here"
+
+        result = formatter.format(record)
+        parsed = json.loads(result)
+
+        assert "stack_info" in parsed
+        assert parsed["stack_info"] == "Stack trace information here"
 
 
-def test_setup_logging_console_handler_only(mock_settings):
-    """Test that setup_logging configures console handler when enabled."""
-    mock_settings.log_console_handler = True
-    mock_settings.log_file_handler = False
+class TestGetConsoleHandler:
+    """Test suite for the _get_console_handler function."""
 
-    with (
-        patch("logging.basicConfig") as mock_basic_config,
-        patch("app.core.logger.settings", mock_settings),
-    ):
+    def test_get_console_handler_returns_stream_handler(self):
+        """Test that _get_console_handler returns a StreamHandler instance."""
+        handler = _get_console_handler("INFO")
+
+        assert isinstance(handler, logging.StreamHandler)
+
+    def test_get_console_handler_sets_level(self):
+        """Test that _get_console_handler sets the correct log level."""
+        handler = _get_console_handler("WARNING")
+
+        assert handler.level == logging.WARNING
+
+    def test_get_console_handler_has_formatter(self):
+        """Test that _get_console_handler has a formatter attached."""
+        handler = _get_console_handler("INFO")
+
+        assert handler.formatter is not None
+
+    def test_get_console_handler_different_levels(self):
+        """Test _get_console_handler with different log levels."""
+        levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+        for level in levels:
+            handler = _get_console_handler(level)
+            assert handler.level == getattr(logging, level)
+
+
+class TestGetFileHandler:
+    """Test suite for the _get_file_handler function."""
+
+    def test_get_file_handler_returns_rotating_file_handler(self):
+        """Test that _get_file_handler returns a RotatingFileHandler instance."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            handler = _get_file_handler("INFO", temp_dir)
+
+            assert isinstance(handler, logging.handlers.RotatingFileHandler)
+
+    def test_get_file_handler_creates_directory(self):
+        """Test that _get_file_handler creates the log directory if it doesn't exist."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_dir = os.path.join(temp_dir, "logs", "nested")
+            _ = _get_file_handler("INFO", log_dir)
+
+            assert os.path.exists(log_dir)
+
+    def test_get_file_handler_sets_level(self):
+        """Test that _get_file_handler sets the correct log level."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            handler = _get_file_handler("ERROR", temp_dir)
+
+            assert handler.level == logging.ERROR
+
+    def test_get_file_handler_has_json_formatter(self):
+        """Test that _get_file_handler uses JsonFormatter."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            handler = _get_file_handler("INFO", temp_dir)
+
+            assert isinstance(handler.formatter, JsonFormatter)
+
+    def test_get_file_handler_creates_log_file(self):
+        """Test that _get_file_handler creates the log file."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            handler = _get_file_handler("INFO", temp_dir)
+            expected_file = os.path.join(temp_dir, "backtrain.log")
+
+            # The file is created when the handler is instantiated
+            assert handler.baseFilename == expected_file
+
+    def test_get_file_handler_max_bytes_configuration(self):
+        """Test that _get_file_handler configures maxBytes correctly."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            handler = _get_file_handler("INFO", temp_dir)
+
+            # Should be 10MB
+            assert handler.maxBytes == 10 * 1024 * 1024
+
+    def test_get_file_handler_backup_count_configuration(self):
+        """Test that _get_file_handler configures backupCount correctly."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            handler = _get_file_handler("INFO", temp_dir)
+
+            # Should keep 5 backup files
+            assert handler.backupCount == 5
+
+
+class TestGetLogger:
+    """Test suite for the get_logger function."""
+
+    def test_get_logger_returns_logger_instance(self):
+        """Test that get_logger returns a Logger instance."""
+        logger = get_logger("test.module")
+
+        assert isinstance(logger, logging.Logger)
+
+    def test_get_logger_with_module_name(self):
+        """Test that get_logger creates logger with correct name."""
+        logger_name = "app.core.test_module"
+        logger = get_logger(logger_name)
+
+        assert logger.name == logger_name
+
+    def test_get_logger_returns_same_instance(self):
+        """Test that get_logger returns the same instance for the same name."""
+        logger1 = get_logger("test.module")
+        logger2 = get_logger("test.module")
+
+        assert logger1 is logger2
+
+    def test_get_logger_different_names(self):
+        """Test that get_logger returns different instances for different names."""
+        logger1 = get_logger("test.module1")
+        logger2 = get_logger("test.module2")
+
+        assert logger1 is not logger2
+        assert logger1.name != logger2.name
+
+
+class TestSetupLogging:
+    """Test suite for the setup_logging function."""
+
+    @patch("app.core.logger.settings")
+    @patch("logging.basicConfig")
+    def test_setup_logging_calls_basic_config(self, mock_basic_config, mock_settings):
+        """Test that setup_logging calls logging.basicConfig."""
+        mock_settings.log_console_handler = True
+        mock_settings.log_console_level = "INFO"
+        mock_settings.log_file_handler = False
+
         setup_logging()
 
-        assert mock_basic_config.called
-        call_kwargs = mock_basic_config.call_args[1]
-        assert call_kwargs["level"] == "DEBUG"
-        assert call_kwargs["force"] is True
-        assert len(call_kwargs["handlers"]) == 1
-        assert isinstance(call_kwargs["handlers"][0], logging.StreamHandler)
+        mock_basic_config.assert_called_once()
 
-
-def test_setup_logging_file_handler_only(mock_settings):
-    """Test that setup_logging configures file handler when enabled."""
-    mock_settings.log_console_handler = False
-    mock_settings.log_file_handler = True
-
-    with (
-        patch("logging.basicConfig") as mock_basic_config,
-        patch("app.core.logger.settings", mock_settings),
-        patch("os.makedirs") as mock_makedirs,
-        patch("logging.handlers.RotatingFileHandler") as _mock_file_handler,
+    @patch("app.core.logger.settings")
+    @patch("logging.basicConfig")
+    def test_setup_logging_with_console_handler_only(
+        self, mock_basic_config, mock_settings
     ):
+        """Test setup_logging with only console handler enabled."""
+        mock_settings.log_console_handler = True
+        mock_settings.log_console_level = "INFO"
+        mock_settings.log_file_handler = False
+
         setup_logging()
 
-        assert mock_basic_config.called
-        call_kwargs = mock_basic_config.call_args[1]
-        assert len(call_kwargs["handlers"]) == 1
-        assert mock_makedirs.called
+        call_args = mock_basic_config.call_args
+        handlers = call_args.kwargs["handlers"]
+        assert len(handlers) == 1
+        assert isinstance(handlers[0], logging.StreamHandler)
 
-
-def test_setup_logging_both_handlers(mock_settings):
-    """Test that setup_logging configures both handlers when enabled."""
-    mock_settings.log_console_handler = True
-    mock_settings.log_file_handler = True
-
-    with (
-        patch("logging.basicConfig") as mock_basic_config,
-        patch("app.core.logger.settings", mock_settings),
-        patch("os.makedirs"),
-        patch("logging.handlers.RotatingFileHandler"),
+    @patch("app.core.logger.settings")
+    @patch("logging.basicConfig")
+    def test_setup_logging_with_file_handler_only(
+        self, mock_basic_config, mock_settings
     ):
-        setup_logging()
-
-        call_kwargs = mock_basic_config.call_args[1]
-        assert len(call_kwargs["handlers"]) == 2
-
-
-def test_setup_logging_no_handlers(mock_settings):
-    """Test that setup_logging works with no handlers enabled."""
-    mock_settings.log_console_handler = False
-    mock_settings.log_file_handler = False
-
-    with (
-        patch("logging.basicConfig") as mock_basic_config,
-        patch("app.core.logger.settings", mock_settings),
-    ):
-        setup_logging()
-
-        call_kwargs = mock_basic_config.call_args[1]
-        assert len(call_kwargs["handlers"]) == 0
-
-
-def test_get_console_handler_configuration():
-    """Test that console handler is configured correctly."""
-    formatter = logging.Formatter("%(message)s")
-
-    handler = _get_console_handler("DEBUG", formatter)
-
-    assert isinstance(handler, logging.StreamHandler)
-    assert handler.level == logging.DEBUG
-    assert handler.stream == sys.stdout
-    assert handler.formatter == formatter
-
-
-def test_get_console_handler_different_levels():
-    """Test that console handler respects different log levels."""
-    formatter = logging.Formatter("%(message)s")
-
-    levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    expected_levels = [
-        logging.DEBUG,
-        logging.INFO,
-        logging.WARNING,
-        logging.ERROR,
-        logging.CRITICAL,
-    ]
-
-    for level_str, expected_level in zip(levels, expected_levels):
-        handler = _get_console_handler(level_str, formatter)
-        assert handler.level == expected_level
-
-
-def test_get_file_handler_creates_directory():
-    """Test that file handler creates log directory if it doesn't exist."""
-    formatter = logging.Formatter("%(message)s")
-    log_dir = "test_logs"
-
-    with (
-        patch("os.makedirs") as mock_makedirs,
-        patch("logging.handlers.RotatingFileHandler") as _mock_file_handler,
-    ):
-        _get_file_handler("DEBUG", formatter, log_dir)
-
-        mock_makedirs.assert_called_once_with(log_dir, exist_ok=True)
-
-
-def test_get_file_handler_configuration():
-    """Test that file handler is configured correctly."""
-    formatter = logging.Formatter("%(message)s")
-    log_dir = "test_logs"
-
-    with (
-        patch("os.makedirs"),
-        patch("logging.handlers.RotatingFileHandler") as mock_file_handler,
-    ):
-        mock_handler_instance = Mock()
-        mock_file_handler.return_value = mock_handler_instance
-
-        _handler = _get_file_handler("INFO", formatter, log_dir)
-
-        assert mock_file_handler.called
-        call_args = mock_file_handler.call_args
-        assert call_args[1]["maxBytes"] == 10 * 1024 * 1024
-        assert call_args[1]["backupCount"] == 5
-        mock_handler_instance.setLevel.assert_called_once_with("INFO")
-        mock_handler_instance.setFormatter.assert_called_once_with(formatter)
-
-
-def test_get_file_handler_filename_format():
-    """Test that file handler generates correct filename format."""
-    formatter = logging.Formatter("%(message)s")
-    log_dir = "test_logs"
-
-    with (
-        patch("os.makedirs"),
-        patch("logging.handlers.RotatingFileHandler") as mock_file_handler,
-        patch("app.core.logger.datetime") as mock_datetime,
-    ):
-        mock_now = Mock()
-        mock_now.strftime.return_value = "2024010112"
-        mock_datetime.now.return_value = mock_now
-
-        _get_file_handler("DEBUG", formatter, log_dir)
-
-        expected_filename = os.path.join(log_dir, "backtrain_2024010112.log")
-        mock_file_handler.assert_called_once()
-        assert mock_file_handler.call_args[0][0] == expected_filename
-
-
-def test_get_logger_returns_logger_instance():
-    """Test that get_logger returns a Logger instance."""
-    logger = get_logger("test_module")
-
-    assert isinstance(logger, logging.Logger)
-    assert logger.name == "test_module"
-
-
-def test_get_logger_different_names():
-    """Test that get_logger returns different loggers for different names."""
-    logger1 = get_logger("module1")
-    logger2 = get_logger("module2")
-
-    assert logger1.name == "module1"
-    assert logger2.name == "module2"
-    assert logger1 is not logger2
-
-
-def test_get_logger_same_name_returns_same_instance():
-    """Test that get_logger returns the same instance for the same name."""
-    logger1 = get_logger("same_module")
-    logger2 = get_logger("same_module")
-
-    assert logger1 is logger2
-
-
-def test_formatter_configuration():
-    """Test that logging formatter has correct format and date format."""
-    with patch("logging.basicConfig") as mock_basic_config:
-        with patch("app.core.config.settings") as mock_settings:
-            mock_settings.log_console_handler = True
-            mock_settings.log_console_level = "INFO"
-            mock_settings.log_file_handler = False
+        """Test setup_logging with only file handler enabled."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_settings.log_console_handler = False
+            mock_settings.log_file_handler = True
+            mock_settings.log_file_level = "DEBUG"
+            mock_settings.log_file_dir = temp_dir
 
             setup_logging()
 
-            handlers = mock_basic_config.call_args[1]["handlers"]
-            formatter = handlers[0].formatter
+            call_args = mock_basic_config.call_args
+            handlers = call_args.kwargs["handlers"]
+            assert len(handlers) == 1
+            assert isinstance(handlers[0], logging.handlers.RotatingFileHandler)
 
-            assert (
-                formatter._fmt
-                == "%(asctime)s - %(module)s.%(funcName)s - %(levelname)s - %(message)s"
-            )
-            assert formatter.datefmt == "%Y-%m-%d %H:%M:%S"
+    @patch("app.core.logger.settings")
+    @patch("logging.basicConfig")
+    def test_setup_logging_with_both_handlers(self, mock_basic_config, mock_settings):
+        """Test setup_logging with both console and file handlers enabled."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_settings.log_console_handler = True
+            mock_settings.log_console_level = "INFO"
+            mock_settings.log_file_handler = True
+            mock_settings.log_file_level = "DEBUG"
+            mock_settings.log_file_dir = temp_dir
 
+            setup_logging()
 
-def test_setup_logging_with_custom_log_directory(mock_settings):
-    """Test that setup_logging uses custom log directory from settings."""
-    custom_dir = "/custom/log/path"
-    mock_settings.log_file_handler = True
-    mock_settings.log_file_dir = custom_dir
+            call_args = mock_basic_config.call_args
+            handlers = call_args.kwargs["handlers"]
+            assert len(handlers) == 2
 
-    with (
-        patch("logging.basicConfig"),
-        patch("app.core.logger.settings", mock_settings),
-        patch("os.makedirs") as mock_makedirs,
-        patch("logging.handlers.RotatingFileHandler"),
-    ):
+    @patch("app.core.logger.settings")
+    @patch("logging.basicConfig")
+    def test_setup_logging_with_no_handlers(self, mock_basic_config, mock_settings):
+        """Test setup_logging with no handlers enabled."""
+        mock_settings.log_console_handler = False
+        mock_settings.log_file_handler = False
+
         setup_logging()
 
-        mock_makedirs.assert_called_once_with(custom_dir, exist_ok=True)
+        call_args = mock_basic_config.call_args
+        handlers = call_args.kwargs["handlers"]
+        assert len(handlers) == 0
 
+    @patch("app.core.logger.settings")
+    @patch("logging.basicConfig")
+    def test_setup_logging_sets_debug_level(self, mock_basic_config, mock_settings):
+        """Test that setup_logging sets root level to DEBUG."""
+        mock_settings.log_console_handler = True
+        mock_settings.log_console_level = "INFO"
+        mock_settings.log_file_handler = False
 
-def test_file_handler_rotation_parameters():
-    """Test that file handler has correct rotation parameters."""
-    formatter = logging.Formatter("%(message)s")
+        setup_logging()
 
-    with (
-        patch("os.makedirs"),
-        patch("logging.handlers.RotatingFileHandler") as mock_file_handler,
+        call_args = mock_basic_config.call_args
+        assert call_args.kwargs["level"] == "DEBUG"
+
+    @patch("app.core.logger.settings")
+    @patch("logging.basicConfig")
+    def test_setup_logging_forces_reconfiguration(
+        self, mock_basic_config, mock_settings
     ):
-        _get_file_handler("DEBUG", formatter, "log")
+        """Test that setup_logging forces reconfiguration."""
+        mock_settings.log_console_handler = True
+        mock_settings.log_console_level = "INFO"
+        mock_settings.log_file_handler = False
 
-        call_kwargs = mock_file_handler.call_args[1]
-        assert call_kwargs["maxBytes"] == 10485760  # 10MB in bytes
-        assert call_kwargs["backupCount"] == 5
+        setup_logging()
+
+        call_args = mock_basic_config.call_args
+        assert call_args.kwargs["force"] is True

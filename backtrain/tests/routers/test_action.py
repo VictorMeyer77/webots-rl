@@ -252,6 +252,186 @@ def test_action_with_zero_values(client, mock_get_action_memory):
     assert get_response.json()["action"] == 0
 
 
+def test_get_action_batch_all_found(client, mock_get_action_memory):
+    """Test batch retrieval when all requested actions are found."""
+    memory = mock_get_action_memory
+
+    # Add actions
+    memory.add(("train_001", 0, 1, 10), ActionSchema(action=1))
+    memory.add(("train_001", 0, 1, 11), ActionSchema(action=2))
+    memory.add(("train_001", 0, 1, 12), ActionSchema(action=3))
+
+    # Batch request
+    payload = {
+        "keys": [
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 10},
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 11},
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 12},
+        ]
+    }
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 3
+    assert data["missing"] == 0
+    assert len(data["results"]) == 3
+
+    # Verify each result
+    assert data["results"][0]["value"]["action"] == 1
+    assert data["results"][1]["value"]["action"] == 2
+    assert data["results"][2]["value"]["action"] == 3
+
+
+def test_get_action_batch_all_missing(client, mock_get_action_memory):
+    """Test batch retrieval when none of the requested actions are found."""
+    payload = {
+        "keys": [
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 10},
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 11},
+        ]
+    }
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    assert data["missing"] == 2
+    assert len(data["results"]) == 2
+
+    # Verify all results are not found
+    assert data["results"][0]["value"] is None
+    assert data["results"][1]["value"] is None
+
+
+def test_get_action_batch_mixed_results(client, mock_get_action_memory):
+    """Test batch retrieval with a mix of found and missing actions."""
+    memory = mock_get_action_memory
+
+    # Add only some actions
+    memory.add(("train_001", 0, 1, 10), ActionSchema(action=1))
+    memory.add(("train_001", 0, 1, 12), ActionSchema(action=3))
+
+    payload = {
+        "keys": [
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 10},
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 11},
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 12},
+        ]
+    }
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 3
+    assert data["missing"] == 1
+
+    # Verify specific results
+    assert data["results"][0]["value"]["action"] == 1
+    assert data["results"][1]["value"] is None
+    assert data["results"][2]["value"]["action"] == 3
+
+
+def test_get_action_batch_empty_keys(client, mock_get_action_memory):
+    """Test batch retrieval with an empty list of keys."""
+    payload = {"keys": []}
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+    assert data["missing"] == 0
+    assert len(data["results"]) == 0
+
+
+def test_get_action_batch_single_key(client, mock_get_action_memory):
+    """Test batch retrieval with a single key."""
+    memory = mock_get_action_memory
+    memory.add(("train_001", 0, 1, 10), ActionSchema(action=5))
+
+    payload = {
+        "keys": [{"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 10}]
+    }
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["missing"] == 0
+    assert data["results"][0]["value"]["action"] == 5
+
+
+def test_get_action_batch_different_keys(client, mock_get_action_memory):
+    """Test batch retrieval with actions from different hierarchical levels."""
+    memory = mock_get_action_memory
+
+    # Add actions with different train_id, worker_id, and episode_id
+    memory.add(("train_001", 0, 1, 10), ActionSchema(action=1))
+    memory.add(("train_001", 1, 1, 10), ActionSchema(action=2))
+    memory.add(("train_002", 0, 1, 10), ActionSchema(action=3))
+    memory.add(("train_001", 0, 2, 10), ActionSchema(action=4))
+
+    payload = {
+        "keys": [
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 1, "step": 10},
+            {"train_id": "train_001", "worker_id": 1, "episode_id": 1, "step": 10},
+            {"train_id": "train_002", "worker_id": 0, "episode_id": 1, "step": 10},
+            {"train_id": "train_001", "worker_id": 0, "episode_id": 2, "step": 10},
+        ]
+    }
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 4
+    assert data["missing"] == 0
+
+    # Verify each action matches
+    assert data["results"][0]["value"]["action"] == 1
+    assert data["results"][1]["value"]["action"] == 2
+    assert data["results"][2]["value"]["action"] == 3
+    assert data["results"][3]["value"]["action"] == 4
+
+
+def test_get_action_batch_invalid_payload(client, mock_get_action_memory):
+    """Test validation error for invalid batch request payload."""
+    # Missing keys field
+    payload = {}
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_get_action_batch_invalid_key_structure(client, mock_get_action_memory):
+    """Test validation error for invalid key structure in batch request."""
+    # Missing required fields in key
+    payload = {"keys": [{"train_id": "train_001", "worker_id": 0}]}
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_get_action_batch_negative_values(client, mock_get_action_memory):
+    """Test validation error for negative values in batch request keys."""
+    payload = {
+        "keys": [
+            {"train_id": "train_001", "worker_id": -1, "episode_id": 1, "step": 10}
+        ]
+    }
+
+    response = client.post("/action/batch", json=payload)
+
+    assert response.status_code == 422
+
+
 def test_action_with_large_values(client, mock_get_action_memory):
     """Test handling actions with large integer values."""
     large_action = 999999
@@ -351,3 +531,344 @@ def test_action_schema_executed_false_explicitly(client, mock_get_action_memory)
     data = get_response.json()
     assert data["action"] == 7
     assert data["executed"] is False
+
+
+# Batch POST tests
+
+
+def test_post_action_batch_success(client, mock_get_action_memory):
+    """Test batch publishing multiple actions successfully."""
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 1, "executed": False},
+            },
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 11,
+                },
+                "value": {"action": 2, "executed": False},
+            },
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 12,
+                },
+                "value": {"action": 3, "executed": False},
+            },
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["total"] == 3
+
+    # Verify all actions were stored
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.status_code == 200
+    assert get_response.json()["action"] == 1
+
+    get_response = client.get("/action/train_001/0/1/11")
+    assert get_response.status_code == 200
+    assert get_response.json()["action"] == 2
+
+    get_response = client.get("/action/train_001/0/1/12")
+    assert get_response.status_code == 200
+    assert get_response.json()["action"] == 3
+
+
+def test_post_action_batch_empty_list(client, mock_get_action_memory):
+    """Test batch publishing with empty items list."""
+    payload = {"items": []}
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["total"] == 0
+
+
+def test_post_action_batch_single_item(client, mock_get_action_memory):
+    """Test batch publishing with a single action."""
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 5, "executed": False},
+            }
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["total"] == 1
+
+    # Verify action was stored
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.status_code == 200
+    assert get_response.json()["action"] == 5
+
+
+def test_post_action_batch_different_keys(client, mock_get_action_memory):
+    """Test batch publishing with actions from different hierarchical levels."""
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 1, "executed": False},
+            },
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 1,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 2, "executed": False},
+            },
+            {
+                "key": {
+                    "train_id": "train_002",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 3, "executed": False},
+            },
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 2,
+                    "step": 10,
+                },
+                "value": {"action": 4, "executed": False},
+            },
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["total"] == 4
+
+    # Verify all actions were stored correctly
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.json()["action"] == 1
+
+    get_response = client.get("/action/train_001/1/1/10")
+    assert get_response.json()["action"] == 2
+
+    get_response = client.get("/action/train_002/0/1/10")
+    assert get_response.json()["action"] == 3
+
+    get_response = client.get("/action/train_001/0/2/10")
+    assert get_response.json()["action"] == 4
+
+
+def test_post_action_batch_invalid_payload(client, mock_get_action_memory):
+    """Test batch publishing with invalid payload structure."""
+    # Missing items field
+    payload = {}
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_action_batch_invalid_item_structure(client, mock_get_action_memory):
+    """Test batch publishing with invalid item structure."""
+    # Missing value field in item
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                }
+            }
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_action_batch_invalid_action(client, mock_get_action_memory):
+    """Test batch publishing with invalid action value."""
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": "invalid", "executed": False},
+            }
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_action_batch_negative_key_values(client, mock_get_action_memory):
+    """Test batch publishing with negative values in keys."""
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": -1,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 1, "executed": False},
+            }
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 422
+
+
+def test_post_action_batch_large_batch(client, mock_get_action_memory):
+    """Test batch publishing with a large number of actions."""
+    items = []
+    for step in range(100):
+        items.append(
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": step,
+                },
+                "value": {"action": step, "executed": False},
+            }
+        )
+
+    payload = {"items": items}
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["total"] == 100
+
+    # Verify a few random actions
+    get_response = client.get("/action/train_001/0/1/0")
+    assert get_response.json()["action"] == 0
+
+    get_response = client.get("/action/train_001/0/1/50")
+    assert get_response.json()["action"] == 50
+
+    get_response = client.get("/action/train_001/0/1/99")
+    assert get_response.json()["action"] == 99
+
+
+def test_post_action_batch_with_executed_true(client, mock_get_action_memory):
+    """Test batch publishing with executed field set to True."""
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 1, "executed": True},
+            },
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 11,
+                },
+                "value": {"action": 2, "executed": False},
+            },
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+
+    # Verify executed field is preserved
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.json()["executed"] is True
+
+    get_response = client.get("/action/train_001/0/1/11")
+    assert get_response.json()["executed"] is False
+
+
+def test_post_action_batch_overwrite_existing(client, mock_get_action_memory):
+    """Test batch publishing overwrites existing actions with same keys."""
+    # First publish
+    client.post("/action/train_001/0/1/10", json={"action": 1, "executed": False})
+
+    # Batch publish with same key
+    payload = {
+        "items": [
+            {
+                "key": {
+                    "train_id": "train_001",
+                    "worker_id": 0,
+                    "episode_id": 1,
+                    "step": 10,
+                },
+                "value": {"action": 99, "executed": True},
+            }
+        ]
+    }
+
+    response = client.post("/action/batch/publish", json=payload)
+
+    assert response.status_code == 200
+
+    # Verify the action was overwritten
+    get_response = client.get("/action/train_001/0/1/10")
+    assert get_response.json()["action"] == 99
+    assert get_response.json()["executed"] is True

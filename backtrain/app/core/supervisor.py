@@ -166,21 +166,29 @@ class Supervisor:
         self._training[train_id][worker_id] = (0, True)
         return worker_id
 
-    def get_episode_id(self, train_id: str, worker_id: int) -> int:
-        """Retrieve the current episode counter for a specific worker.
+    def get_worker(self, train_id: str, worker_id: int) -> WorkerSchema:
+        """Retrieve a specific worker from a training session.
+
+        Fetches the worker's current state including its ID, episode counter,
+        and active status flag.
 
         Args:
             train_id: Identifier of the training session.
             worker_id: Identifier of the worker within the training session.
 
         Returns:
-            The current episode counter value for the worker.
+            WorkerSchema: Schema representation of the worker, including
+                its ID, current episode counter, and active status.
 
         Raises:
             SupervisorError: If the training session or worker does not exist.
         """
         self._validate_worker_exists(train_id, worker_id)
-        return self._training[train_id][worker_id][0]
+        return WorkerSchema(
+            id=worker_id,
+            episode_id=self._training[train_id][worker_id][0],
+            status=self._training[train_id][worker_id][1],
+        )
 
     def increment_episode_id(self, train_id: str, worker_id: int) -> None:
         """Increment the episode counter for a specific worker by one.

@@ -37,17 +37,14 @@ class WorkerIdSchema(BaseModel):
     worker_id: int
 
 
-class EpisodeIdSchema(BaseModel):
-    """Response model for retrieving an episode ID.
-
-    Returned when querying for the current episode identifier associated with
-    a worker in a training session.
+class WorkerStatusSchema(BaseModel):
+    """Schema for updating worker status.
 
     Attributes:
-        episode_id: Unique numerical identifier for the training episode.
+        worker_status: Active status flag for the worker.
     """
 
-    episode_id: int
+    worker_status: bool
 
 
 class WorkerSchema(BaseModel):

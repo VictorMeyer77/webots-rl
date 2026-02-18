@@ -6,9 +6,11 @@ system. Actions represent decisions made by trainers that need to be communicate
 agents for execution.
 
 Endpoints:
-    - GET  /health                                  : Memory health monitoring
-    - POST /{train_id}/{worker_id}/{episode_id}/{step} : Publish action
-    - GET  /{train_id}/{worker_id}/{episode_id}/{step} : Consume action
+    - GET  /health                                     : Memory health monitoring
+    - POST /{train_id}/{worker_id}/{episode_id}/{step} : Publish single action
+    - GET  /{train_id}/{worker_id}/{episode_id}/{step} : Consume single action
+    - POST /batch                                      : Retrieve multiple actions (batch GET)
+    - POST /batch/publish                              : Publish multiple actions (batch POST)
 
 Key Structure:
     All endpoints use a 4-level hierarchical key for message routing:
@@ -26,6 +28,13 @@ Error Handling:
 from app.core.memory import Memory
 from app.dependencies import get_action_memory
 from app.schemas import ActionSchema, SuccessResponseSchema
+from app.schemas.batch import (
+    BatchGetRequestSchema,
+    BatchGetResponseSchema,
+    BatchItemSchema,
+    BatchPostRequestSchema,
+    BatchPostResponseSchema,
+)
 from app.schemas.health import MemoryStatsSchema
 from fastapi import APIRouter, Depends, HTTPException, Path
 
@@ -96,7 +105,6 @@ def check_action_memory_health(
         },
     },
 )
-@router.post("/{train_id}/{worker_id}/{episode_id}/{step}")
 def add_action_step(
     train_id: str = Path(
         ..., min_length=1, description="The training session identifier"
@@ -169,7 +177,7 @@ def get_action_step(
 ) -> ActionSchema:
     """Retrieve an action.
 
-    This endpoint enables component to consume actions.
+    This endpoint enables agents to consume actions published by trainers.
 
     Args:
         train_id: Training session identifier.
@@ -195,3 +203,160 @@ def get_action_step(
         )
 
     return value
+
+
+@router.post(
+    "/batch",
+    summary="Retrieve multiple actions in batch",
+    description="Retrieve multiple actions in a single request by providing a list of keys. "
+    "This endpoint is more efficient than making multiple individual GET requests. "
+    "Returns results for all requested keys, indicating which were found and which were not.",
+    response_description="Batch results containing actions and retrieval status for each key",
+    response_model=BatchGetResponseSchema,
+    responses={
+        200: {
+            "description": "Batch retrieval completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "results": [
+                            {
+                                "key": {
+                                    "train_id": "exp_001",
+                                    "worker_id": 0,
+                                    "episode_id": 5,
+                                    "step": 10,
+                                },
+                                "value": {"action": 2, "executed": False},
+                                "found": True,
+                            },
+                            {
+                                "key": {
+                                    "train_id": "exp_001",
+                                    "worker_id": 0,
+                                    "episode_id": 5,
+                                    "step": 11,
+                                },
+                                "value": None,
+                                "found": False,
+                            },
+                        ],
+                        "total": 2,
+                        "found": 1,
+                        "missing": 1,
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Validation error - invalid request payload",
+        },
+    },
+)
+def get_action_batch(
+    payload: BatchGetRequestSchema,
+    memory: Memory = Depends(get_action_memory),
+) -> BatchGetResponseSchema:
+    """Retrieve multiple actions in a single batch request.
+
+    This endpoint provides efficient retrieval of multiple actions by accepting
+    a list of keys and returning all corresponding actions in a single response.
+    Unlike individual GET requests, this endpoint does not raise errors for
+    missing actions - instead, it indicates in the response which actions were
+    found and which were not.
+
+    Args:
+        payload: Batch request containing a list of action keys to retrieve.
+        memory: Injected action memory instance.
+
+    Returns:
+        BatchGetResponseSchema: Batch response containing:
+            - results: List of action results with keys, actions, and found status
+            - total: Total number of keys requested
+            - found: Count of successfully retrieved actions
+            - missing: Count of actions not found in memory
+    """
+    results = []
+    found_count = 0
+    missing_count = 0
+
+    for key_schema in payload.keys:
+        key = (
+            key_schema.train_id,
+            key_schema.worker_id,
+            key_schema.episode_id,
+            key_schema.step,
+        )
+        value = memory.get(key)
+
+        results.append(BatchItemSchema(key=key_schema, value=value))
+        found_count += 1 if value is not None else 0
+        missing_count += 1 if value is None else 0
+
+    return BatchGetResponseSchema(
+        results=results,
+        total=len(payload.keys),
+        found=found_count,
+        missing=missing_count,
+    )
+
+
+@router.post(
+    "/batch/publish",
+    summary="Publish multiple actions in batch",
+    description="Publish multiple actions in a single request. "
+    "This endpoint is more efficient than making multiple individual POST requests. "
+    "All actions are stored in memory with their respective keys.",
+    response_description="Confirmation of batch publish operation with counts",
+    response_model=BatchPostResponseSchema,
+    responses={
+        200: {
+            "description": "Batch publish completed successfully",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "success",
+                        "total": 10,
+                        "published": 10,
+                    }
+                }
+            },
+        },
+        422: {
+            "description": "Validation error - invalid request payload",
+        },
+    },
+)
+def add_action_batch(
+    payload: BatchPostRequestSchema,
+    memory: Memory = Depends(get_action_memory),
+) -> BatchPostResponseSchema:
+    """Publish multiple actions in a single batch request.
+
+    This endpoint provides efficient publishing of multiple actions by accepting
+    a list of action items (key + action data) and storing all of them in memory.
+    This is useful for bulk operations, reducing network overhead and improving
+    throughput when publishing many actions at once.
+
+    Args:
+        payload: Batch publish request containing a list of items (key-value pairs) to store.
+        memory: Injected action memory instance.
+
+    Returns:
+        BatchPostResponseSchema: Batch response containing:
+            - status: Success status message
+            - total: Total number of items in the request
+    """
+
+    for item in payload.items:
+        key = (
+            item.key.train_id,
+            item.key.worker_id,
+            item.key.episode_id,
+            item.key.step,
+        )
+        memory.add(key, item.value)
+
+    return BatchPostResponseSchema(
+        total=len(payload.items),
+    )

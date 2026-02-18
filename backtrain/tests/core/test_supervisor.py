@@ -135,29 +135,139 @@ class TestSupervisorAddWorker:
             supervisor.add_worker("invalid")
 
 
-class TestSupervisorGetEpisodeId:
-    """Test cases for retrieving episode IDs."""
+class TestSupervisorGetWorker:
+    """Test cases for retrieving individual workers."""
 
-    def test_get_episode_id_returns_initial_value(self):
-        """Verify that get_episode_id returns 0 for a new worker."""
+    def test_get_worker_returns_correct_schema(self):
+        """Verify that get_worker returns the correct WorkerSchema."""
         supervisor = Supervisor()
         supervisor.add_train("train_1")
         worker_id = supervisor.add_worker("train_1")
-        episode_id = supervisor.get_episode_id("train_1", worker_id)
-        assert episode_id == 0
+        worker = supervisor.get_worker("train_1", worker_id)
+        assert worker.id == worker_id
+        assert worker.episode_id == 0
+        assert worker.status is True
 
-    def test_get_episode_id_nonexistent_train_raises_error(self):
-        """Verify that getting episode ID for non-existent training raises error."""
-        supervisor = Supervisor()
-        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
-            supervisor.get_episode_id("invalid", 0)
-
-    def test_get_episode_id_nonexistent_worker_raises_error(self):
-        """Verify that getting episode ID for non-existent worker raises error."""
+    def test_get_worker_with_updated_episode_id(self):
+        """Verify that get_worker reflects updated episode ID."""
         supervisor = Supervisor()
         supervisor.add_train("train_1")
-        with pytest.raises(SupervisorError, match="Worker ID 99 does not exist"):
-            supervisor.get_episode_id("train_1", 99)
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.increment_episode_id("train_1", worker_id)
+        supervisor.increment_episode_id("train_1", worker_id)
+        worker = supervisor.get_worker("train_1", worker_id)
+        assert worker.episode_id == 2
+        assert worker.status is True
+
+    def test_get_worker_with_updated_status(self):
+        """Verify that get_worker reflects updated status."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.update_worker_status("train_1", worker_id, False)
+        worker = supervisor.get_worker("train_1", worker_id)
+        assert worker.status is False
+        assert worker.episode_id == 0
+
+    def test_get_worker_with_updated_episode_and_status(self):
+        """Verify that get_worker reflects both episode ID and status updates."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+        supervisor.increment_episode_id("train_1", worker_id)
+        supervisor.increment_episode_id("train_1", worker_id)
+        supervisor.increment_episode_id("train_1", worker_id)
+        supervisor.update_worker_status("train_1", worker_id, False)
+        worker = supervisor.get_worker("train_1", worker_id)
+        assert worker.episode_id == 3
+        assert worker.status is False
+
+    def test_get_worker_multiple_workers_in_session(self):
+        """Verify that get_worker retrieves the correct worker when multiple exist."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id_1 = supervisor.add_worker("train_1")
+        worker_id_2 = supervisor.add_worker("train_1")
+        worker_id_3 = supervisor.add_worker("train_1")
+
+        # Update workers differently
+        supervisor.increment_episode_id("train_1", worker_id_1)
+        supervisor.increment_episode_id("train_1", worker_id_2)
+        supervisor.increment_episode_id("train_1", worker_id_2)
+        supervisor.update_worker_status("train_1", worker_id_3, False)
+
+        # Verify each worker has correct state
+        worker_1 = supervisor.get_worker("train_1", worker_id_1)
+        assert worker_1.id == worker_id_1
+        assert worker_1.episode_id == 1
+        assert worker_1.status is True
+
+        worker_2 = supervisor.get_worker("train_1", worker_id_2)
+        assert worker_2.id == worker_id_2
+        assert worker_2.episode_id == 2
+        assert worker_2.status is True
+
+        worker_3 = supervisor.get_worker("train_1", worker_id_3)
+        assert worker_3.id == worker_id_3
+        assert worker_3.episode_id == 0
+        assert worker_3.status is False
+
+    def test_get_worker_multiple_training_sessions(self):
+        """Verify that get_worker retrieves workers from different training sessions."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        supervisor.add_train("train_2")
+
+        worker_1 = supervisor.add_worker("train_1")
+        worker_2 = supervisor.add_worker("train_2")
+
+        supervisor.increment_episode_id("train_1", worker_1)
+        supervisor.update_worker_status("train_2", worker_2, False)
+
+        # Verify worker from train_1
+        retrieved_worker_1 = supervisor.get_worker("train_1", worker_1)
+        assert retrieved_worker_1.id == worker_1
+        assert retrieved_worker_1.episode_id == 1
+        assert retrieved_worker_1.status is True
+
+        # Verify worker from train_2
+        retrieved_worker_2 = supervisor.get_worker("train_2", worker_2)
+        assert retrieved_worker_2.id == worker_2
+        assert retrieved_worker_2.episode_id == 0
+        assert retrieved_worker_2.status is False
+
+    def test_get_worker_nonexistent_train_raises_error(self):
+        """Verify that getting a worker from non-existent training raises SupervisorError."""
+        supervisor = Supervisor()
+        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
+            supervisor.get_worker("invalid", 0)
+
+    def test_get_worker_nonexistent_worker_raises_error(self):
+        """Verify that getting a non-existent worker raises SupervisorError."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        with pytest.raises(
+            SupervisorError, match="Worker ID 99 does not exist for Train ID train_1"
+        ):
+            supervisor.get_worker("train_1", 99)
+
+    def test_get_worker_after_status_toggle(self):
+        """Verify that get_worker reflects status after multiple toggles."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        worker_id = supervisor.add_worker("train_1")
+
+        supervisor.update_worker_status("train_1", worker_id, False)
+        worker = supervisor.get_worker("train_1", worker_id)
+        assert worker.status is False
+
+        supervisor.update_worker_status("train_1", worker_id, True)
+        worker = supervisor.get_worker("train_1", worker_id)
+        assert worker.status is True
+
+        supervisor.update_worker_status("train_1", worker_id, False)
+        worker = supervisor.get_worker("train_1", worker_id)
+        assert worker.status is False
 
 
 class TestSupervisorIncrementEpisodeId:
@@ -169,7 +279,7 @@ class TestSupervisorIncrementEpisodeId:
         supervisor.add_train("train_1")
         worker_id = supervisor.add_worker("train_1")
         supervisor.increment_episode_id("train_1", worker_id)
-        episode_id = supervisor.get_episode_id("train_1", worker_id)
+        episode_id = supervisor.get_worker("train_1", worker_id).episode_id
         assert episode_id == 1
 
     def test_increment_episode_id_multiple_times(self):
@@ -179,7 +289,7 @@ class TestSupervisorIncrementEpisodeId:
         worker_id = supervisor.add_worker("train_1")
         for i in range(5):
             supervisor.increment_episode_id("train_1", worker_id)
-        episode_id = supervisor.get_episode_id("train_1", worker_id)
+        episode_id = supervisor.get_worker("train_1", worker_id).episode_id
         assert episode_id == 5
 
     def test_increment_episode_id_preserves_status(self):
@@ -226,7 +336,7 @@ class TestSupervisorUpdateWorkerStatus:
         supervisor.increment_episode_id("train_1", worker_id)
         supervisor.increment_episode_id("train_1", worker_id)
         supervisor.update_worker_status("train_1", worker_id, False)
-        episode_id = supervisor.get_episode_id("train_1", worker_id)
+        episode_id = supervisor.get_worker("train_1", worker_id).episode_id
         assert episode_id == 2
 
     def test_update_worker_status_toggle(self):
