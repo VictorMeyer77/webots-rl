@@ -1,140 +1,84 @@
-"""
-Training Tracker for Reinforcement Learning Workers
-
-This module provides infrastructure for tracking and synchronizing multiple RL workers
-during distributed training. It manages worker lifecycle, episode progression, and
-buffers step results for creating state transitions.
-
-Overview:
-    The Tracker class coordinates multiple workers executing episodes in parallel,
-    maintaining their current state (worker_id, episode_id, step) and buffering
-    observations, actions, and rewards to construct (s, a, r, s', done) transitions.
-
-Architecture:
-    - Workers are dynamically discovered via API refresh
-    - Each worker maintains independent episode/step counters
-    - Step results are buffered with maxlen=2 to create transitions
-    - Transitions are yielded when buffer contains adjacent steps
-
-Buffer Logic:
-    The tracker uses a 2-element deque per worker to create transitions:
-    - Single non-terminal step: buffered, no output
-    - Two non-terminal steps: emit (prev, prev_result, curr_result), keep current
-    - Single terminal step: emit (step, result, None), clear buffer
-    - Two steps, second terminal: emit both transition and terminal, clear buffer
-"""
-
 import logging
 import time
-from collections import deque
-from dataclasses import dataclass
+
 import numpy as np
+from numpy.typing import NDArray
 
 from corl.api.wrapper import Wrapper
+from corl.schemas.learning import Action, Environment
+from corl.schemas.tracker import StepKey, StepResult
 
 logger = logging.getLogger(__name__)
 
 REFRESH_RATE = 5  # seconds between API refreshes to update worker list
-
-
-@dataclass
-class StepKey:
-    """
-    Unique identifier for a specific step in the training process.
-
-    Attributes:
-        worker_id: Unique identifier for the worker process
-        episode_id: Current episode number for this worker
-        step: Step number within the current episode
-    """
-
-    worker_id: int
-    episode_id: int
-    step: int
-
-
-@dataclass
-class StepResult:
-    """
-    Result data from a single environment step.
-
-    Contains the observation, action taken, reward received, and terminal flag
-    for a single timestep in an episode.
-
-    Attributes:
-        observation: Environment observation (sensor data, state)
-        action: Action taken by the agent (discrete index or continuous values)
-        reward: Scalar reward received from the environment
-        done: Whether this step terminates the episode
-    """
-
-    observation: np.ndarray
-    action: int
-    reward: float
-    done: bool
+WORKER_EPISODE_STEP_TIMEOUT = (
+    30  # seconds before a worker is considered timed out without updates
+)
 
 
 class Tracker:
     """
-    Manages state tracking and transition buffering for distributed RL workers.
+    Tracks the state of all active workers across episodes and steps for a training session.
 
-    The Tracker coordinates multiple workers executing episodes in parallel. It maintains
-    each worker's current position (episode, step) and buffers their step results to
-    construct state transitions for training.
+    The Tracker is the central book-keeping component of the trainer. It maintains a
+    live map of workers to their current ``StepKey`` (worker_id / episode_id / step),
+    buffers incoming observations, actions, and environment results until a step is
+    complete, and handles worker lifecycle events (registration, timeout, and removal).
+
+    Lifecycle:
+        1. ``refresh()`` — periodically syncs the worker list from the API.
+        2. ``add_buffer_*()`` — accumulates observations, actions, and environment
+           results as they arrive asynchronously from workers and the environment.
+        3. ``get_buffered_step_results()`` — yields complete steps ready for training.
+        4. ``increment_step()`` / ``increment_episode()`` — advances a worker's position
+           and clears its buffer for the next step.
+        5. ``worker_timeouts()`` / ``close_workers()`` — removes stale or finished workers.
 
     Attributes:
-        train_id: Unique identifier for this training session
-        api: Wrapper instance for communicating with the training API
-        _workers: Mapping of worker_id to current StepKey (position tracker)
-        _buffer: Mapping of worker_id to deque of recent (StepKey, StepResult) pairs
-        last_refresh: Timestamp of last worker list refresh from API
+        train_id: Identifier of the training session this tracker belongs to.
+        api: API wrapper used to query and update worker state on the server.
+        _workers: Maps worker_id → current StepKey for each active worker.
+        _buffer_results: Maps worker_id → in-progress StepResult for the current step.
+        _worker_last_update: Maps worker_id → timestamp of the last buffer update,
+            used to detect timed-out workers.
+        _last_worker_refresh: Timestamp of the last ``api.get_workers`` call,
+            used to throttle refresh requests.
     """
 
     train_id: str
     api: Wrapper
     _workers: dict[int, StepKey]
-    _buffer: dict[int, deque[tuple[StepKey, StepResult]]]
+    _last_worker_refresh: float
+    _worker_last_update: dict[int, float]
+    _buffer_results: dict[int, StepResult]
 
     def __init__(self, train_id: str, api: Wrapper):
-        """
-        Initialize a new Tracker for a training session.
-
-        Args:
-            train_id: Unique identifier for the training session
-            api: Wrapper instance for API communication
-        """
         self.train_id = train_id
         self.api = api
         self._workers = {}
-        self._buffer = {}
-        self.last_refresh = 0
-        logger.info(f"Initialized Tracker for training session: {train_id}")
+        self._worker_last_update = {}
+        self._last_worker_refresh = 0
+        self._buffer_results = {}
 
-    def workers(self) -> list[StepKey]:
+    def worker_step_keys(self) -> list[StepKey]:
         """
-        Get list of all currently tracked workers.
+        Return the current StepKey for every tracked worker.
 
         Returns:
-            List of StepKey objects representing current state of each worker
+            List of StepKey objects reflecting each worker's current
+            worker_id, episode_id, and step.
         """
         return list(self._workers.values())
 
     def refresh(self) -> None:
         """
-        Refresh worker list from API and update internal state.
+        Synchronise the tracked worker list with the API.
 
-        Queries the API for current worker status (rate-limited to REFRESH_RATE seconds).
-        Adds newly active workers, removes inactive workers, and preserves state of
-        existing active workers.
-
-        Workers are added with initial state (episode_id=0, step=0) and an empty buffer.
-        Workers marked as inactive (status=False) are removed along with their buffers.
-
-        Note:
-            This method is rate-limited and will only query the API if REFRESH_RATE
-            seconds have elapsed since the last refresh.
+        Polls ``api.get_workers`` at most once every ``REFRESH_RATE`` seconds.
+        Active workers not yet tracked are added and given a fresh buffer.
+        Workers that have become inactive are removed from the tracker.
         """
-        if time.time() - self.last_refresh > REFRESH_RATE:
+        if time.time() - self._last_worker_refresh > REFRESH_RATE:
             workers = self.api.get_workers(self.train_id)
             logger.debug(
                 f"Refreshing workers for training {self.train_id}: {len(workers)} workers found"
@@ -145,139 +89,236 @@ class Tracker:
                 status = bool(worker["status"])
 
                 if status and worker_id not in self._workers:
-                    self._workers[worker_id] = StepKey(worker_id, 0, 0)
-                    self._buffer[worker_id] = deque(maxlen=2)
+                    self._workers[worker_id] = StepKey(
+                        worker_id=worker_id, episode_id=0, step=0
+                    )
+                    self._reset_buffer(worker_id)
                     logger.info(f"Added worker {worker_id} to tracker")
+
                 elif not status and worker_id in self._workers:
-                    del self._workers[worker_id]
-                    del self._buffer[worker_id]
-                    logger.info(f"Removed worker {worker_id} from tracker")
+                    self._delete_worker(worker_id)
                     continue
 
-            self.last_refresh = time.time()
+            self._last_worker_refresh = time.time()
 
     def increment_step(self, worker_id: int, episode_id: int) -> None:
         """
-        Increment the step counter for a worker within the current episode.
+        Advance the step counter for a worker and reset its buffer.
 
         Args:
-            worker_id: ID of the worker to increment
-            episode_id: Expected current episode ID (for validation)
+            worker_id: ID of the worker to advance.
+            episode_id: Expected current episode ID for the worker; used to
+                guard against stale updates from a previous episode.
 
         Raises:
-            ValueError: If worker_id not found or episode_id doesn't match current episode
+            ValueError: If ``worker_id`` is not tracked.
+            ValueError: If ``episode_id`` does not match the worker's current episode.
         """
         self._validate_worker_id(worker_id)
         self._validate_episode_id(worker_id, episode_id)
-        self._workers[worker_id].step += 1
+        current = self._workers[worker_id]
+        self._workers[worker_id] = StepKey(
+            worker_id=current.worker_id,
+            episode_id=current.episode_id,
+            step=current.step + 1,
+        )
+        self._reset_buffer(worker_id)
         logger.debug(
             f"Incremented step for worker {worker_id} to {self._workers[worker_id].step}"
         )
 
     def increment_episode(self, worker_id: int) -> None:
         """
-        Increment the episode counter for a worker and reset step to 0.
-
-        Called when a worker completes an episode and starts a new one.
+        Advance the episode counter for a worker, reset its step to 0, and clear its buffer.
 
         Args:
-            worker_id: ID of the worker to increment
+            worker_id: ID of the worker to advance.
 
         Raises:
-            ValueError: If worker_id not found
+            ValueError: If ``worker_id`` is not tracked.
         """
         self._validate_worker_id(worker_id)
-        self._workers[worker_id].episode_id += 1
-        self._workers[worker_id].step = 0
+        current = self._workers[worker_id]
+        self._workers[worker_id] = StepKey(
+            worker_id=current.worker_id, episode_id=current.episode_id + 1, step=0
+        )
+        self._reset_buffer(worker_id)
         logger.info(
             f"Incremented episode for worker {worker_id} to episode {self._workers[worker_id].episode_id}"
         )
 
-    def add_step_result(
-        self,
-        step_key: StepKey,
-        step_result: StepResult,
-    ) -> None:
+    def get_buffer_none_observations(self) -> list[StepKey]:
         """
-        Add a step result to the worker's buffer for transition construction.
-
-        Validates that the step matches the worker's current state and appends the
-        result to the worker's buffer. The buffer has maxlen=2, so older results
-        are automatically discarded when full.
-
-        Args:
-            step_key: Identifies the worker, episode, and step for this result
-            step_result: Contains observation, action, reward, and done flag
-
-        Raises:
-            ValueError: If worker_id not found, episode_id doesn't match, or
-                       step doesn't match the worker's current step
-        """
-        self._validate_worker_id(step_key.worker_id)
-        self._validate_episode_id(step_key.worker_id, step_key.episode_id)
-        self._validate_step(step_key.worker_id, step_key.step)
-        self._buffer[step_key.worker_id].append((step_key, step_result))
-        logger.debug(
-            f"Added step result for worker {step_key.worker_id}, episode {step_key.episode_id}, step {step_key.step}"
-        )
-
-    def get_step_result(self) -> list[tuple[StepKey, StepResult, StepResult | None]]:
-        """
-        Retrieve available transitions from all worker buffers.
-
-        Processes each worker's buffer to extract complete transitions. The logic varies
-        based on buffer state and terminal flags:
-
-        - Empty buffer: No output
-        - Single non-terminal step: No output (wait for next step)
-        - Single terminal step: Output (step, result, None), clear buffer
-        - Two non-terminal steps: Output (prev, prev_result, curr_result), keep current
-        - Two steps, second terminal: Output both transition and terminal, clear buffer
+        Get list of StepKeys for workers that have no buffered observation.
 
         Returns:
-            List of tuples, each containing:
-                - StepKey: Identifies the step
-                - StepResult: Result for this step
-                - StepResult | None: Result for next step (None if terminal)
+            List of StepKey objects for workers where the observation buffer is None,
+            indicating that an observation has not yet been received for the current step.
+        """
+        return [
+            step_key
+            for worker_id, step_key in self._workers.items()
+            if self._buffer_results[worker_id].observation is None
+        ]
+
+    def get_buffer_none_environments(self) -> list[StepKey]:
+        """
+        Get list of StepKeys for workers that have no buffered environment result.
+
+        Returns:
+            List of StepKey objects for workers where the reward buffer is None,
+            indicating that an environment result has not yet been received for the current step.
+        """
+        return [
+            step_key
+            for worker_id, step_key in self._workers.items()
+            if self._buffer_results[worker_id].reward is None
+        ]
+
+    def add_buffer_actions(self, actions: list[tuple[StepKey, Action]]) -> None:
+        """
+        Add a batch of actions to the buffer for their respective workers.
+
+        Args:
+            actions: List of (StepKey, Action) tuples to add to the buffer
+        """
+        for step_key, action in actions:
+            worker_id = step_key.worker_id
+            self._validate_worker_id(worker_id)
+            if action is not None:
+                self._buffer_results[worker_id].action = action.action
+                self._worker_last_update[worker_id] = time.time()
+            else:
+                self._add_none_buffer_error(worker_id, step_key, "action")
+
+    def add_buffer_observations(
+        self,
+        observations: list[tuple[StepKey, NDArray[np.float32]]],
+    ) -> None:
+        """
+        Add a batch of observations to the buffer for their respective workers.
+
+        Args:
+            observations: List of (StepKey, NDArray[np.float32]) tuples to add to the buffer
+        """
+        for step_key, observation in observations:
+            worker_id = step_key.worker_id
+            self._validate_worker_id(worker_id)
+            if observation is not None:
+                self._buffer_results[worker_id].observation = observation
+                self._worker_last_update[worker_id] = time.time()
+            else:
+                self._add_none_buffer_error(worker_id, step_key, "observation")
+
+    def add_buffer_environments(
+        self, environments: list[tuple[StepKey, Environment]]
+    ) -> None:
+        """
+        Add a batch of environment results to the buffer for their respective workers.
+
+        Args:
+            environments: List of (StepKey, Environment) tuples to add to the buffer
+        """
+        for step_key, environment in environments:
+            worker_id = step_key.worker_id
+            self._validate_worker_id(worker_id)
+            if environment is not None:
+                self._buffer_results[worker_id].reward = environment.reward
+                self._buffer_results[worker_id].done = environment.done
+                self._worker_last_update[worker_id] = time.time()
+            else:
+                self._add_none_buffer_error(worker_id, step_key, "environment")
+
+    def get_buffered_step_results(self) -> list[tuple[StepKey, StepResult]]:
+        """
+        Retrieve all buffered step results that are fully complete for the current step.
+
+        Returns:
+            List of (StepKey, StepResult) tuples for workers that have all four fields
+            populated in the buffer (observation, action, reward, and done). Workers
+            where any field is still None are excluded as their step is still in progress
+            and not ready for training.
+        """
+        results = [
+            (step_key, self._buffer_results[worker_id])
+            for worker_id, step_key in self._workers.items()
+            if self._buffer_results[worker_id].is_complete()
+        ]
+
+        return results
+
+    def worker_timeouts(self) -> None:
+        """
+        Remove workers that have exceeded ``WORKER_EPISODE_STEP_TIMEOUT`` without an update.
+
+        Iterates over all tracked workers and calls ``close_workers`` for any whose
+        last recorded update is older than the timeout threshold. Timed-out workers
+        are logged as warnings before removal.
+        """
+        current_time = time.time()
+        workers_to_remove = []
+        for worker_id, last_update in self._worker_last_update.items():
+            if current_time - last_update > WORKER_EPISODE_STEP_TIMEOUT:
+                workers_to_remove.append(worker_id)
+                logger.warning(
+                    f"Worker {worker_id} has timed out (no updates for {current_time - last_update:.1f}s)"
+                )
+        self.close_workers(workers_to_remove)
+
+    def close_workers(self, worker_ids: list[int] | None = None) -> None:
+        """
+        Mark workers as inactive via the API and remove them from the tracker.
+
+        Args:
+            worker_ids: List of worker IDs to close. If None, all currently
+                tracked workers are closed.
 
         Note:
-            This method modifies buffer state by removing consumed transitions and
-            clearing buffers when terminal steps are processed.
+            API errors when marking a worker inactive are logged but do not
+            prevent the worker from being removed from the local tracker state.
         """
-        results = []
+        worker_ids = list(self._workers.keys()) if worker_ids is None else worker_ids
 
-        for worker_id, buffer in self._buffer.items():
-            if not buffer:
-                continue
+        for worker_id in worker_ids:
+            try:
+                self.api.update_worker_status(self.train_id, worker_id, False)
+                logger.debug(
+                    f"Marked worker {worker_id} as inactive during trainer cleanup."
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to update worker {worker_id} status during cleanup: {e}"
+                )
+            finally:
+                self._delete_worker(worker_id)
 
-            if len(buffer) == 1:
-                step_key, step_result = buffer[0]
-                if step_result.done:
-                    results.append((step_key, step_result, None))
-                    buffer.clear()
-                    logger.debug(
-                        f"Retrieved terminal step result for worker {worker_id}"
-                    )
+    def _reset_buffer(self, worker_id: int) -> None:
+        """
+        Reset the action, observation, and environment buffers for a worker.
 
-            elif len(buffer) == 2:
-                previous_key, previous_result = buffer[0]
-                current_key, current_result = buffer[1]
+        Called when a worker starts a new episode or when a step is completed to clear
+        out old data.
 
-                if current_result.done:
-                    results.append((previous_key, previous_result, current_result))
-                    results.append((current_key, current_result, None))
-                    buffer.clear()
-                    logger.debug(
-                        f"Retrieved final two step results for worker {worker_id}"
-                    )
-                else:
-                    results.append((previous_key, previous_result, current_result))
-                    buffer.popleft()
-                    logger.debug(f"Retrieved step result pair for worker {worker_id}")
+        Args:
+            worker_id: ID of the worker whose buffers should be reset
+        """
+        self._buffer_results[worker_id] = StepResult()
+        self._worker_last_update[worker_id] = time.time()
 
-        if results:
-            logger.debug(f"Retrieved {len(results)} step results from buffer")
-        return results
+    def _delete_worker(self, worker_id: int) -> None:
+        """
+        Remove a worker and all its associated state from the tracker.
+
+        Deletes the worker's entry from ``_workers``, ``_worker_last_update``,
+        and ``_buffer_results``.
+
+        Args:
+            worker_id: ID of the worker to delete.
+        """
+        del self._workers[worker_id]
+        del self._worker_last_update[worker_id]
+        del self._buffer_results[worker_id]
+        logger.info(f"Removed worker {worker_id} from tracker")
 
     def _validate_worker_id(self, worker_id: int) -> None:
         """
@@ -289,7 +330,7 @@ class Tracker:
         Raises:
             ValueError: If worker_id not found in tracker
         """
-        if worker_id not in self._workers.keys():
+        if worker_id not in self._workers:
             logger.error(f"Worker {worker_id} not found in tracker")
             raise ValueError(f"Worker {worker_id} not found in tracker.")
 
@@ -312,21 +353,14 @@ class Tracker:
                 f"Episode ID mismatch for worker {worker_id}: expected {self._workers[worker_id].episode_id}, got {episode_id}."
             )
 
-    def _validate_step(self, worker_id: int, step: int) -> None:
-        """
-        Validate that a step number matches the worker's current step.
-
-        Args:
-            worker_id: Worker ID to check
-            step: Expected step number
-
-        Raises:
-            ValueError: If step doesn't match worker's current step
-        """
-        if step != self._workers[worker_id].step:
-            logger.error(
-                f"Step mismatch for worker {worker_id}: expected {self._workers[worker_id].step}, got {step}"
-            )
-            raise ValueError(
-                f"Step mismatch for worker {worker_id}: expected {self._workers[worker_id].step}, got {step}."
-            )
+    @staticmethod
+    def _add_none_buffer_error(
+        worker_id: int, step_key: StepKey, data_type: str
+    ) -> None:
+        logger.error(
+            f"Received None {data_type} for worker {worker_id}, episode {step_key.episode_id}, step {step_key.step}"
+        )
+        raise ValueError(
+            f"Received None {data_type} for worker {worker_id}, "
+            f"episode {step_key.episode_id}, step {step_key.step}"
+        )
