@@ -1,367 +1,405 @@
 """
-Unit tests for API schemas (Action, Observation, Environment, Endpoint).
+Unit tests for tracker schemas module.
 
 Tests cover:
-- Model instantiation with valid/invalid data
-- Type validation and coercion
-- Serialization (to_dict, model_dump, model_dump_json)
-- Deserialization (model_validate, model_validate_json)
-- Default values and field factories
-- Edge cases (empty dicts, None values, type mismatches)
+- StepKey initialization and validation
+- StepKey hashing and comparison
+- StepKey immutability (frozen model)
+- StepResult initialization with various field types
+- StepResult is_complete() method logic
+- Field validation and constraints
+- Type handling for numpy arrays
 """
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from corl.api.schemas import Action, Observation, Environment, Endpoint
+from corl.schemas.tracker import StepKey, StepResult
 
 
-class TestEnvironment:
-    """Test Environment model validation and serialization."""
+class TestStepKey:
+    """Test StepKey dataclass."""
 
-    def test_default_initialization(self):
-        """Test Environment with default values."""
-        env = Environment()
-        assert env.done is False
-        assert env.reward == 0.0
-        assert env.data == {}
+    def test_initialization_valid(self):
+        """Test initialization with valid values."""
+        key = StepKey(worker_id=0, episode_id=1, step=2)
+        assert key.worker_id == 0
+        assert key.episode_id == 1
+        assert key.step == 2
 
-    def test_full_initialization(self):
-        """Test Environment with all fields provided."""
-        env = Environment(done=True, reward=10.5, data={"info": "test"})
-        assert env.done is True
-        assert env.reward == 10.5
-        assert env.data == {"info": "test"}
+    def test_initialization_all_zeros(self):
+        """Test initialization with all zeros (boundary case)."""
+        key = StepKey(worker_id=0, episode_id=0, step=0)
+        assert key.worker_id == 0
+        assert key.episode_id == 0
+        assert key.step == 0
 
-    def test_partial_initialization(self):
-        """Test Environment with partial fields."""
-        env = Environment(reward=5.0)
-        assert env.done is False
-        assert env.reward == 5.0
-        assert env.data == {}
+    def test_initialization_large_values(self):
+        """Test initialization with large values."""
+        key = StepKey(worker_id=999999, episode_id=1000000, step=50000)
+        assert key.worker_id == 999999
+        assert key.episode_id == 1000000
+        assert key.step == 50000
 
-    def test_type_coercion(self):
-        """Test that Pydantic coerces compatible types."""
-        # int to float coercion for reward
-        env = Environment(reward=10)
-        assert env.reward == 10.0
-        assert isinstance(env.reward, float)
-
-        # int to bool coercion
-        env = Environment(done=1)
-        assert env.done is True
-
-    def test_invalid_types(self):
-        """Test that invalid types raise ValidationError."""
+    def test_negative_worker_id(self):
+        """Test that negative worker_id raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            Environment(done="not_a_bool")
-        assert "done" in str(exc_info.value)
+            StepKey(worker_id=-1, episode_id=0, step=0)
+        assert "worker_id" in str(exc_info.value)
 
+    def test_negative_episode_id(self):
+        """Test that negative episode_id raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            Environment(reward="not_a_number")
-        assert "reward" in str(exc_info.value)
+            StepKey(worker_id=0, episode_id=-1, step=0)
+        assert "episode_id" in str(exc_info.value)
 
+    def test_negative_step(self):
+        """Test that negative step raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            Environment(data="not_a_dict")
-        assert "data" in str(exc_info.value)
+            StepKey(worker_id=0, episode_id=0, step=-1)
+        assert "step" in str(exc_info.value)
 
-    def test_to_dict(self):
-        """Test to_dict() method for backwards compatibility."""
-        env = Environment(done=True, reward=2.5, data={"key": "value"})
-        result = env.to_dict()
-        assert result == {"done": True, "reward": 2.5, "data": {"key": "value"}}
-        assert isinstance(result, dict)
+    def test_missing_required_fields(self):
+        """Test that missing required fields raise ValidationError."""
+        with pytest.raises(ValidationError):
+            StepKey(worker_id=0, episode_id=0)  # Missing step
 
-    def test_model_dump(self):
-        """Test Pydantic model_dump() method."""
-        env = Environment(done=True, reward=2.5, data={"key": "value"})
-        result = env.model_dump()
-        assert result == {"done": True, "reward": 2.5, "data": {"key": "value"}}
+        with pytest.raises(ValidationError):
+            StepKey(worker_id=0)  # Missing episode_id and step
 
-    def test_model_dump_json(self):
-        """Test JSON serialization."""
-        env = Environment(done=True, reward=2.5, data={"key": "value"})
-        json_str = env.model_dump_json()
-        assert '"done":true' in json_str
-        assert '"reward":2.5' in json_str
-        assert '"key":"value"' in json_str
+        with pytest.raises(ValidationError):
+            StepKey()  # Missing all fields
 
-    def test_model_validate(self):
-        """Test creating Environment from dict."""
-        data = {"done": True, "reward": 3.14, "data": {"test": 123}}
-        env = Environment.model_validate(data)
-        assert env.done is True
-        assert env.reward == 3.14
-        assert env.data == {"test": 123}
+    def test_hash_consistency(self):
+        """Test that identical StepKeys have the same hash."""
+        key1 = StepKey(worker_id=1, episode_id=2, step=3)
+        key2 = StepKey(worker_id=1, episode_id=2, step=3)
+        assert hash(key1) == hash(key2)
 
-    def test_model_validate_json(self):
-        """Test creating Environment from JSON string."""
-        json_str = '{"done": false, "reward": 1.5, "data": {"key": "val"}}'
-        env = Environment.model_validate_json(json_str)
-        assert env.done is False
-        assert env.reward == 1.5
-        assert env.data == {"key": "val"}
+    def test_hash_different_values(self):
+        """Test that different StepKeys have different hashes."""
+        key1 = StepKey(worker_id=1, episode_id=2, step=3)
+        key2 = StepKey(worker_id=1, episode_id=2, step=4)
+        key3 = StepKey(worker_id=2, episode_id=2, step=3)
 
-    def test_mutable_default_isolation(self):
-        """Test that default dict is not shared between instances."""
-        env1 = Environment()
-        env1.data["key1"] = "value1"
+        # Note: Hash collisions are possible but unlikely for these values
+        assert hash(key1) != hash(key2)
+        assert hash(key1) != hash(key3)
 
-        env2 = Environment()
-        assert "key1" not in env2.data
-        assert env1.data != env2.data
+    def test_hash_usable_in_dict(self):
+        """Test that StepKey can be used as dictionary key."""
+        key1 = StepKey(worker_id=1, episode_id=2, step=3)
+        key2 = StepKey(worker_id=1, episode_id=2, step=3)
+        key3 = StepKey(worker_id=2, episode_id=2, step=3)
 
-    def test_nested_data(self):
-        """Test Environment with complex nested data."""
-        env = Environment(
-            done=False,
-            reward=5.0,
-            data={
-                "sensors": [1, 2, 3],
-                "position": {"x": 10, "y": 20},
-                "metadata": {"step": 100, "episode": 5},
-            },
-        )
-        assert env.data["sensors"] == [1, 2, 3]
-        assert env.data["position"]["x"] == 10
-        assert env.data["metadata"]["step"] == 100
+        test_dict = {key1: "value1", key3: "value3"}
+        assert test_dict[key1] == "value1"
+        assert test_dict[key2] == "value1"  # Same as key1
+        assert test_dict[key3] == "value3"
 
+    def test_hash_usable_in_set(self):
+        """Test that StepKey can be used in sets."""
+        key1 = StepKey(worker_id=1, episode_id=2, step=3)
+        key2 = StepKey(worker_id=1, episode_id=2, step=3)
+        key3 = StepKey(worker_id=2, episode_id=2, step=3)
 
-class TestAction:
-    """Test Action model validation and serialization."""
+        test_set = {key1, key2, key3}
+        assert len(test_set) == 2  # key1 and key2 are identical
+        assert key1 in test_set
+        assert key2 in test_set
+        assert key3 in test_set
 
-    def test_initialization(self):
-        """Test Action initialization."""
-        action = Action(action=5)
-        assert action.action == 5
-        assert action.executed is False
+    def test_less_than_comparison(self):
+        """Test __lt__ comparison method."""
+        key1 = StepKey(worker_id=0, episode_id=0, step=0)
+        key2 = StepKey(worker_id=0, episode_id=0, step=1)
+        key3 = StepKey(worker_id=0, episode_id=1, step=0)
+        key4 = StepKey(worker_id=1, episode_id=0, step=0)
 
-    def test_full_initialization(self):
-        """Test Action with all fields."""
-        action = Action(action=3, executed=True)
-        assert action.action == 3
-        assert action.executed is True
+        # Compare by step when worker_id and episode_id are same
+        assert key1 < key2
+        assert not key2 < key1
 
-    def test_invalid_action_type(self):
-        """Test that non-int action raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            Action(action="not_an_int")
-        assert "action" in str(exc_info.value)
+        # Compare by episode_id when worker_id is same
+        assert key1 < key3
+        assert not key3 < key1
 
-        with pytest.raises(ValidationError) as exc_info:
-            Action(action=3.5)
-        assert "action" in str(exc_info.value)
+        # Compare by worker_id first
+        assert key1 < key4
+        assert not key4 < key1
 
-    def test_invalid_executed_type(self):
-        """Test that non-bool executed raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            Action(action=1, executed="not_bool")
-        assert "executed" in str(exc_info.value)
+    def test_less_than_comparison_complex(self):
+        """Test __lt__ comparison with more complex scenarios."""
+        key1 = StepKey(worker_id=1, episode_id=2, step=3)
+        key2 = StepKey(worker_id=1, episode_id=2, step=3)
+        key3 = StepKey(worker_id=2, episode_id=1, step=1)
 
-    def test_to_dict(self):
-        """Test to_dict() method."""
-        action = Action(action=7, executed=True)
-        result = action.to_dict()
-        assert result == {"action": 7, "executed": True}
+        # Equal keys
+        assert not key1 < key2
+        assert not key2 < key1
 
-    def test_model_dump(self):
-        """Test Pydantic model_dump()."""
-        action = Action(action=7, executed=True)
-        result = action.model_dump()
-        assert result == {"action": 7, "executed": True}
+        # worker_id takes precedence even if other fields are smaller
+        assert key1 < key3
+        assert not key3 < key1
 
-    def test_model_validate(self):
-        """Test creating Action from dict."""
-        data = {"action": 10, "executed": False}
-        action = Action.model_validate(data)
-        assert action.action == 10
-        assert action.executed is False
+    def test_sorting(self):
+        """Test that StepKeys can be sorted."""
+        keys = [
+            StepKey(worker_id=2, episode_id=1, step=1),
+            StepKey(worker_id=1, episode_id=3, step=0),
+            StepKey(worker_id=1, episode_id=2, step=5),
+            StepKey(worker_id=1, episode_id=2, step=3),
+        ]
 
-    def test_model_validate_json(self):
-        """Test creating Action from JSON string."""
-        json_str = '{"action": 5, "executed": true}'
-        action = Action.model_validate_json(json_str)
-        assert action.action == 5
-        assert action.executed is True
+        sorted_keys = sorted(keys)
 
-    def test_negative_action(self):
-        """Test Action with negative value."""
-        action = Action(action=-1)
-        assert action.action == -1
+        # Should be sorted by worker_id, then episode_id, then step
+        assert sorted_keys[0].worker_id == 1
+        assert sorted_keys[1].worker_id == 1
+        assert sorted_keys[2].worker_id == 1
+        assert sorted_keys[3].worker_id == 2
 
-    def test_zero_action(self):
-        """Test Action with zero value."""
-        action = Action(action=0)
-        assert action.action == 0
+        # Within worker_id=1, check episode_id sorting
+        assert sorted_keys[0].episode_id == 2
+        assert sorted_keys[1].episode_id == 2
+        assert sorted_keys[2].episode_id == 3
 
+        # Within worker_id=1, episode_id=2, check step sorting
+        assert sorted_keys[0].step == 3
+        assert sorted_keys[1].step == 5
 
-class TestObservation:
-    """Test Observation model validation and serialization."""
+    def test_immutability(self):
+        """Test that StepKey is frozen (immutable)."""
+        key = StepKey(worker_id=1, episode_id=2, step=3)
 
-    def test_default_initialization(self):
-        """Test Observation with default empty dict."""
-        obs = Observation()
-        assert obs.data == {}
+        with pytest.raises(ValidationError):
+            key.worker_id = 5
 
-    def test_initialization_with_data(self):
-        """Test Observation with data."""
-        obs = Observation(data={"sensor1": 10, "sensor2": 20})
-        assert obs.data == {"sensor1": 10, "sensor2": 20}
+        with pytest.raises(ValidationError):
+            key.episode_id = 10
 
-    def test_invalid_data_type(self):
-        """Test that non-dict data raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            Observation(data="not_a_dict")
-        assert "data" in str(exc_info.value)
+        with pytest.raises(ValidationError):
+            key.step = 20
 
-        with pytest.raises(ValidationError) as exc_info:
-            Observation(data=[1, 2, 3])
-        assert "data" in str(exc_info.value)
+    def test_equality(self):
+        """Test equality comparison between StepKeys."""
+        key1 = StepKey(worker_id=1, episode_id=2, step=3)
+        key2 = StepKey(worker_id=1, episode_id=2, step=3)
+        key3 = StepKey(worker_id=1, episode_id=2, step=4)
 
-    def test_to_dict(self):
-        """Test to_dict() method."""
-        obs = Observation(data={"key": "value"})
-        result = obs.to_dict()
-        assert result == {"data": {"key": "value"}}
-
-    def test_model_dump(self):
-        """Test Pydantic model_dump()."""
-        obs = Observation(data={"key": "value"})
-        result = obs.model_dump()
-        assert result == {"data": {"key": "value"}}
-
-    def test_model_validate(self):
-        """Test creating Observation from dict."""
-        data = {"data": {"sensors": [1, 2, 3], "image": "base64..."}}
-        obs = Observation.model_validate(data)
-        assert obs.data["sensors"] == [1, 2, 3]
-        assert obs.data["image"] == "base64..."
-
-    def test_model_validate_json(self):
-        """Test creating Observation from JSON string."""
-        json_str = '{"data": {"x": 1, "y": 2}}'
-        obs = Observation.model_validate_json(json_str)
-        assert obs.data == {"x": 1, "y": 2}
-
-    def test_mutable_default_isolation(self):
-        """Test that default dict is not shared between instances."""
-        obs1 = Observation()
-        obs1.data["key1"] = "value1"
-
-        obs2 = Observation()
-        assert "key1" not in obs2.data
-        assert obs1.data != obs2.data
-
-    def test_complex_observation_data(self):
-        """Test Observation with complex nested data."""
-        obs = Observation(
-            data={
-                "camera": {"width": 640, "height": 480, "pixels": [0] * 100},
-                "lidar": {"ranges": [1.0, 2.0, 3.0], "angles": [0, 45, 90]},
-                "gps": {"lat": 37.7749, "lon": -122.4194},
-            }
-        )
-        assert obs.data["camera"]["width"] == 640
-        assert len(obs.data["camera"]["pixels"]) == 100
-        assert obs.data["lidar"]["ranges"] == [1.0, 2.0, 3.0]
-        assert obs.data["gps"]["lat"] == 37.7749
+        assert key1 == key2
+        assert not key1 == key3
+        assert key1 != key3
 
 
-class TestEndpoint:
-    """Test Endpoint enum."""
+class TestStepResult:
+    """Test StepResult dataclass."""
 
-    def test_enum_values(self):
-        """Test all enum values exist."""
-        assert Endpoint.ACTION == "action"
-        assert Endpoint.OBSERVATION == "observation"
-        assert Endpoint.ENVIRONMENT == "environment"
-        assert Endpoint.SUPERVISOR == "supervisor"
+    def test_initialization_all_none(self):
+        """Test initialization with all default None values."""
+        result = StepResult()
+        assert result.observation is None
+        assert result.action is None
+        assert result.reward is None
+        assert result.done is None
 
-    def test_enum_membership(self):
-        """Test enum membership checks."""
-        assert "action" in Endpoint._value2member_map_
-        assert "observation" in Endpoint._value2member_map_
-        assert "environment" in Endpoint._value2member_map_
-        assert "supervisor" in Endpoint._value2member_map_
+    def test_initialization_with_values(self):
+        """Test initialization with all fields provided."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs, action=2, reward=1.5, done=False)
 
-    def test_string_comparison(self):
-        """Test that Endpoint can be compared to strings."""
-        assert Endpoint.ACTION == "action"
-        assert Endpoint.OBSERVATION == "observation"
+        assert np.array_equal(result.observation, obs)
+        assert result.action == 2
+        assert result.reward == 1.5
+        assert result.done is False
 
-    def test_string_formatting(self):
-        """Test that Endpoint can be used in f-strings."""
-        url = f"http://localhost:8000/{Endpoint.ACTION}/train1/0/1/5"
-        assert url == "http://localhost:8000/action/train1/0/1/5"
+    def test_initialization_partial(self):
+        """Test initialization with some fields provided."""
+        result = StepResult(action=1, reward=0.5)
+        assert result.observation is None
+        assert result.action == 1
+        assert result.reward == 0.5
+        assert result.done is None
 
-    def test_iteration(self):
-        """Test iterating over all endpoints."""
-        endpoints = list(Endpoint)
-        assert len(endpoints) == 4
-        assert Endpoint.ACTION in endpoints
-        assert Endpoint.OBSERVATION in endpoints
-        assert Endpoint.ENVIRONMENT in endpoints
-        assert Endpoint.SUPERVISOR in endpoints
+    def test_observation_numpy_array(self):
+        """Test observation field with numpy array."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs)
 
+        assert isinstance(result.observation, np.ndarray)
+        assert result.observation.dtype == np.float32
+        assert np.array_equal(result.observation, obs)
 
-class TestIntegration:
-    """Test integration scenarios between models."""
+    def test_observation_multidimensional(self):
+        """Test observation field with multidimensional numpy array."""
+        obs = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        result = StepResult(observation=obs)
 
-    def test_round_trip_serialization(self):
-        """Test serializing and deserializing all models."""
-        # Environment
-        env = Environment(done=True, reward=5.5, data={"info": "test"})
-        env_dict = env.to_dict()
-        env_restored = Environment.model_validate(env_dict)
-        assert env_restored.done == env.done
-        assert env_restored.reward == env.reward
-        assert env_restored.data == env.data
+        assert result.observation.shape == (2, 2)
+        assert np.array_equal(result.observation, obs)
 
-        # Action
-        action = Action(action=3, executed=True)
-        action_dict = action.to_dict()
-        action_restored = Action.model_validate(action_dict)
-        assert action_restored.action == action.action
-        assert action_restored.executed == action.executed
+    def test_observation_large_array(self):
+        """Test observation field with large numpy array."""
+        obs = np.random.randn(100, 100).astype(np.float32)
+        result = StepResult(observation=obs)
 
-        # Observation
-        obs = Observation(data={"sensor": 100})
-        obs_dict = obs.to_dict()
-        obs_restored = Observation.model_validate(obs_dict)
-        assert obs_restored.data == obs.data
+        assert result.observation.shape == (100, 100)
+        assert np.array_equal(result.observation, obs)
 
-    def test_json_round_trip(self):
-        """Test JSON serialization round trip."""
-        env = Environment(done=True, reward=3.14, data={"key": "val"})
-        json_str = env.model_dump_json()
-        env_restored = Environment.model_validate_json(json_str)
-        assert env_restored.done == env.done
-        assert env_restored.reward == env.reward
-        assert env_restored.data == env.data
+    def test_action_integer(self):
+        """Test action field with integer value."""
+        result = StepResult(action=5)
+        assert result.action == 5
+        assert isinstance(result.action, int)
 
-    def test_api_workflow_simulation(self):
-        """Simulate a typical API workflow."""
-        # Agent creates action
-        action = Action(action=2, executed=False)
-        action_payload = action.to_dict()
+    def test_action_zero(self):
+        """Test action field with zero value."""
+        result = StepResult(action=0)
+        assert result.action == 0
 
-        # API stores and retrieves action
-        action_from_api = Action.model_validate(action_payload)
-        action_from_api.executed = True
+    def test_reward_positive(self):
+        """Test reward field with positive value."""
+        result = StepResult(reward=10.5)
+        assert result.reward == 10.5
 
-        # Environment creates observation
-        obs = Observation(data={"position": [1, 2, 3], "velocity": [0.1, 0.2, 0.3]})
-        obs_payload = obs.to_dict()
+    def test_reward_negative(self):
+        """Test reward field with negative value."""
+        result = StepResult(reward=-5.2)
+        assert result.reward == -5.2
 
-        # Agent receives observation
-        obs_received = Observation.model_validate(obs_payload)
-        assert obs_received.data["position"] == [1, 2, 3]
+    def test_reward_zero(self):
+        """Test reward field with zero value."""
+        result = StepResult(reward=0.0)
+        assert result.reward == 0.0
 
-        # Environment creates state
-        env_state = Environment(done=False, reward=1.0, data={"step": 10})
-        env_payload = env_state.to_dict()
+    def test_reward_integer(self):
+        """Test reward field with integer value (should be converted to float)."""
+        result = StepResult(reward=1)
+        assert result.reward == 1.0
+        assert isinstance(result.reward, (int, float))
 
-        # Trainer receives environment state
-        env_received = Environment.model_validate(env_payload)
-        assert env_received.reward == 1.0
-        assert env_received.done is False
+    def test_done_true(self):
+        """Test done field with True value."""
+        result = StepResult(done=True)
+        assert result.done is True
+
+    def test_done_false(self):
+        """Test done field with False value."""
+        result = StepResult(done=False)
+        assert result.done is False
+
+    def test_is_complete_all_none(self):
+        """Test is_complete() returns False when all fields are None."""
+        result = StepResult()
+        assert result.is_complete() is False
+
+    def test_is_complete_all_filled(self):
+        """Test is_complete() returns True when all fields are filled."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs, action=2, reward=1.5, done=False)
+        assert result.is_complete() is True
+
+    def test_is_complete_missing_observation(self):
+        """Test is_complete() returns False when observation is missing."""
+        result = StepResult(action=2, reward=1.5, done=False)
+        assert result.is_complete() is False
+
+    def test_is_complete_missing_action(self):
+        """Test is_complete() returns False when action is missing."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs, reward=1.5, done=False)
+        assert result.is_complete() is False
+
+    def test_is_complete_missing_reward(self):
+        """Test is_complete() returns False when reward is missing."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs, action=2, done=False)
+        assert result.is_complete() is False
+
+    def test_is_complete_missing_done(self):
+        """Test is_complete() returns False when done is missing."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs, action=2, reward=1.5)
+        assert result.is_complete() is False
+
+    def test_is_complete_partial_filled(self):
+        """Test is_complete() returns False when only some fields are filled."""
+        result = StepResult(action=2, reward=1.5)
+        assert result.is_complete() is False
+
+    def test_is_complete_done_true(self):
+        """Test is_complete() with terminal state (done=True)."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs, action=2, reward=1.5, done=True)
+        assert result.is_complete() is True
+        assert result.done is True
+
+    def test_mutability(self):
+        """Test that StepResult fields can be modified (not frozen)."""
+        result = StepResult()
+
+        # Should be able to set fields after initialization
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result.observation = obs
+        result.action = 2
+        result.reward = 1.5
+        result.done = False
+
+        assert np.array_equal(result.observation, obs)
+        assert result.action == 2
+        assert result.reward == 1.5
+        assert result.done is False
+
+    def test_observation_none_explicit(self):
+        """Test explicitly setting observation to None."""
+        obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = StepResult(observation=obs)
+        result.observation = None
+        assert result.observation is None
+
+    def test_action_none_explicit(self):
+        """Test explicitly setting action to None."""
+        result = StepResult(action=5)
+        result.action = None
+        assert result.action is None
+
+    def test_reward_none_explicit(self):
+        """Test explicitly setting reward to None."""
+        result = StepResult(reward=1.5)
+        result.reward = None
+        assert result.reward is None
+
+    def test_done_none_explicit(self):
+        """Test explicitly setting done to None."""
+        result = StepResult(done=True)
+        result.done = None
+        assert result.done is None
+
+    def test_multiple_step_results(self):
+        """Test creating multiple StepResult instances."""
+        results = []
+        for i in range(5):
+            obs = np.array([float(i)], dtype=np.float32)
+            result = StepResult(
+                observation=obs, action=i, reward=float(i) * 0.1, done=(i == 4)
+            )
+            results.append(result)
+
+        assert len(results) == 5
+        for i, result in enumerate(results):
+            assert result.observation[0] == float(i)
+            assert result.action == i
+            assert result.reward == float(i) * 0.1
+            assert result.done == (i == 4)
+
+    def test_reward_extreme_values(self):
+        """Test reward field with extreme values."""
+        result1 = StepResult(reward=1e10)
+        assert result1.reward == 1e10
+
+        result2 = StepResult(reward=-1e10)
+        assert result2.reward == -1e10
+
+        result3 = StepResult(reward=1e-10)
+        assert result3.reward == 1e-10
