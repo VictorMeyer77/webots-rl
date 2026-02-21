@@ -7,6 +7,7 @@ so no real API server, GPU, or file system is required.
 """
 
 from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 
@@ -14,7 +15,6 @@ from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
 from corl.trainer.tracker import StepResult
 from corl.utils.config import Config
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete subclass
@@ -26,9 +26,10 @@ def _make_trainer_class():
     Import Trainer inside a helper so TF import errors surface as test errors,
     not collection errors.
     """
-    from corl.trainer.trainer import Trainer
     import numpy as np
     from numpy.typing import NDArray
+
+    from corl.trainer.trainer import Trainer
 
     class ConcreteTrainer(Trainer):
         def save_model(self) -> None:
