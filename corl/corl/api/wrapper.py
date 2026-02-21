@@ -27,15 +27,17 @@ Exception Handling:
     Two distinct patterns are used based on operation criticality:
 
     1. Data Exchange Operations (retryable):
-       - Methods: get(), post(), get_action(), send_action(), get_observation(),
-         send_observation(), get_environment(), send_environment()
-       - Behavior: Catch exceptions, log errors, return None/False
+       - Methods: get(), post(), get_batch(), post_batch(), get_action(),
+         send_action_batch(), get_observation_batch(), send_observation(),
+         get_environment_batch(), send_environment()
+       - Behavior: Catch exceptions, log errors, return None/False/{}/[]
        - Rationale: Handle lagging data, network issues, and race conditions
        - Usage: Caller can implement retry logic
 
     2. Supervisor Operations (critical):
        - Methods: create_training_session(), add_worker(), get_workers(),
-         get_episode_id(), increment_episode_id(), update_worker_status()
+         get_episode_id(), increment_episode_id(), update_worker_status(),
+         get_worker_status()
        - Behavior: Propagate exceptions to caller
        - Rationale: These operations must succeed for training to proceed
        - Usage: Caller must handle exceptions appropriately
@@ -45,7 +47,9 @@ import logging
 
 import requests
 
-from corl.api.schemas import Environment, Action, Observation, Endpoint
+from corl.schemas.api import Endpoint
+from corl.schemas.learning import Action, Environment, Observation
+from corl.schemas.tracker import StepKey
 from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -81,16 +85,15 @@ class Wrapper:
     session: requests.Session
     timeout: int
 
-    def __init__(self, config: Config = Config(), timeout: int = 10):
+    def __init__(self, config: Config, timeout: int = 10):
         """
         Initialize the API wrapper.
 
         Args:
             config: Configuration object containing API_HOST and API_PORT settings.
-                   Defaults to a new Config instance.
             timeout: Default timeout for API requests in seconds (default: 10)
         """
-        self.base_url = f"{config.get('API_HOST')}:{config.get('API_PORT')}/api/v1"
+        self.base_url = f"{config['API_HOST']}:{config['API_PORT']}/api/v1"
         self.session = requests.Session()
         self.timeout = timeout
 
@@ -142,9 +145,9 @@ class Wrapper:
             logger.debug(f"GET {url} returned {result}")
             return result
         except requests.RequestException as e:
-            logger.warning(f"GET {url} failed with error: {e.response.content}")
+            logger.debug(f"GET {url} failed with error: {e.response.content}")
         except Exception as e:
-            logger.warning(f"GET {url} failed with unexpected error: {e}")
+            logger.debug(f"GET {url} failed with unexpected error: {e}")
         return None
 
     def post(
@@ -179,7 +182,6 @@ class Wrapper:
             Does not raise exceptions. Logs errors and returns False on failure.
         """
         url = f"{self.base_url}/{endpoint}/{train_id}/{worker_id}/{episode_id}/{step}"
-        is_ok = False
 
         try:
             response = self.session.post(url, json=data, timeout=self.timeout)
@@ -187,16 +189,163 @@ class Wrapper:
             result = response.json()
             logger.debug(f"POST {url} returned {result}")
             if result.get("status") == "success":
-                is_ok = True
+                return True
             else:
-                logger.warning(f"POST {url} returned unexpected result: {result}")
+                logger.debug(f"POST {url} returned unexpected result: {result}")
         except requests.RequestException as e:
             content = e.response.content if e.response else str(e)
-            logger.warning(f"POST {url} failed with error: {content}")
+            logger.debug(f"POST {url} failed with error: {content}")
         except Exception as e:
-            logger.warning(f"POST {url} failed with unexpected error: {e}")
+            logger.debug(f"POST {url} failed with unexpected error: {e}")
+        return False
 
-        return is_ok
+    @staticmethod
+    def _get_batch_payload(train_id: str, step_keys: list[StepKey]) -> dict:
+        """
+        Build the request payload for a batch GET operation.
+
+        Args:
+            train_id: Training session identifier
+            step_keys: List of StepKey objects identifying the steps to retrieve
+
+        Returns:
+            Dictionary with a ``keys`` list, each entry containing train_id,
+            worker_id, episode_id, and step.
+        """
+        return {
+            "keys": [
+                {
+                    "train_id": train_id,
+                    "worker_id": key.worker_id,
+                    "episode_id": key.episode_id,
+                    "step": key.step,
+                }
+                for key in step_keys
+            ],
+        }
+
+    @staticmethod
+    def _post_batch_payload(
+        train_id: str, values: list[tuple[StepKey, Action | Environment | Observation]]
+    ) -> dict:
+        """
+        Build the request payload for a batch POST operation.
+
+        Args:
+            train_id: Training session identifier
+            values: List of (StepKey, data) tuples where data is an Action,
+                    Environment, or Observation to publish
+
+        Returns:
+            Dictionary with an ``items`` list, each entry containing the
+            serialized key and value for one step.
+        """
+        return {
+            "items": [
+                {
+                    "key": {
+                        "train_id": train_id,
+                        "worker_id": key.worker_id,
+                        "episode_id": key.episode_id,
+                        "step": key.step,
+                    },
+                    "value": value.model_dump(),
+                }
+                for key, value in values
+            ],
+        }
+
+    def get_batch(
+        self, endpoint: Endpoint, train_id: str, step_keys: list[StepKey]
+    ) -> list[dict]:
+        """
+        Perform a batch GET request to retrieve data for multiple steps at once.
+
+        Sends a POST request to the batch endpoint with the list of step keys and
+        returns all available results. Missing steps are logged but not treated as
+        errors. Catches and logs exceptions rather than propagating them.
+
+        Args:
+            endpoint: The API endpoint to query (ACTION, OBSERVATION, or ENVIRONMENT)
+            train_id: Training session identifier
+            step_keys: List of StepKey objects identifying the steps to retrieve
+
+        Returns:
+            List of result dicts (each containing ``key`` and ``value`` fields) as
+            returned by the API ``results`` field. Returns an empty list on failure
+            or when the ``results`` key is absent from the response.
+
+        Raises:
+            Does not raise exceptions. Logs errors and returns [] on failure.
+        """
+        url = f"{self.base_url}/{endpoint}/batch"
+        try:
+            response = self.session.post(
+                url,
+                json=self._get_batch_payload(train_id, step_keys),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            result = response.json()
+            logger.debug(f"POST {url} returned {result}")
+            if int(result.get("missing")) > 0:
+                logger.debug(
+                    f"POST {url} reported {result.get('missing')} missing items out of {len(step_keys)} requested."
+                )
+            return result["results"] if "results" in result else []
+        except requests.RequestException as e:
+            content = e.response.content if e.response else str(e)
+            logger.debug(f"POST {url} failed with error: {content}")
+        except Exception as e:
+            logger.debug(f"POST {url} failed with unexpected error: {e}")
+        return []
+
+    def post_batch(
+        self,
+        endpoint: Endpoint,
+        train_id: str,
+        values: list[tuple[StepKey, Action | Environment | Observation]],
+    ) -> bool:
+        """
+        Perform a batch POST request to publish data for multiple steps at once.
+
+        Catches and logs exceptions rather than propagating them. Returns False if
+        the API acknowledges fewer items than were sent.
+
+        Args:
+            endpoint: The API endpoint to publish to (ACTION, OBSERVATION, or ENVIRONMENT)
+            train_id: Training session identifier
+            values: List of (StepKey, data) tuples where data is an Action,
+                    Environment, or Observation to publish
+
+        Returns:
+            True if all items were successfully stored, False otherwise
+
+        Raises:
+            Does not raise exceptions. Logs errors and returns False on failure.
+        """
+        url = f"{self.base_url}/{endpoint}/batch/publish"
+        try:
+            response = self.session.post(
+                url,
+                json=self._post_batch_payload(train_id, values),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            result = response.json()
+            logger.debug(f"POST {url} returned {result}")
+            if int(result.get("total")) != len(values):
+                logger.debug(
+                    f"POST {url} returned unexpected total count: {result.get('total')} (expected {len(values)})"
+                )
+            else:
+                return True
+        except requests.RequestException as e:
+            content = e.response.content if e.response else str(e)
+            logger.debug(f"POST {url} failed with error: {content}")
+        except Exception as e:
+            logger.debug(f"POST {url} failed with unexpected error: {e}")
+        return False
 
     # Supervisor endpoints
 
@@ -215,7 +364,9 @@ class Wrapper:
             RuntimeError: If the API returns a non-success status
         """
         url = f"{self.base_url}/supervisor/train"
-        response = self.session.post(url, json={"train_id": train_id})
+        response = self.session.post(
+            url, json={"train_id": train_id}, timeout=self.timeout
+        )
         response.raise_for_status()
         result = response.json()
         logger.debug(f"POST {url} returned {result}")
@@ -242,7 +393,7 @@ class Wrapper:
             ValueError: If the response does not contain a worker_id
         """
         url = f"{self.base_url}/supervisor/train/{train_id}/worker"
-        response = self.session.post(url)
+        response = self.session.post(url, timeout=self.timeout)
         response.raise_for_status()
         result = response.json()
         logger.debug(f"POST {url} returned {result}")
@@ -269,7 +420,7 @@ class Wrapper:
             requests.RequestException: If the HTTP request fails
         """
         url = f"{self.base_url}/supervisor/train/{train_id}"
-        response = self.session.get(url)
+        response = self.session.get(url, timeout=self.timeout)
         response.raise_for_status()
         result = response.json()
         logger.debug(f"GET {url} returned {result}")
@@ -291,16 +442,17 @@ class Wrapper:
 
         Raises:
             requests.RequestException: If the HTTP request fails
+            ValueError: If the response does not contain an episode_id
         """
-        url = f"{self.base_url}/supervisor/train/{train_id}/worker/{worker_id}/episode"
-        response = self.session.get(url)
+        url = f"{self.base_url}/supervisor/train/{train_id}/worker/{worker_id}"
+        response = self.session.get(url, timeout=self.timeout)
         response.raise_for_status()
         result = response.json()
         logger.debug(f"GET {url} returned {result}")
         episode_id = result.get("episode_id")
         if episode_id is None:
             raise ValueError(f"episode_id not in response: {result}")
-        return episode_id
+        return int(episode_id)
 
     def increment_episode_id(self, train_id: str, worker_id: int) -> None:
         """
@@ -318,7 +470,7 @@ class Wrapper:
             RuntimeError: If the API returns a non-success status
         """
         url = f"{self.base_url}/supervisor/train/{train_id}/worker/{worker_id}/episode/increment"
-        response = self.session.post(url)
+        response = self.session.post(url, timeout=self.timeout)
         response.raise_for_status()
         result = response.json()
         logger.debug(f"POST {url} returned {result}")
@@ -344,7 +496,9 @@ class Wrapper:
             RuntimeError: If the API returns a non-success status
         """
         url = f"{self.base_url}/supervisor/train/{train_id}/worker/{worker_id}/status"
-        response = self.session.post(url, json={"worker_status": status})
+        response = self.session.post(
+            url, json={"worker_status": status}, timeout=self.timeout
+        )
         response.raise_for_status()
         result = response.json()
         logger.debug(f"POST {url} returned {result}")
@@ -352,6 +506,34 @@ class Wrapper:
             raise RuntimeError(
                 f"Failed to update worker status for train {train_id}, worker {worker_id}: {result}"
             )
+
+    def get_worker_status(self, train_id: str, worker_id: int) -> bool:
+        """
+        Get the active status of a worker.
+
+        This is a critical operation that does not catch exceptions. Failures will
+        propagate to the caller as this operation should not fail silently.
+
+        Args:
+            train_id: Training session identifier
+            worker_id: Worker identifier
+
+        Returns:
+            The active status of the worker (True for active, False for inactive)
+
+        Raises:
+            requests.RequestException: If the HTTP request fails
+            ValueError: If the response does not contain a status field
+        """
+        url = f"{self.base_url}/supervisor/train/{train_id}/worker/{worker_id}"
+        response = self.session.get(url, timeout=self.timeout)
+        response.raise_for_status()
+        result = response.json()
+        logger.debug(f"GET {url} returned {result}")
+        status = result.get("status")
+        if status is None:
+            raise ValueError(f"status not in response: {result}")
+        return bool(status)
 
     # Action endpoints
 
@@ -417,43 +599,74 @@ class Wrapper:
             worker_id,
             episode_id,
             step,
-            action.to_dict(),
+            action.model_dump(),
+        )
+        return stored
+
+    def send_action_batch(
+        self, train_id: str, actions: list[tuple[StepKey, Action]]
+    ) -> bool:
+        """
+        Send a batch of actions to the API.
+
+        This method catches exceptions internally (via the post_batch method) and can be
+        retried if False is returned, making it suitable for handling lagging data.
+
+        Args:
+            train_id: Training session identifier
+            actions: List of tuples containing StepKey and Action objects to send
+
+        Returns:
+            True if all actions were successfully stored, False otherwise
+
+        Raises:
+            Does not raise exceptions. Returns False on failure.
+        """
+        stored = self.post_batch(
+            Endpoint.ACTION,
+            train_id,
+            actions,
         )
         return stored
 
     # Observation endpoints
 
-    def get_observation(
-        self, train_id: str, worker_id: int, episode_id: int, step: int
-    ) -> Observation | None:
+    def get_observation_batch(
+        self, train_id: str, step_keys: list[StepKey]
+    ) -> list[tuple[StepKey, Observation | None]]:
         """
-        Retrieve an observation from the API.
+        Retrieve a batch of observations from the API.
 
-        This method catches exceptions internally (via the get method) and can be
-        retried if None is returned, making it suitable for handling lagging data.
+        This method catches exceptions internally (via get_batch) and can be
+        retried if an empty list is returned, making it suitable for handling
+        lagging data.
 
         Args:
             train_id: Training session identifier
-            worker_id: Worker identifier within the training session
-            episode_id: Episode identifier within the worker
-            step: Step number within the episode
+            step_keys: List of StepKey objects identifying the steps to retrieve
 
         Returns:
-            Observation object if found and successfully parsed, None otherwise
+            List of (StepKey, Observation) tuples for all available steps.
+            Returns an empty list on failure or if no data is available.
 
         Raises:
-            Does not raise exceptions. Returns None on failure.
+            Does not raise exceptions. Returns [] on failure.
         """
-        observation = self.get(
+
+        observations = self.get_batch(
             Endpoint.OBSERVATION,
             train_id,
-            worker_id,
-            episode_id,
-            step,
+            step_keys,
         )
-        return (
-            Observation(data=observation["data"]) if observation is not None else None
-        )
+        return [
+            (
+                StepKey.model_validate(observation["key"]),
+                Observation(data=observation["value"]["data"])
+                if observation["value"] is not None
+                else None,
+            )
+            for observation in observations
+        ]
 
     def send_observation(
         self,
@@ -488,7 +701,7 @@ class Wrapper:
             worker_id,
             episode_id,
             step,
-            observation.to_dict(),
+            observation.model_dump(),
         )
         return stored
 
@@ -527,41 +740,46 @@ class Wrapper:
             worker_id,
             episode_id,
             step,
-            state.to_dict(),
+            state.model_dump(),
         )
 
-    def get_environment(
-        self, train_id: str, worker_id: int, episode_id: int, step: int
-    ) -> Environment | None:
+    def get_environment_batch(
+        self, train_id: str, step_keys: list[StepKey]
+    ) -> list[tuple[StepKey, Environment | None]]:
         """
-        Retrieve environment state from the API.
+        Retrieve a batch of environment states from the API.
 
-        This method catches exceptions internally (via the get method) and can be
-        retried if None is returned, making it suitable for handling lagging data.
+        This method catches exceptions internally (via get_batch) and can be
+        retried if an empty list is returned, making it suitable for handling
+        lagging data.
 
         Args:
             train_id: Training session identifier
-            worker_id: Worker identifier within the training session
-            episode_id: Episode identifier within the worker
-            step: Step number within the episode
+            step_keys: List of StepKey objects identifying the steps to retrieve
 
         Returns:
-            Environment object if found and successfully parsed, None otherwise
+            List of (StepKey, Environment) tuples for all available steps.
+            Returns an empty list on failure or if no data is available.
 
         Raises:
-            Does not raise exceptions. Returns None on failure.
+            Does not raise exceptions. Returns [] on failure.
         """
-        environment = self.get(
+
+        environments = self.get_batch(
             Endpoint.ENVIRONMENT,
             train_id,
-            worker_id,
-            episode_id,
-            step,
+            step_keys,
         )
-        if environment is not None:
-            return Environment(
-                reward=environment["reward"],
-                done=environment["done"],
-                data=environment.get("data", {}),
+        return [
+            (
+                StepKey.model_validate(environment["key"]),
+                Environment(
+                    done=environment["value"]["done"],
+                    reward=environment["value"]["reward"],
+                    data=environment["value"].get("data", {}),
+                )
+                if environment["value"] is not None
+                else None,
             )
-        return None
+            for environment in environments
+        ]
