@@ -53,18 +53,6 @@ def _mock_response(json_data: dict, status_code: int = 200) -> MagicMock:
     return resp
 
 
-def _mock_http_error(status_code: int = 500, content: bytes = b"error") -> MagicMock:
-    """Build a mock requests.Response that raises on raise_for_status."""
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.content = content
-    http_err = requests.HTTPError(response=resp)
-    mock_resp = MagicMock()
-    mock_resp.raise_for_status.side_effect = http_err
-    mock_resp.response = resp
-    return mock_resp
-
-
 # ===========================================================================
 # Wrapper initialisation & context manager
 # ===========================================================================
