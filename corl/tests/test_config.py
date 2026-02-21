@@ -14,8 +14,9 @@ Tests cover:
 """
 
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from corl.utils.config import Config, ConfigItem, LogLevel
 
@@ -373,7 +374,9 @@ class TestConfigAllDefaults:
         assert config.get("WORKER_ID") is None
         assert config.get("TRAINER_TENSORBOARD_PATH") == ".train/tensorboard/"
         assert config.get("TRAINER_MODEL_DIR") == ".train/models/"
-        assert config.get("TRAINER_MAX_WORKER") == 4
+        assert config.get("TRAINER_MAX_WORKER") == 20
+        assert config.get("GET_REQUEST_INTERVAL_STEPS") == 6
+        assert config.get("ENVIRONMENT_STEP_TIMEOUT") == 20
 
     def test_all_webots_configs(self):
         """Test all Webots configuration items."""

@@ -8,7 +8,7 @@ environment variables and .env files with type validation and caching support.
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Type, Any
+from typing import Any, Type
 
 from dotenv import load_dotenv
 
@@ -34,6 +34,9 @@ class LogLevel(str, Enum):
     ERROR = "ERROR"
     CRITICAL = "CRITICAL"
 
+    def __str__(self) -> str:
+        return self.value
+
 
 @dataclass
 class ConfigItem:
@@ -48,7 +51,7 @@ class ConfigItem:
         default: The default value to use if no environment variable is set.
                 Can be None for optional configuration items.
         cast: The type to cast the environment variable value to.
-              Supported types: str, int, float, bool, LogLevel, or None for no casting.
+              Supported types: str, int, bool, LogLevel, or None for no casting.
         description: A human-readable description of what this configuration item controls.
                     Used for documentation and error messages.
     """
@@ -74,22 +77,12 @@ class Config:
     {prefix}_{KEY_NAME} (e.g., WEBOTS_API_HOST, WEBOTS_API_PORT)
 
     Attributes:
-        DEFAULTS: Dictionary mapping configuration keys to ConfigItem objects
-        prefix: Prefix for environment variable names (default: "webots")
-        _cache: Internal cache for storing parsed configuration values
-
-    Example:
-        >>> config = Config(prefix="myapp")
-        >>>
-        >>> # Method 1: Using get()
-        >>> host = config.get("API_HOST")
-        >>>
-        >>> # Method 2: Dictionary-style access
-        >>> port = config["API_PORT"]
-        >>>
-        >>> # Check if a key exists
-        >>> if "API_HOST" in config:
-        ...     print("API_HOST is configured")
+        DEFAULTS: Class-level dictionary mapping configuration keys to ConfigItem objects.
+            Defines the schema, defaults, types, and descriptions for every supported key.
+        prefix: Prefix used when constructing environment variable names. The full env var
+            name is built as ``f"{prefix}_{KEY}".upper()``, so the prefix is always
+            uppercased regardless of the value passed to ``__init__``.
+        _cache: Internal dict for storing parsed configuration values after first access.
     """
 
     DEFAULTS = {
@@ -125,6 +118,11 @@ class Config:
         "LOG_FILE_DIR": ConfigItem(
             default=".log", cast=str, description="Directory path for log files"
         ),
+        "LOG_FILE_NAME": ConfigItem(
+            default="webots_rl",
+            cast=str,
+            description="File name prefix for log files (without extension)",
+        ),
         # Trainer Configuration
         "TRAIN": ConfigItem(
             default=False,
@@ -152,7 +150,17 @@ class Config:
             description="Directory path for saved models",
         ),
         "TRAINER_MAX_WORKER": ConfigItem(
-            default=4, cast=int, description="Maximum number of training workers"
+            default=20, cast=int, description="Maximum number of training workers"
+        ),
+        "GET_REQUEST_INTERVAL_STEPS": ConfigItem(
+            default=6,
+            cast=int,
+            description="Webots timestep between API GET requests for controller and supervisor",
+        ),
+        "ENVIRONMENT_STEP_TIMEOUT": ConfigItem(
+            default=20,
+            cast=int,
+            description="Timeout in seconds for an environment step to complete before forcing shutdown of the worker process",
         ),
         # Webots environment
         "BIN_PATH": ConfigItem(
@@ -181,9 +189,9 @@ class Config:
         with the provided prefix string.
 
         Args:
-            prefix: Prefix for environment variable names. All environment variables
-                   should follow the pattern: {prefix}_{KEY_NAME} (case-insensitive).
-                   Defaults to "webots".
+            prefix: Prefix for environment variable names. The full variable name is
+                   constructed as ``f"{prefix}_{KEY_NAME}".upper()``, so the prefix is
+                   always uppercased. Defaults to "webots".
         """
         self.prefix = prefix
         self._cache: dict[str, Any] = {}
