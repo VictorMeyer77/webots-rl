@@ -7,13 +7,11 @@ from numpy.typing import NDArray
 from corl.api.wrapper import Wrapper
 from corl.schemas.learning import Action, Environment
 from corl.schemas.tracker import StepKey, StepResult
+from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
 REFRESH_RATE = 5  # seconds between API refreshes to update worker list
-WORKER_EPISODE_STEP_TIMEOUT = (
-    30  # seconds before a worker is considered timed out without updates
-)
 
 
 class Tracker:
@@ -52,9 +50,10 @@ class Tracker:
     _worker_last_update: dict[int, float]
     _buffer_results: dict[int, StepResult]
 
-    def __init__(self, train_id: str, api: Wrapper):
+    def __init__(self, train_id: str, config: Config, api: Wrapper):
         self.train_id = train_id
         self.api = api
+        self.worker_timeout = config["trainer_worker_timeout"]
         self._workers = {}
         self._worker_last_update = {}
         self._last_worker_refresh = 0
@@ -249,7 +248,7 @@ class Tracker:
 
     def worker_timeouts(self) -> None:
         """
-        Remove workers that have exceeded ``WORKER_EPISODE_STEP_TIMEOUT`` without an update.
+        Remove workers that have exceeded ``worker_timeout`` seconds without an update.
 
         Iterates over all tracked workers and calls ``close_workers`` for any whose
         last recorded update is older than the timeout threshold. Timed-out workers
@@ -258,7 +257,7 @@ class Tracker:
         current_time = time.time()
         workers_to_remove = []
         for worker_id, last_update in self._worker_last_update.items():
-            if current_time - last_update > WORKER_EPISODE_STEP_TIMEOUT:
+            if current_time - last_update > self.worker_timeout:
                 workers_to_remove.append(worker_id)
                 logger.warning(
                     f"Worker {worker_id} has timed out (no updates for {current_time - last_update:.1f}s)"
