@@ -372,11 +372,9 @@ class TestConfigAllDefaults:
         assert config.get("TRAIN") is False
         assert config.get("TRAIN_ID") is None
         assert config.get("WORKER_ID") is None
-        assert config.get("TRAINER_TENSORBOARD_PATH") == ".train/tensorboard/"
-        assert config.get("TRAINER_MODEL_DIR") == ".train/models/"
-        assert config.get("TRAINER_MAX_WORKER") == 20
-        assert config.get("GET_REQUEST_INTERVAL_STEPS") == 6
-        assert config.get("ENVIRONMENT_STEP_TIMEOUT") == 20
+        assert config.get("TRAINER_OUTPUT_DIR") == "train/"
+        assert config.get("TRAINER_WORKER_TIMEOUT") == 60
+        assert config.get("ENVIRONMENT_RECORDE_FREQUENCY") == 100
 
     def test_all_webots_configs(self):
         """Test all Webots configuration items."""
@@ -385,7 +383,6 @@ class TestConfigAllDefaults:
             config.get("BIN_PATH") == "/Applications/Webots.app/Contents/MacOS/webots"
         )
         assert config.get("WORLD_PATH") == "projects/worlds"
-        assert config.get("CONTROLLER_PATH") == "projects/controllers"
 
 
 class TestConfigEdgeCases:
@@ -441,7 +438,6 @@ class TestConfigIntegration:
             "WEBOTS_API_PORT": "443",
             "WEBOTS_TRAIN": "true",
             "WEBOTS_LOG_CONSOLE_LEVEL": "ERROR",
-            "WEBOTS_TRAINER_MAX_WORKER": "8",
         },
     )
     def test_multiple_environment_overrides(self):
@@ -452,7 +448,6 @@ class TestConfigIntegration:
         assert config.get("API_PORT") == 443
         assert config.get("TRAIN") is True
         assert config.get("LOG_CONSOLE_LEVEL") == LogLevel.ERROR
-        assert config.get("TRAINER_MAX_WORKER") == 8
 
     @patch.dict(os.environ, {"WEBOTS_API_HOST": "http://test.com"})
     def test_mixed_access_methods(self):

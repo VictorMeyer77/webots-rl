@@ -86,7 +86,18 @@ class Config:
     """
 
     DEFAULTS = {
-        # API Configuration
+        # Webots environment
+        "BIN_PATH": ConfigItem(
+            default="/Applications/Webots.app/Contents/MacOS/webots",
+            cast=str,
+            description="Path to Webots binary executable",
+        ),
+        "WORLD_PATH": ConfigItem(
+            default="projects/worlds",
+            cast=str,
+            description="Path to Webots world file to run",
+        ),
+        # Backtrain API Configuration
         "API_HOST": ConfigItem(
             default="http://localhost",
             cast=str,
@@ -97,6 +108,7 @@ class Config:
             cast=int,
             description="Backend training server API port number",
         ),
+        # Logging Configuration
         # Console Logging Configuration
         "LOG_CONSOLE_LEVEL": ConfigItem(
             default="INFO",
@@ -123,7 +135,18 @@ class Config:
             cast=str,
             description="File name prefix for log files (without extension)",
         ),
-        # Trainer Configuration
+        "LOG_FILE_MAX_BYTES": ConfigItem(
+            default=10 * 1024 * 1024,
+            cast=int,
+            description="Maximum size in bytes for a log file before rotation occurs",
+        ),
+        "LOG_FILE_BACKUP_COUNT": ConfigItem(
+            default=5,
+            cast=int,
+            description="Number of backup log files to keep when rotating",
+        ),
+        # Training Configuration
+        # Base
         "TRAIN": ConfigItem(
             default=False,
             cast=bool,
@@ -139,44 +162,22 @@ class Config:
             cast=int,
             description="Unique identifier for the worker instance",
         ),
-        "TRAINER_TENSORBOARD_PATH": ConfigItem(
-            default=".train/tensorboard/",
+        # Trainer
+        "TRAINER_OUTPUT_DIR": ConfigItem(
+            default="train/",
             cast=str,
             description="Path to TensorBoard logs directory",
         ),
-        "TRAINER_MODEL_DIR": ConfigItem(
-            default=".train/models/",
-            cast=str,
-            description="Directory path for saved models",
-        ),
-        "TRAINER_MAX_WORKER": ConfigItem(
-            default=20, cast=int, description="Maximum number of training workers"
-        ),
-        "GET_REQUEST_INTERVAL_STEPS": ConfigItem(
-            default=6,
+        "TRAINER_WORKER_TIMEOUT": ConfigItem(
+            default=60,
             cast=int,
-            description="Webots timestep between API GET requests for controller and supervisor",
+            description="Time in seconds to wait for a worker to respond before marking it as unresponsive",
         ),
-        "ENVIRONMENT_STEP_TIMEOUT": ConfigItem(
-            default=20,
+        # Environment
+        "ENVIRONMENT_RECORDE_FREQUENCY": ConfigItem(
+            default=100,
             cast=int,
-            description="Timeout in seconds for an environment step to complete before forcing shutdown of the worker process",
-        ),
-        # Webots environment
-        "BIN_PATH": ConfigItem(
-            default="/Applications/Webots.app/Contents/MacOS/webots",
-            cast=str,
-            description="Path to Webots binary executable",
-        ),
-        "WORLD_PATH": ConfigItem(
-            default="projects/worlds",
-            cast=str,
-            description="Path to Webots world file to run",
-        ),
-        "CONTROLLER_PATH": ConfigItem(
-            default="projects/controllers",
-            cast=str,
-            description="Path to Webots controller files",
+            description="Episodes frequency witness worker (worker_id=0) at which to record environment video during training",
         ),
     }
 
