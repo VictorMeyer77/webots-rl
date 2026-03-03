@@ -1,7 +1,9 @@
 import logging
 from collections import deque
+from typing import Any
 
 import numpy as np
+import tensorflow as tf
 from controller import Camera, DistanceSensor, Motor, Robot
 
 import corl.utils.image as img
@@ -47,7 +49,14 @@ class Epuck(Agent):
     camera: Camera | None = None
     camera_frame_buffer: deque | None = None
 
-    def __init__(self, robot: Robot, timestep: int, config: Config):
+    def __init__(
+        self,
+        robot: Robot,
+        timestep: int,
+        action_repeat: int,
+        config: Config,
+        model: tf.keras.Model | np.ndarray | None = None,
+    ):
         """
         Initialize the e-puck agent and its wheel motors.
 
@@ -61,10 +70,19 @@ class Epuck(Agent):
         Args:
             robot: Webots ``Robot`` node to control.
             timestep: Simulation timestep in milliseconds.
+            action_repeat: Number of consecutive simulation steps each
+                selected action is held before a new one is requested.
             config: Application configuration forwarded to
                 :class:`~corl.agent.Agent`.
+            model: Optional pre-loaded model used in run mode.
         """
-        super().__init__(robot=robot, timestep=timestep, config=config)
+        super().__init__(
+            robot=robot,
+            timestep=timestep,
+            action_repeat=action_repeat,
+            config=config,
+            model=model,
+        )
         self._init_motors()
 
         self.actions = {
@@ -120,10 +138,11 @@ class Epuck(Agent):
 
     def init_camera(self) -> None:
         """
-        Initialize the e-puck's camera and frame buffer.
+        Initialise the e-puck's front camera and frame buffer.
 
-        Enables the camera device and creates a circular buffer for temporal frame
-        stacking. The buffer maintains the last CAMERA_FRAME_SIZE frames for CNN input.
+        Enables the camera device with the simulation timestep and creates
+        a circular buffer capped at ``CAMERA_FRAME_SIZE`` preprocessed
+        frames for temporal stacking (CNN input).
         """
         self.camera = self.robot.getDevice("camera")
         self.camera.enable(self.timestep)
@@ -155,7 +174,7 @@ class Epuck(Agent):
         frame = np.expand_dims(frame, axis=0)
         return frame
 
-    def observe(self) -> dict:
+    def observe(self) -> dict[str, Any]:
         """
         Read active sensors and return the current observation payload.
 
@@ -168,7 +187,7 @@ class Epuck(Agent):
           :meth:`init_camera` has been called.
 
         Returns:
-            dict: Observation dictionary with zero, one, or both of the
+            dict[str, Any]: Observation dictionary with zero, one, or both of the
                 keys above depending on which subsystems are active.
         """
         observation = {}
@@ -178,7 +197,6 @@ class Epuck(Agent):
             ]
         if self.camera is not None:
             observation["camera"] = self.camera.getImageArray()
-        logger.debug(f"Epuck readings: {observation.keys()}")
         return observation
 
     def act(self, action: int) -> None:
@@ -203,12 +221,14 @@ class Epuck(Agent):
                 f"Invalid action {action}. Must be one of {list(self.actions)}."
             )
 
-        self.motors[0].setVelocity(
-            min(self.motors[0].getVelocity() + self.actions[action][0], MAX_VELOCITY)
-        )
-        self.motors[1].setVelocity(
-            min(self.motors[1].getVelocity() + self.actions[action][1], MAX_VELOCITY)
-        )
+        velocity_motor_0 = self.motors[0].getVelocity()
+        velocity_motor_1 = self.motors[1].getVelocity()
+
+        if abs(velocity_motor_0 + self.actions[action][0]) < MAX_VELOCITY:
+            self.motors[0].setVelocity(velocity_motor_0 + self.actions[action][0])
+
+        if abs(velocity_motor_1 + self.actions[action][1]) < MAX_VELOCITY:
+            self.motors[1].setVelocity(velocity_motor_1 + self.actions[action][1])
 
         logger.debug(
             f"Epuck action {action} executed: left velocity {self.motors[0].getVelocity()}, right velocity {self.motors[1].getVelocity()}"
