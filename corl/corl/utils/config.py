@@ -174,7 +174,7 @@ class Config:
             description="Time in seconds to wait for a worker to respond before marking it as unresponsive",
         ),
         # Environment
-        "ENVIRONMENT_RECORDE_FREQUENCY": ConfigItem(
+        "ENVIRONMENT_RECORD_FREQUENCY": ConfigItem(
             default=100,
             cast=int,
             description="Episodes frequency witness worker (worker_id=0) at which to record environment video during training",

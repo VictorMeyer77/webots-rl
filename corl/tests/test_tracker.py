@@ -13,23 +13,31 @@ import pytest
 from corl.api.wrapper import Wrapper
 from corl.schemas.learning import Action, Environment
 from corl.schemas.tracker import StepKey, StepResult
-from corl.trainer.tracker import WORKER_EPISODE_STEP_TIMEOUT, Tracker
+from corl.trainer.tracker import Tracker
+from corl.utils.config import Config
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
 
 TRAIN_ID = "train_001"
+WORKER_TIMEOUT = 60  # mirrors DEFAULTS["TRAINER_WORKER_TIMEOUT"]
 
 
 def _make_api() -> MagicMock:
     return MagicMock(spec=Wrapper)
 
 
+def _make_config() -> MagicMock:
+    config = MagicMock(spec=Config)
+    config.__getitem__ = MagicMock(return_value=WORKER_TIMEOUT)
+    return config
+
+
 def _make_tracker(workers: list[dict] | None = None) -> Tracker:
     """Return a Tracker pre-populated with *workers* (bypassing refresh)."""
     api = _make_api()
-    tracker = Tracker(TRAIN_ID, api)
+    tracker = Tracker(TRAIN_ID, _make_config(), api)
     if workers:
         for w in workers:
             wid = w["worker_id"]
@@ -55,9 +63,10 @@ def _obs() -> np.ndarray:
 class TestInit:
     def test_attributes_set(self):
         api = _make_api()
-        t = Tracker(TRAIN_ID, api)
+        t = Tracker(TRAIN_ID, _make_config(), api)
         assert t.train_id == TRAIN_ID
         assert t.api is api
+        assert t.worker_timeout == WORKER_TIMEOUT
         assert t._workers == {}
         assert t._buffer_results == {}
         assert t._worker_last_update == {}
@@ -483,7 +492,7 @@ class TestGetBufferedStepResults:
 class TestWorkerTimeouts:
     def test_removes_timed_out_worker(self):
         t = _make_tracker([{"worker_id": 0}])
-        t._worker_last_update[0] = time.time() - WORKER_EPISODE_STEP_TIMEOUT - 1
+        t._worker_last_update[0] = time.time() - WORKER_TIMEOUT - 1
         t.api.update_worker_status.return_value = None
         t.worker_timeouts()
         assert 0 not in t._workers
@@ -496,15 +505,15 @@ class TestWorkerTimeouts:
 
     def test_calls_api_to_mark_worker_inactive(self):
         t = _make_tracker([{"worker_id": 0}])
-        t._worker_last_update[0] = time.time() - WORKER_EPISODE_STEP_TIMEOUT - 1
+        t._worker_last_update[0] = time.time() - WORKER_TIMEOUT - 1
         t.worker_timeouts()
         t.api.update_worker_status.assert_called_once_with(TRAIN_ID, 0, False)
 
     def test_multiple_timeouts(self):
         t = _make_tracker([{"worker_id": 0}, {"worker_id": 1}, {"worker_id": 2}])
-        t._worker_last_update[0] = time.time() - WORKER_EPISODE_STEP_TIMEOUT - 1
+        t._worker_last_update[0] = time.time() - WORKER_TIMEOUT - 1
         t._worker_last_update[1] = time.time()
-        t._worker_last_update[2] = time.time() - WORKER_EPISODE_STEP_TIMEOUT - 1
+        t._worker_last_update[2] = time.time() - WORKER_TIMEOUT - 1
         t.worker_timeouts()
         assert 0 not in t._workers
         assert 1 in t._workers

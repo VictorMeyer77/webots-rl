@@ -374,7 +374,7 @@ class TestConfigAllDefaults:
         assert config.get("WORKER_ID") is None
         assert config.get("TRAINER_OUTPUT_DIR") == "train/"
         assert config.get("TRAINER_WORKER_TIMEOUT") == 60
-        assert config.get("ENVIRONMENT_RECORDE_FREQUENCY") == 100
+        assert config.get("ENVIRONMENT_RECORD_FREQUENCY") == 100
 
     def test_all_webots_configs(self):
         """Test all Webots configuration items."""

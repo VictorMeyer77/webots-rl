@@ -307,9 +307,6 @@ class Agent(ABC):
                 action_repeat_count += 1
                 self.timestep_index += 1
             else:
-                logger.info(
-                    f"Webots simulation finished during training at training step {training_step}."
-                )
                 break
 
         logger.debug(

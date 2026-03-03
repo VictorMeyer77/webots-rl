@@ -145,7 +145,8 @@ class Wrapper:
             logger.debug(f"GET {url} returned {result}")
             return result
         except requests.RequestException as e:
-            logger.debug(f"GET {url} failed with error: {e.response.content}")
+            content = e.response.content if e.response else str(e)
+            logger.debug(f"GET {url} failed with error: {content}")
         except Exception as e:
             logger.debug(f"GET {url} failed with unexpected error: {e}")
         return None
@@ -187,8 +188,8 @@ class Wrapper:
             response = self.session.post(url, json=data, timeout=self.timeout)
             response.raise_for_status()
             result = response.json()
-            logger.debug(f"POST {url} returned {result}")
             if result.get("status") == "success":
+                logger.debug(f"POST {url} succeeded")
                 return True
             else:
                 logger.debug(f"POST {url} returned unexpected result: {result}")

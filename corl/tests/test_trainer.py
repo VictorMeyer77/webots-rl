@@ -32,6 +32,9 @@ def _make_trainer_class():
     from corl.trainer.trainer import Trainer
 
     class ConcreteTrainer(Trainer):
+        def params(self) -> dict[str, str | int | float]:
+            pass
+
         def save_model(self) -> None:
             pass
 
@@ -56,9 +59,8 @@ def _make_trainer_class():
 # ---------------------------------------------------------------------------
 
 TRAIN_ID = "train_test_001"
-TB_PATH = ".train/tensorboard/"
-MODEL_DIR = ".train/models/"
-MAX_WORKER = 4
+EXPERIMENT_NAME = "test_experiment"
+OUTPUT_DIR = ".train"
 
 
 def _make_config() -> MagicMock:
@@ -66,10 +68,8 @@ def _make_config() -> MagicMock:
 
     def _getitem(key):
         return {
-            "train_id": TRAIN_ID,
-            "trainer_model_dir": MODEL_DIR,
-            "trainer_max_worker": MAX_WORKER,
-            "trainer_tensorboard_path": TB_PATH,
+            "trainer_output_dir": OUTPUT_DIR,
+            "trainer_worker_timeout": 30,
             "api_host": "http://localhost",
             "api_port": 8000,
         }[key.lower()]
@@ -92,6 +92,8 @@ def trainer():
         patch("corl.trainer.trainer.Wrapper") as MockWrapper,
         patch("corl.trainer.trainer.Tracker") as MockTracker,
         patch("corl.trainer.trainer.tf.summary.create_file_writer"),
+        patch("corl.trainer.trainer.mlflow"),
+        patch("os.makedirs"),
     ):
         mock_api = MagicMock()
         MockWrapper.return_value = mock_api
@@ -99,7 +101,7 @@ def trainer():
         mock_tracker = MagicMock()
         MockTracker.return_value = mock_tracker
 
-        t = ConcreteTrainer(model, config)
+        t = ConcreteTrainer(model, TRAIN_ID, EXPERIMENT_NAME, config)
         t.api = mock_api
         t.tracker = mock_tracker
         return t
@@ -127,14 +129,11 @@ class TestInit:
     def test_train_id_is_set(self, trainer):
         assert trainer.train_id == TRAIN_ID
 
-    def test_max_worker_is_set(self, trainer):
-        assert trainer.max_worker == MAX_WORKER
+    def test_model_dir_contains_train_id(self, trainer):
+        assert TRAIN_ID in trainer.model_dir
 
-    def test_save_model_path_contains_train_id(self, trainer):
-        assert TRAIN_ID in trainer.save_model_path
-
-    def test_save_model_path_contains_model_dir(self, trainer):
-        assert MODEL_DIR.rstrip("/") in trainer.save_model_path
+    def test_tensorboard_dir_contains_train_id(self, trainer):
+        assert TRAIN_ID in trainer.tensorboard_dir
 
     def test_api_is_set(self, trainer):
         assert trainer.api is not None
@@ -150,10 +149,12 @@ class TestInit:
             patch("corl.trainer.trainer.Wrapper") as MockWrapper,
             patch("corl.trainer.trainer.Tracker"),
             patch("corl.trainer.trainer.tf.summary.create_file_writer"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("os.makedirs"),
         ):
             mock_api = MagicMock()
             MockWrapper.return_value = mock_api
-            ConcreteTrainer(_make_model(), config)
+            ConcreteTrainer(_make_model(), TRAIN_ID, EXPERIMENT_NAME, config)
             mock_api.create_training_session.assert_called_once_with(TRAIN_ID)
 
     def test_tensorboard_writer_created_with_correct_path(self):
@@ -164,11 +165,12 @@ class TestInit:
             patch("corl.trainer.trainer.Wrapper"),
             patch("corl.trainer.trainer.Tracker"),
             patch("corl.trainer.trainer.tf.summary.create_file_writer") as mock_fw,
+            patch("corl.trainer.trainer.mlflow"),
+            patch("os.makedirs"),
         ):
-            ConcreteTrainer(_make_model(), config)
+            ConcreteTrainer(_make_model(), TRAIN_ID, EXPERIMENT_NAME, config)
             call_args = mock_fw.call_args[0][0]
             assert TRAIN_ID in call_args
-            assert TB_PATH.rstrip("/") in call_args
 
 
 # ===========================================================================
@@ -177,27 +179,42 @@ class TestInit:
 
 
 class TestClose:
+    def _close(self, trainer):
+        with (
+            patch.object(trainer, "_generate_video"),
+            patch.object(trainer, "_close_tensorboard"),
+            patch.object(trainer, "_close_mlflow"),
+            patch.object(trainer, "_delete_model_checkpoints"),
+        ):
+            trainer.close()
+
     def test_close_calls_tracker_close_workers(self, trainer):
-        trainer.tb_writer = MagicMock()
-        trainer.close()
+        self._close(trainer)
         trainer.tracker.close_workers.assert_called_once()
 
     def test_close_calls_api_close(self, trainer):
-        trainer.tb_writer = MagicMock()
-        trainer.close()
+        self._close(trainer)
         trainer.api.close.assert_called_once()
 
-    def test_close_flushes_tensorboard(self, trainer):
-        tb_writer = MagicMock()
-        trainer.tb_writer = tb_writer
-        trainer.close()
-        tb_writer.flush.assert_called_once()
+    def test_close_calls_close_tensorboard(self, trainer):
+        with (
+            patch.object(trainer, "_generate_video"),
+            patch.object(trainer, "_close_tensorboard") as mock_tb,
+            patch.object(trainer, "_close_mlflow"),
+            patch.object(trainer, "_delete_model_checkpoints"),
+        ):
+            trainer.close()
+        mock_tb.assert_called_once()
 
-    def test_close_closes_tensorboard(self, trainer):
-        tb_writer = MagicMock()
-        trainer.tb_writer = tb_writer
-        trainer.close()
-        tb_writer.close.assert_called_once()
+    def test_close_calls_close_mlflow(self, trainer):
+        with (
+            patch.object(trainer, "_generate_video"),
+            patch.object(trainer, "_close_tensorboard"),
+            patch.object(trainer, "_close_mlflow") as mock_mlflow,
+            patch.object(trainer, "_delete_model_checkpoints"),
+        ):
+            trainer.close()
+        mock_mlflow.assert_called_once()
 
 
 # ===========================================================================
