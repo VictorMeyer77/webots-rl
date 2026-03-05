@@ -12,8 +12,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tf = [
+train = [
     "tensorflow>=2.20.0",
+    "mlflow>=3.10.0",
 ]
 
 [dependency-groups]
