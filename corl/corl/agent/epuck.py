@@ -3,12 +3,11 @@ from collections import deque
 from typing import Any
 
 import numpy as np
-import tensorflow as tf
 from controller import Camera, DistanceSensor, Motor, Robot
 
 import corl.utils.image as img
 from corl.agent import Agent
-from corl.utils.config import Config
+from corl.model.model import Model
 
 CAMERA_FRAME_SIZE = 4  # Number of frames to stack for temporal observation
 MAX_VELOCITY = 6.28  # Maximum wheel velocity in rad/s
@@ -54,8 +53,7 @@ class Epuck(Agent):
         robot: Robot,
         timestep: int,
         action_repeat: int,
-        config: Config,
-        model: tf.keras.Model | np.ndarray | None = None,
+        model: Model | None,
     ):
         """
         Initialize the e-puck agent and its wheel motors.
@@ -72,15 +70,12 @@ class Epuck(Agent):
             timestep: Simulation timestep in milliseconds.
             action_repeat: Number of consecutive simulation steps each
                 selected action is held before a new one is requested.
-            config: Application configuration forwarded to
-                :class:`~corl.agent.Agent`.
-            model: Optional pre-loaded model used in run mode.
+            model: Optional pre-loaded model used by :meth:`~corl.agent.Agent.policy`.
         """
         super().__init__(
             robot=robot,
             timestep=timestep,
             action_repeat=action_repeat,
-            config=config,
             model=model,
         )
         self._init_motors()
