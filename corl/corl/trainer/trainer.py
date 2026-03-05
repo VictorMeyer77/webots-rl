@@ -11,6 +11,7 @@ from mlflow import ActiveRun
 from numpy.typing import NDArray
 
 from corl.api.wrapper import Wrapper
+from corl.model.model import Model
 from corl.schemas.learning import Action, Observation
 from corl.schemas.tracker import StepKey
 from corl.trainer.tracker import StepResult, Tracker
@@ -27,35 +28,30 @@ class Trainer(ABC):
     Provides the core training loop infrastructure: API communication, worker
     tracking, TensorBoard logging, and step-level data exchange (observations,
     actions, environment results). Subclasses must implement the model-specific
-    logic via ``policy``, ``parse_observations``, ``save_model``, and ``run``.
+    logic via ``policy``, ``parse_observations``, ``params``, and ``run``.
 
     Attributes:
         train_id: Unique identifier of the training session.
-        experiment_name: Name of the MLflow experiment this session belongs to.
         model: The neural network or array-based model used to select actions.
         model_dir: File-system path where model checkpoints are persisted.
         tensorboard_dir: Directory for TensorBoard event files.
         mlflow_dir: Root directory for the local MLflow SQLite database and artifacts.
         video_dir: Directory where per-episode video frames are written.
         model_checkpoint_frequency: Number of epochs between automatic checkpoints.
-        model_checkpoint_index: Counter tracking how many checkpoints have been saved.
         api: API wrapper used to exchange data with the training server.
-        mlflow: Active MLflow run for the current training session.
         tracker: Tracks worker state, step keys, and per-step result buffers.
         tb_writer: TensorBoard summary writer for logging training metrics.
     """
 
     train_id: str
-    experiment_name: str
 
     model_dir: str
     tensorboard_dir: str
     mlflow_dir: str
     video_dir: str
 
-    model: tf.keras.Model | NDArray[np.float32] | None
+    model: Model
     model_checkpoint_frequency: int
-    model_checkpoint_index: int
 
     api: Wrapper
     mlflow: ActiveRun
@@ -64,8 +60,8 @@ class Trainer(ABC):
 
     def __init__(
         self,
-        model: tf.keras.Model | NDArray[np.float32] | None,
         train_id: str,
+        model: Model,
         experiment_name: str,
         config: Config,
         model_checkpoint_frequency: int = 10,
@@ -74,14 +70,18 @@ class Trainer(ABC):
         Initialise the trainer, API connection, tracker, and TensorBoard writer.
 
         Args:
+            train_id: Unique identifier for this training session.
             model: The model to train. Can be a Keras model or a raw numpy array
                 for table-based methods.
-            config: Application configuration. Must contain the keys
-                ``train_id``, ``trainer_model_dir``, ``trainer_max_worker``,
-                ``trainer_tensorboard_path``, ``api_host``, and ``api_port``.
+            experiment_name: Name of the MLflow experiment to log runs under.
+            config: Application configuration. Must contain ``trainer_output_dir``,
+                ``api_host``, and ``api_port``.
+            model_checkpoint_frequency: Number of epochs between automatic model
+                checkpoints. Defaults to 10.
         """
         self.train_id = train_id
-        self._init_model(model, model_checkpoint_frequency)
+        self.model = model
+        self.model_checkpoint_frequency = model_checkpoint_frequency
         self._init_output_dir(config)
         self._init_api(config)
         self.tracker = Tracker(train_id, config, self.api)
@@ -92,34 +92,54 @@ class Trainer(ABC):
         """
         Release all resources held by the trainer.
 
-        Flushes and closes the TensorBoard writer, marks all workers as inactive
-        via the tracker, and closes the underlying HTTP session.
+        Executes the following cleanup steps in order:
+
+        1. Generate and upload the full training video (``_generate_video``).
+        2. Flush, close, and upload TensorBoard logs (``_close_tensorboard``).
+        3. Upload model artefacts and delete the local model directory
+           (``_close_model``).
+        4. End the MLflow run (``_close_mlflow``).
+        5. Mark all workers as inactive via the tracker.
+        6. Close the underlying HTTP session.
+
+        Note:
+            Each step is called unconditionally. If an earlier step raises,
+            subsequent cleanup steps will be skipped. Wrap individual steps
+            in ``try/except`` if partial failure resilience is required.
         """
         self._generate_video()
         self._close_tensorboard()
+        self._close_model()
         self._close_mlflow()
-        self._delete_model_checkpoints()
         self.tracker.close_workers()
         self.api.close()
         logger.debug(f"Trainer for session {self.train_id} closed")
 
     # Model
 
-    def _init_model(
-        self,
-        model: tf.keras.Model | NDArray[np.float32] | None,
-        model_checkpoint_frequency: int,
-    ) -> None:
-        self.model = model
-        self.model_checkpoint_frequency = model_checkpoint_frequency
-        self.model_checkpoint_index = 0
-        logger.debug(
-            f"Model initialized with checkpoint frequency {model_checkpoint_frequency}"
-        )
+    def _close_model(self) -> None:
+        """
+        Upload final model artefacts to MLflow and delete the local model directory.
 
-    def _delete_model_checkpoints(self) -> None:
+        Iterates over files in ``model_dir`` and logs any file whose name does
+        **not** contain ``"_ckt_"`` to MLflow under the ``model`` artefact path.
+        Checkpoint files (names containing ``"_ckt_"``) are deliberately skipped
+        and will be deleted along with the directory.
+
+        Note:
+            If the most recent weights were saved as a checkpoint (i.e. the
+            filename contains ``"_ckt_"``), they will **not** be uploaded to
+            MLflow. Ensure a non-checkpoint save is performed before calling
+            ``close()``.
+        """
+        for file in os.listdir(self.model_dir):
+            if "_ckt_" not in file:
+                mlflow.log_artifact(
+                    os.path.join(self.model_dir, file), artifact_path="model"
+                )
+                logger.debug(f"Model file {file} logged to MLflow")
         shutil.rmtree(self.model_dir)
-        logger.debug(f"Deleted existing model checkpoints in {self.model_dir}")
+        logger.debug(f"Model directory {self.model_dir} deleted")
 
     # Working directory setup
 
@@ -223,28 +243,17 @@ class Trainer(ABC):
     def _generate_video(self) -> None:
         try:
             video_path = generate_training_video(self.video_dir)
-            mlflow.log_artifact(video_path, artifact_path="videos")
-            logger.debug(f"Generated full video at {video_path} and uploaded to MLflow")
+            if video_path is not None:
+                mlflow.log_artifact(video_path, artifact_path="videos")
+                logger.debug(
+                    f"Generated full video at {video_path} and uploaded to MLflow"
+                )
         except Exception:
             logger.warning("Video generation failed; skipping.", exc_info=True)
         finally:
             shutil.rmtree(self.video_dir, ignore_errors=True)
 
     # Abstract methods to implement in subclasses
-
-    @abstractmethod
-    def save_model(self, checkpoint: bool = False) -> None:
-        """
-        Persist the current model to disk.
-
-        Args:
-            checkpoint: If ``True``, save as an intermediate checkpoint rather
-                than overwriting the final model file.
-
-        Raises:
-            NotImplementedError: If the subclass does not implement this method.
-        """
-        raise NotImplementedError("Method save() not implemented.")
 
     @abstractmethod
     def params(self) -> dict[str, str | int | float]:
@@ -259,9 +268,6 @@ class Trainer(ABC):
         Returns:
             A dictionary where keys are hyperparameter names and values are their
             corresponding values (string, integer, or float).
-
-        Raises:
-            NotImplementedError: If the subclass does not implement this method.
         """
 
         raise NotImplementedError("Method params() not implemented.")
@@ -273,9 +279,6 @@ class Trainer(ABC):
 
         Args:
             epochs: Number of training epochs to execute.
-
-        Raises:
-            NotImplementedError: If the subclass does not implement this method.
         """
         raise NotImplementedError("Method run() not implemented.")
 
@@ -290,9 +293,6 @@ class Trainer(ABC):
 
         Returns:
             Integer action array of shape ``(N,)``, one action per observation.
-
-        Raises:
-            NotImplementedError: If the subclass does not implement this method.
         """
         raise NotImplementedError("Method policy() not implemented.")
 
@@ -311,9 +311,6 @@ class Trainer(ABC):
         Returns:
             List of ``(StepKey, NDArray[np.float32])`` pairs where each array is the
             numerical representation of the corresponding observation.
-
-        Raises:
-            NotImplementedError: If the subclass does not implement this method.
         """
         raise NotImplementedError("Method parse_observations() not implemented.")
 
@@ -409,18 +406,22 @@ class Trainer(ABC):
         Execute one full training step across all active workers.
 
         The sequence is:
-        1. Refresh the worker list from the API (rate-limited by ``REFRESH_RATE``).
-        2. Sleep and return early if no workers are active yet.
-        3. Fetch observations, select actions, and fetch environment results.
-        4. Collect all workers whose buffers are complete (observation + action +
-           reward + done).
+
+        1. Refresh the worker list from the API via ``tracker.refresh()``.
+        2. Sleep 1 second and return early if no workers are active yet.
+        3. Fetch observations (``_training_step_observation``), select actions
+           (``_training_step_action``), and fetch environment results
+           (``_training_step_environment``).
+        4. Collect all workers whose buffers are complete (observation + action
+           + reward + done flag).
         5. Advance each completed worker: increment episode on ``done=True``,
            increment step otherwise.
-        6. Remove timed-out workers.
+        6. Remove timed-out workers via ``tracker.worker_timeouts()``.
 
         Returns:
-            List of ``(StepKey, StepResult)`` tuples for every worker that completed
-            a step in this call. Returns an empty list if no workers are active.
+            List of ``(StepKey, StepResult)`` tuples for every worker that
+            completed a step in this call. Returns an empty list if no workers
+            are currently active.
         """
         self.tracker.refresh()
 

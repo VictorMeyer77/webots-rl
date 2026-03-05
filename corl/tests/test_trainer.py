@@ -35,9 +35,6 @@ def _make_trainer_class():
         def params(self) -> dict[str, str | int | float]:
             pass
 
-        def save_model(self) -> None:
-            pass
-
         def run(self, epochs: int) -> None:
             pass
 
@@ -101,7 +98,7 @@ def trainer():
         mock_tracker = MagicMock()
         MockTracker.return_value = mock_tracker
 
-        t = ConcreteTrainer(model, TRAIN_ID, EXPERIMENT_NAME, config)
+        t = ConcreteTrainer(TRAIN_ID, model, EXPERIMENT_NAME, config)
         t.api = mock_api
         t.tracker = mock_tracker
         return t
@@ -154,7 +151,7 @@ class TestInit:
         ):
             mock_api = MagicMock()
             MockWrapper.return_value = mock_api
-            ConcreteTrainer(_make_model(), TRAIN_ID, EXPERIMENT_NAME, config)
+            ConcreteTrainer(TRAIN_ID, _make_model(), EXPERIMENT_NAME, config)
             mock_api.create_training_session.assert_called_once_with(TRAIN_ID)
 
     def test_tensorboard_writer_created_with_correct_path(self):
@@ -168,7 +165,7 @@ class TestInit:
             patch("corl.trainer.trainer.mlflow"),
             patch("os.makedirs"),
         ):
-            ConcreteTrainer(_make_model(), TRAIN_ID, EXPERIMENT_NAME, config)
+            ConcreteTrainer(TRAIN_ID, _make_model(), EXPERIMENT_NAME, config)
             call_args = mock_fw.call_args[0][0]
             assert TRAIN_ID in call_args
 
@@ -184,7 +181,7 @@ class TestClose:
             patch.object(trainer, "_generate_video"),
             patch.object(trainer, "_close_tensorboard"),
             patch.object(trainer, "_close_mlflow"),
-            patch.object(trainer, "_delete_model_checkpoints"),
+            patch.object(trainer, "_close_model"),
         ):
             trainer.close()
 
@@ -201,7 +198,7 @@ class TestClose:
             patch.object(trainer, "_generate_video"),
             patch.object(trainer, "_close_tensorboard") as mock_tb,
             patch.object(trainer, "_close_mlflow"),
-            patch.object(trainer, "_delete_model_checkpoints"),
+            patch.object(trainer, "_close_model"),
         ):
             trainer.close()
         mock_tb.assert_called_once()
@@ -211,7 +208,7 @@ class TestClose:
             patch.object(trainer, "_generate_video"),
             patch.object(trainer, "_close_tensorboard"),
             patch.object(trainer, "_close_mlflow") as mock_mlflow,
-            patch.object(trainer, "_delete_model_checkpoints"),
+            patch.object(trainer, "_close_model"),
         ):
             trainer.close()
         mock_mlflow.assert_called_once()
@@ -512,12 +509,12 @@ class TestAbstractInterface:
         from corl.trainer.trainer import Trainer
 
         with pytest.raises(TypeError):
-            Trainer(_make_model(), _make_config())  # noqa
+            Trainer("train_id", _make_model(), "experiment", _make_config())  # noqa
 
     def test_save_model_is_abstract(self):
         from corl.trainer.trainer import Trainer
 
-        assert "save_model" in Trainer.__abstractmethods__
+        assert "params" in Trainer.__abstractmethods__
 
     def test_run_is_abstract(self):
         from corl.trainer.trainer import Trainer
@@ -533,3 +530,200 @@ class TestAbstractInterface:
         from corl.trainer.trainer import Trainer
 
         assert "parse_observations" in Trainer.__abstractmethods__
+
+
+# ===========================================================================
+# _close_model
+# ===========================================================================
+
+
+class TestCloseModel:
+    def _run(self, trainer, listdir_files, mlflow_mock=None):
+        """Helper that patches os.listdir, mlflow, and shutil.rmtree."""
+        with (
+            patch("corl.trainer.trainer.os.listdir", return_value=listdir_files),
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+        ):
+            trainer._close_model()
+            return mock_mlflow, mock_rmtree
+
+    def test_logs_non_checkpoint_files_to_mlflow(self, trainer):
+        trainer.model_dir = "/model/dir"
+        mock_mlflow, _ = self._run(trainer, ["weights.h5", "config.json"])
+        assert mock_mlflow.log_artifact.call_count == 2
+        paths = [c.args[0] for c in mock_mlflow.log_artifact.call_args_list]
+        assert "/model/dir/weights.h5" in paths
+        assert "/model/dir/config.json" in paths
+
+    def test_skips_checkpoint_files(self, trainer):
+        trainer.model_dir = "/model/dir"
+        mock_mlflow, _ = self._run(
+            trainer, ["weights.h5", "weights_ckt_001.h5", "_ckt_backup.h5"]
+        )
+        assert mock_mlflow.log_artifact.call_count == 1
+        assert mock_mlflow.log_artifact.call_args.args[0] == "/model/dir/weights.h5"
+
+    def test_all_checkpoint_files_skipped(self, trainer):
+        trainer.model_dir = "/model/dir"
+        mock_mlflow, _ = self._run(trainer, ["_ckt_1.h5", "epoch_ckt_2.h5"])
+        mock_mlflow.log_artifact.assert_not_called()
+
+    def test_empty_model_dir_does_not_log_or_raise(self, trainer):
+        trainer.model_dir = "/model/dir"
+        mock_mlflow, mock_rmtree = self._run(trainer, [])
+        mock_mlflow.log_artifact.assert_not_called()
+        mock_rmtree.assert_called_once_with("/model/dir")
+
+    def test_artifact_path_is_model(self, trainer):
+        trainer.model_dir = "/model/dir"
+        mock_mlflow, _ = self._run(trainer, ["weights.h5"])
+        assert mock_mlflow.log_artifact.call_args.kwargs["artifact_path"] == "model"
+
+    def test_deletes_model_dir_after_upload(self, trainer):
+        trainer.model_dir = "/model/dir"
+        _, mock_rmtree = self._run(trainer, ["weights.h5"])
+        mock_rmtree.assert_called_once_with("/model/dir")
+
+    def test_deletes_dir_even_when_no_files_logged(self, trainer):
+        trainer.model_dir = "/model/dir"
+        _, mock_rmtree = self._run(trainer, ["_ckt_only.h5"])
+        mock_rmtree.assert_called_once_with("/model/dir")
+
+
+# ===========================================================================
+# _generate_video
+# ===========================================================================
+
+
+class TestGenerateVideo:
+    def _run(self, trainer, video_path=None, generate_raises=False):
+        """Helper that patches generate_training_video, mlflow, and shutil.rmtree."""
+
+        def _generate(path):
+            if generate_raises:
+                raise RuntimeError("ffmpeg not found")
+            return video_path
+
+        with (
+            patch(
+                "corl.trainer.trainer.generate_training_video",
+                side_effect=_generate,
+            ),
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+        ):
+            trainer._generate_video()
+            return mock_mlflow, mock_rmtree
+
+    def test_logs_video_artifact_when_path_returned(self, trainer):
+        trainer.video_dir = "/video/dir"
+        mock_mlflow, _ = self._run(trainer, video_path="/video/dir/full.mp4")
+        mock_mlflow.log_artifact.assert_called_once_with(
+            "/video/dir/full.mp4", artifact_path="videos"
+        )
+
+    def test_does_not_log_artifact_when_no_video(self, trainer):
+        trainer.video_dir = "/video/dir"
+        mock_mlflow, _ = self._run(trainer, video_path=None)
+        mock_mlflow.log_artifact.assert_not_called()
+
+    def test_always_removes_video_dir(self, trainer):
+        trainer.video_dir = "/video/dir"
+        _, mock_rmtree = self._run(trainer, video_path="/video/dir/full.mp4")
+        mock_rmtree.assert_called_once_with("/video/dir", ignore_errors=True)
+
+    def test_removes_video_dir_even_when_no_video(self, trainer):
+        trainer.video_dir = "/video/dir"
+        _, mock_rmtree = self._run(trainer, video_path=None)
+        mock_rmtree.assert_called_once_with("/video/dir", ignore_errors=True)
+
+    def test_swallows_exception_from_generate(self, trainer):
+        trainer.video_dir = "/video/dir"
+        # Should not raise
+        mock_mlflow, mock_rmtree = self._run(trainer, generate_raises=True)
+        mock_mlflow.log_artifact.assert_not_called()
+
+    def test_removes_video_dir_even_after_exception(self, trainer):
+        trainer.video_dir = "/video/dir"
+        _, mock_rmtree = self._run(trainer, generate_raises=True)
+        mock_rmtree.assert_called_once_with("/video/dir", ignore_errors=True)
+
+    def test_generate_training_video_called_with_video_dir(self, trainer):
+        trainer.video_dir = "/video/dir"
+        with (
+            patch(
+                "corl.trainer.trainer.generate_training_video", return_value=None
+            ) as mock_gen,
+            patch("corl.trainer.trainer.mlflow"),
+            patch("corl.trainer.trainer.shutil.rmtree"),
+        ):
+            trainer._generate_video()
+        mock_gen.assert_called_once_with("/video/dir")
+
+
+# ===========================================================================
+# _close_tensorboard
+# ===========================================================================
+
+
+class TestCloseTensorboard:
+    def _run(self, trainer):
+        """Helper that patches mlflow and shutil.rmtree, returns both mocks."""
+        with (
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+        ):
+            trainer._close_tensorboard()
+            return mock_mlflow, mock_rmtree
+
+    def test_flushes_tb_writer(self, trainer):
+        trainer.tensorboard_dir = "/tb/dir"
+        self._run(trainer)
+        trainer.tb_writer.flush.assert_called_once()
+
+    def test_closes_tb_writer(self, trainer):
+        trainer.tensorboard_dir = "/tb/dir"
+        self._run(trainer)
+        trainer.tb_writer.close.assert_called_once()
+
+    def test_flush_called_before_close(self, trainer):
+        trainer.tensorboard_dir = "/tb/dir"
+        call_order: list[str] = []
+        trainer.tb_writer.flush.side_effect = lambda: call_order.append("flush")
+        trainer.tb_writer.close.side_effect = lambda: call_order.append("close")
+        self._run(trainer)
+        assert call_order == ["flush", "close"]
+
+    def test_uploads_artifacts_to_mlflow(self, trainer):
+        trainer.tensorboard_dir = "/tb/dir"
+        mock_mlflow, _ = self._run(trainer)
+        mock_mlflow.log_artifacts.assert_called_once_with(
+            "/tb/dir", artifact_path="tensorboard"
+        )
+
+    def test_artifact_path_is_tensorboard(self, trainer):
+        trainer.tensorboard_dir = "/tb/dir"
+        mock_mlflow, _ = self._run(trainer)
+        assert (
+            mock_mlflow.log_artifacts.call_args.kwargs["artifact_path"] == "tensorboard"
+        )
+
+    def test_deletes_tensorboard_dir_after_upload(self, trainer):
+        trainer.tensorboard_dir = "/tb/dir"
+        _, mock_rmtree = self._run(trainer)
+        mock_rmtree.assert_called_once_with("/tb/dir")
+
+    def test_upload_called_before_rmtree(self, trainer):
+        trainer.tensorboard_dir = "/tb/dir"
+        call_order: list[str] = []
+        with (
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+        ):
+            mock_mlflow.log_artifacts.side_effect = lambda *a, **kw: call_order.append(
+                "upload"
+            )
+            mock_rmtree.side_effect = lambda *a, **kw: call_order.append("rmtree")
+            trainer._close_tensorboard()
+        assert call_order == ["upload", "rmtree"]
