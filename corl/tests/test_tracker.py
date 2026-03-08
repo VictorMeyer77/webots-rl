@@ -14,7 +14,6 @@ from corl.api.wrapper import Wrapper
 from corl.schemas.learning import Action, Environment
 from corl.schemas.tracker import StepKey, StepResult
 from corl.trainer.tracker import Tracker
-from corl.utils.config import Config
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -28,16 +27,10 @@ def _make_api() -> MagicMock:
     return MagicMock(spec=Wrapper)
 
 
-def _make_config() -> MagicMock:
-    config = MagicMock(spec=Config)
-    config.__getitem__ = MagicMock(return_value=WORKER_TIMEOUT)
-    return config
-
-
 def _make_tracker(workers: list[dict] | None = None) -> Tracker:
     """Return a Tracker pre-populated with *workers* (bypassing refresh)."""
     api = _make_api()
-    tracker = Tracker(TRAIN_ID, _make_config(), api)
+    tracker = Tracker(TRAIN_ID, WORKER_TIMEOUT, api)
     if workers:
         for w in workers:
             wid = w["worker_id"]
@@ -63,7 +56,7 @@ def _obs() -> np.ndarray:
 class TestInit:
     def test_attributes_set(self):
         api = _make_api()
-        t = Tracker(TRAIN_ID, _make_config(), api)
+        t = Tracker(TRAIN_ID, WORKER_TIMEOUT, api)
         assert t.train_id == TRAIN_ID
         assert t.api is api
         assert t.worker_timeout == WORKER_TIMEOUT

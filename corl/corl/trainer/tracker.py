@@ -7,7 +7,6 @@ from numpy.typing import NDArray
 from corl.api.wrapper import Wrapper
 from corl.schemas.learning import Action, Environment
 from corl.schemas.tracker import StepKey, StepResult
-from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +33,7 @@ class Tracker:
 
     Attributes:
         train_id: Identifier of the training session this tracker belongs to.
+        worker_timeout: Seconds of inactivity after which a worker is considered timed out.
         api: API wrapper used to query and update worker state on the server.
         _workers: Maps worker_id → current StepKey for each active worker.
         _buffer_results: Maps worker_id → in-progress StepResult for the current step.
@@ -44,16 +44,27 @@ class Tracker:
     """
 
     train_id: str
+    worker_timeout: int
     api: Wrapper
     _workers: dict[int, StepKey]
     _last_worker_refresh: float
     _worker_last_update: dict[int, float]
     _buffer_results: dict[int, StepResult]
 
-    def __init__(self, train_id: str, config: Config, api: Wrapper):
+    def __init__(self, train_id: str, worker_timeout: int, api: Wrapper):
+        """
+        Initialise the tracker for a training session.
+
+        Args:
+            train_id (str): Unique identifier of the training session to track.
+            worker_timeout (int): Seconds of inactivity after which a worker is
+                considered timed out and removed.
+            api (Wrapper): API wrapper used to query worker state and push
+                status updates to the server.
+        """
         self.train_id = train_id
+        self.worker_timeout = worker_timeout
         self.api = api
-        self.worker_timeout = config["trainer_worker_timeout"]
         self._workers = {}
         self._worker_last_update = {}
         self._last_worker_refresh = 0
@@ -250,9 +261,9 @@ class Tracker:
         """
         Remove workers that have exceeded ``worker_timeout`` seconds without an update.
 
-        Iterates over all tracked workers and calls ``close_workers`` for any whose
-        last recorded update is older than the timeout threshold. Timed-out workers
-        are logged as warnings before removal.
+        Iterates over all tracked workers, collects those whose last recorded update
+        is older than the timeout threshold, then calls ``close_workers`` once with
+        the full list. Timed-out workers are logged as warnings before removal.
         """
         current_time = time.time()
         workers_to_remove = []
@@ -356,6 +367,24 @@ class Tracker:
     def _add_none_buffer_error(
         worker_id: int, step_key: StepKey, data_type: str
     ) -> None:
+        """
+        Log an error and raise ``ValueError`` when a ``None`` value is written to the buffer.
+
+        Called by ``add_buffer_actions``, ``add_buffer_observations``, and
+        ``add_buffer_environments`` when the incoming value is ``None`` instead
+        of a valid data object.
+
+        Args:
+            worker_id (int): ID of the worker that produced the ``None`` value.
+            step_key (StepKey): Current step key for the worker, used in the
+                error message.
+            data_type (str): Human-readable label for the data type that is
+                missing (e.g. ``"action"``, ``"observation"``, ``"environment"``).
+
+        Raises:
+            ValueError: Always raised with a message identifying the worker,
+                episode, step, and data type.
+        """
         logger.error(
             f"Received None {data_type} for worker {worker_id}, episode {step_key.episode_id}, step {step_key.step}"
         )
