@@ -10,11 +10,11 @@ import numpy as np
 from mlflow import ActiveRun
 from numpy.typing import NDArray
 
-from corl.api.wrapper import Wrapper
 from corl.model.model import Model
 from corl.schemas.learning import Action, Observation
 from corl.schemas.tracker import StepKey
 from corl.trainer.tracker import StepResult, Tracker
+from corl.trainer.wrapper import Wrapper
 from corl.utils.config import Config
 from corl.utils.video import generate_training_video
 

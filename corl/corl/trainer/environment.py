@@ -2,9 +2,9 @@ import logging
 import os
 import time
 
-from corl.api.wrapper import Wrapper
 from corl.environment import Environment as BaseEnvironment
 from corl.schemas.learning import Environment as EnvironmentSchema
+from corl.trainer.wrapper import Wrapper
 from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)

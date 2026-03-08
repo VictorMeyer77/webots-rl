@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 
-from corl.api.wrapper import Wrapper
 from corl.schemas.api import Endpoint
 from corl.schemas.learning import Action, Environment, Observation
 from corl.schemas.tracker import StepKey
+from corl.trainer.wrapper import Wrapper
 from corl.utils.config import Config
 
 # ---------------------------------------------------------------------------

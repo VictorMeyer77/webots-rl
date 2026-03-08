@@ -10,10 +10,10 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-from corl.api.wrapper import Wrapper
 from corl.schemas.learning import Action, Environment
 from corl.schemas.tracker import StepKey, StepResult
 from corl.trainer.tracker import Tracker
+from corl.trainer.wrapper import Wrapper
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

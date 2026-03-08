@@ -33,7 +33,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from corl.api.wrapper import Wrapper
+from corl.trainer.wrapper import Wrapper
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 

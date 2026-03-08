@@ -2,7 +2,7 @@
 Unit tests for corl.trainer.trainer.Trainer
 
 Trainer is abstract so every test uses a minimal concrete subclass.
-All external collaborators (Wrapper, Tracker, tf.keras, TensorBoard) are mocked
+All external collaborators (Wrapper, Tracker) are mocked
 so no real API server, GPU, or file system is required.
 """
 
@@ -22,10 +22,6 @@ from corl.utils.config import Config
 
 
 def _make_trainer_class():
-    """
-    Import Trainer inside a helper so TF import errors surface as test errors,
-    not collection errors.
-    """
     import numpy as np
     from numpy.typing import NDArray
 
@@ -89,7 +85,6 @@ def trainer():
     with (
         patch("corl.trainer.trainer.Wrapper") as MockWrapper,
         patch("corl.trainer.trainer.Tracker") as MockTracker,
-        patch("corl.trainer.trainer.tf.summary.create_file_writer"),
         patch("corl.trainer.trainer.mlflow"),
         patch("os.makedirs"),
     ):
@@ -143,7 +138,6 @@ class TestInit:
         with (
             patch("corl.trainer.trainer.Wrapper") as MockWrapper,
             patch("corl.trainer.trainer.Tracker"),
-            patch("corl.trainer.trainer.tf.summary.create_file_writer"),
             patch("corl.trainer.trainer.mlflow"),
             patch("os.makedirs"),
         ):

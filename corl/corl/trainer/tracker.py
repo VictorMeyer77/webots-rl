@@ -4,9 +4,9 @@ import time
 import numpy as np
 from numpy.typing import NDArray
 
-from corl.api.wrapper import Wrapper
 from corl.schemas.learning import Action, Environment
 from corl.schemas.tracker import StepKey, StepResult
+from corl.trainer.wrapper import Wrapper
 
 logger = logging.getLogger(__name__)
 
