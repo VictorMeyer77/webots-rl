@@ -8,7 +8,7 @@ environment variables and .env files with type validation and caching support.
 import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Type
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -41,48 +41,57 @@ class LogLevel(str, Enum):
 @dataclass
 class ConfigItem:
     """
-    Configuration item with default value, type casting, and description.
+    Schema for a single configuration entry.
 
-    This dataclass defines the schema for a single configuration item,
-    including its default value, the type it should be cast to, and
-    a human-readable description for documentation purposes.
+    Bundles the default value, optional type cast, and a human-readable
+    description for one key in :attr:`Config.DEFAULTS`.
 
     Attributes:
-        default: The default value to use if no environment variable is set.
-                Can be None for optional configuration items.
-        cast: The type to cast the environment variable value to.
-              Supported types: str, int, bool, LogLevel, or None for no casting.
-        description: A human-readable description of what this configuration item controls.
-                    Used for documentation and error messages.
+        default: Fallback value used when no matching environment variable is
+            found. May be ``None`` for optional runtime-only keys (e.g.
+            ``TRAIN_ID``, ``WORKER_ID``).
+        cast: Callable used to coerce the raw environment variable string to
+            the desired type. Supported values: ``str``, ``int``, ``float``,
+            ``LogLevel``, or ``None`` (no coercion, raw string is returned).
+            ``bool`` receives special treatment: truthy strings are
+            ``"true"``, ``"1"``, ``"yes"``, ``"on"`` (case-insensitive).
+        description: Human-readable explanation of what the key controls.
+            Included in :exc:`ValueError` messages when casting fails.
     """
 
     default: Any | None
-    cast: Type | None = None
+    cast: type | None = None
     description: str = ""
 
 
 class Config:
     """
-    Configuration class that loads settings from .env file and environment variables.
+    Load and manage application configuration from environment variables and ``.env``.
 
-    This class provides a centralized way to manage application configuration by:
-    - Loading values from a .env file using python-dotenv
-    - Reading environment variables with a configurable prefix
-    - Type casting values to appropriate types
-    - Providing default values for all configuration items
-    - Caching values for improved performance
-    - Supporting dictionary-style access via [] operator
+    Values are resolved from ``os.environ`` (populated by ``python-dotenv`` on
+    construction), cast to the declared type, and cached after the first access.
+    Runtime overrides can be written back via :meth:`set`, which also invalidates
+    the corresponding cache entry so the next :meth:`get` picks up the new value.
 
-    Environment variables are expected to follow the naming convention:
-    {prefix}_{KEY_NAME} (e.g., WEBOTS_API_HOST, WEBOTS_API_PORT)
+    Environment variable naming convention::
+
+        {PREFIX}_{KEY}   →   e.g. WEBOTS_API_HOST, WEBOTS_API_PORT
+
+    The prefix is always uppercased, so ``Config(prefix="webots")`` and
+    ``Config(prefix="WEBOTS")`` are equivalent.
 
     Attributes:
-        DEFAULTS: Class-level dictionary mapping configuration keys to ConfigItem objects.
-            Defines the schema, defaults, types, and descriptions for every supported key.
-        prefix: Prefix used when constructing environment variable names. The full env var
-            name is built as ``f"{prefix}_{KEY}".upper()``, so the prefix is always
-            uppercased regardless of the value passed to ``__init__``.
-        _cache: Internal dict for storing parsed configuration values after first access.
+        DEFAULTS (dict[str, ConfigItem]): Class-level schema mapping every
+            supported key to its :class:`ConfigItem` (default, cast, description).
+        prefix (str): Uppercased prefix prepended to every env-var lookup.
+        _cache (dict[str, Any]): Internal store for already-resolved values.
+
+    Methods:
+        get(key):          Resolve and return a configuration value.
+        set(key, value):   Write a value to ``os.environ`` and invalidate cache.
+        environ():         Return a snapshot of the current ``os.environ``.
+        __getitem__(key):  Sugar for ``get(key)``; enables ``config["KEY"]``.
+        __contains__(key): ``True`` if *key* is a known key in ``DEFAULTS``.
     """
 
     DEFAULTS = {
@@ -92,10 +101,10 @@ class Config:
             cast=str,
             description="Path to Webots binary executable",
         ),
-        "WORLD_PATH": ConfigItem(
-            default="projects/worlds",
+        "EXPERIMENTS_DIR": ConfigItem(
+            default="projects/",
             cast=str,
-            description="Path to Webots world file to run",
+            description="Root directory containing per-world experiment project folders",
         ),
         # Backtrain API Configuration
         "API_HOST": ConfigItem(
@@ -146,12 +155,7 @@ class Config:
             description="Number of backup log files to keep when rotating",
         ),
         # Training Configuration
-        # Base
-        "TRAIN": ConfigItem(
-            default=False,
-            cast=bool,
-            description="Set to True to enable training mode, False for evaluation mode",
-        ),
+        # Dynamic configuration items that are expected to be set at runtime by the trainer or worker processes.
         "TRAIN_ID": ConfigItem(
             default=None,
             cast=str,
@@ -162,11 +166,16 @@ class Config:
             cast=int,
             description="Unique identifier for the worker instance",
         ),
+        "WORLD_NAME": ConfigItem(
+            default=None,
+            cast=str,
+            description="Name of the experiment world being trained on",
+        ),
         # Trainer
         "TRAINER_OUTPUT_DIR": ConfigItem(
             default="train/",
             cast=str,
-            description="Path to TensorBoard logs directory",
+            description="Root output directory for trainer artefacts (checkpoints, TensorBoard logs, MLflow runs)",
         ),
         "TRAINER_WORKER_TIMEOUT": ConfigItem(
             default=60,
@@ -175,24 +184,25 @@ class Config:
         ),
         # Environment
         "ENVIRONMENT_RECORD_FREQUENCY": ConfigItem(
-            default=100,
+            default=50,
             cast=int,
-            description="Episodes frequency witness worker (worker_id=0) at which to record environment video during training",
+            description="Interval in episodes at which worker 0 (witness) records an environment video during training",
         ),
     }
 
     def __init__(self, prefix: str = "webots"):
         """
-        Initialize configuration with optional prefix and .env file.
+        Initialise the configuration object and load any ``.env`` file.
 
-        Loads environment variables from a .env file (if present) and initializes
-        the configuration cache. Environment variables are expected to be prefixed
-        with the provided prefix string.
+        Calls :func:`dotenv.load_dotenv` to populate ``os.environ`` from a
+        ``.env`` file in the working directory (or any parent directory). If no
+        ``.env`` file is found the call is a no-op — existing environment
+        variables are always respected.
 
         Args:
-            prefix: Prefix for environment variable names. The full variable name is
-                   constructed as ``f"{prefix}_{KEY_NAME}".upper()``, so the prefix is
-                   always uppercased. Defaults to "webots".
+            prefix (str): Prefix for environment variable names. Uppercased
+                automatically, so ``"webots"`` and ``"WEBOTS"`` are equivalent.
+                Defaults to ``"webots"``.
         """
         self.prefix = prefix
         self._cache: dict[str, Any] = {}
@@ -200,31 +210,35 @@ class Config:
 
     def get(self, key: str) -> Any:
         """
-        Get a configuration value by key.
+        Resolve and return a configuration value by key.
 
-        Retrieves a configuration value from environment variables or returns the default
-        value if not set. Values are automatically cast to the appropriate type and cached
-        for improved performance on subsequent calls.
+        Looks up the value from the cache, then from ``os.environ``, then falls
+        back to :attr:`ConfigItem.default`. The resolved value is cast to the
+        declared type and stored in the cache before being returned.
 
-        The method performs the following steps:
-        1. Checks the cache for a previously retrieved value
-        2. Validates that the key exists in DEFAULTS
-        3. Looks for an environment variable named {prefix}_{KEY}
-        4. Returns the default value if no environment variable is found
-        5. Casts the value to the appropriate type if specified
-        6. Caches the result for future calls
+        Resolution steps:
+            1. Return the cached value if one exists.
+            2. Validate that *key* is present in :attr:`DEFAULTS`.
+            3. Look up the environment variable ``{prefix}_{KEY}``.
+            4. If the variable is absent, cache and return the default value.
+            5. Cast the raw string to the declared type (``bool`` uses a
+               truthy-string check; all others call ``cast(value)`` directly).
+            6. Cache the cast result and return it.
 
         Args:
-            key: Configuration key (case-insensitive). Must exist in the DEFAULTS dictionary.
+            key (str): Configuration key (case-insensitive). Must exist in
+                :attr:`DEFAULTS`.
 
         Returns:
-            The configuration value, cast to the appropriate type as defined in DEFAULTS.
-            Returns the default value if no environment variable is set.
+            Any: The configuration value cast to the type declared in
+                :attr:`DEFAULTS`, or the default value if no environment
+                variable is set.
 
         Raises:
-            ValueError: If the key is not defined in DEFAULTS, or if type casting fails.
-                       Error messages include the default value, description, and original error
-                       to aid in debugging.
+            ValueError: If *key* is not defined in :attr:`DEFAULTS`, or if
+                casting the environment variable string fails. The error message
+                includes the env-var name, raw value, expected type, default,
+                description, and the original exception to aid debugging.
         """
         key = key.upper()
 
@@ -267,36 +281,78 @@ class Config:
 
     def __getitem__(self, key: str) -> Any:
         """
-        Allow dictionary-style access to configuration values.
+        Enable square-bracket access to configuration values.
 
-        This magic method enables accessing configuration values using square bracket
-        notation, providing a more Pythonic interface alongside the get() method.
-        Internally delegates to get() for consistency.
+        Delegates directly to :meth:`get`, so ``config["API_PORT"]`` is
+        equivalent to ``config.get("API_PORT")``.
 
         Args:
-            key: Configuration key (case-insensitive). Must exist in the DEFAULTS dictionary.
+            key (str): Configuration key (case-insensitive). Must exist in
+                :attr:`DEFAULTS`.
 
         Returns:
-            The configuration value, cast to the appropriate type as defined in DEFAULTS.
+            Any: The configuration value; see :meth:`get` for full details.
 
         Raises:
-            ValueError: If the key is not defined in DEFAULTS, or if type casting fails.
+            ValueError: If *key* is not defined in :attr:`DEFAULTS`, or if
+                type casting fails.
         """
         return self.get(key)
 
-    def __contains__(self, key: str) -> bool:
+    @staticmethod
+    def environ() -> dict[str, str]:
         """
-        Check if a configuration key exists in DEFAULTS.
+        Return a snapshot of the current environment variables.
 
-        This magic method enables using the 'in' operator to check if a configuration
-        key is defined, providing a Pythonic way to validate keys before accessing them.
-        Note: This checks if the key exists in DEFAULTS, not if it has a value set
-        in environment variables.
-
-        Args:
-            key: Configuration key to check (case-insensitive)
+        Since ``set()`` writes directly to ``os.environ``, this snapshot always
+        reflects all values set via this class alongside the inherited shell environment.
 
         Returns:
-            True if the key exists in DEFAULTS, False otherwise
+            A copy of ``os.environ`` as a plain ``dict[str, str]``.
+        """
+        return os.environ.copy()
+
+    def set(self, key: str, value: Any) -> None:
+        """
+        Write a configuration value to ``os.environ`` at runtime.
+
+        Converts *value* to a string (``os.environ`` only accepts strings),
+        stores it under the prefixed key, and invalidates the cache entry so
+        the next :meth:`get` call resolves and casts the new value fresh.
+
+        Args:
+            key (str): Configuration key (case-insensitive). Must exist in
+                :attr:`DEFAULTS`.
+            value (Any): Value to store. Serialised via ``str(value)`` before
+                being written to ``os.environ``.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If *key* is not defined in :attr:`DEFAULTS`.
+        """
+        key = key.upper()
+        if key not in self.DEFAULTS:
+            raise ValueError(f"Configuration key '{key}' is not defined in DEFAULTS")
+        env_key = f"{self.prefix}_{key}".upper()
+        os.environ[env_key] = str(value)
+        self._cache.pop(key, None)
+
+    def __contains__(self, key: str) -> bool:
+        """
+        Return ``True`` if *key* is a known key in :attr:`DEFAULTS`.
+
+        .. important::
+            This checks schema membership only — it does **not** verify whether
+            an environment variable is set or whether the resolved value is
+            non-``None``. Keys with ``default=None`` (e.g. ``TRAIN_ID``,
+            ``WORKER_ID``) will still return ``True``.
+
+        Args:
+            key (str): Configuration key to check (case-insensitive).
+
+        Returns:
+            bool: ``True`` if *key* exists in :attr:`DEFAULTS`, ``False`` otherwise.
         """
         return key.upper() in self.DEFAULTS

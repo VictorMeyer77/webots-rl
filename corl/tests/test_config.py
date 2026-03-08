@@ -167,33 +167,33 @@ class TestConfigGet:
         handler = config.get("LOG_CONSOLE_HANDLER")
         assert handler is False
 
-    @patch.dict(os.environ, {"WEBOTS_TRAIN": "1"})
+    @patch.dict(os.environ, {"WEBOTS_LOG_CONSOLE_HANDLER": "1"})
     def test_get_bool_one_from_environment(self):
         """Test getting boolean from '1' string."""
         config = Config()
-        train = config.get("TRAIN")
-        assert train is True
+        handler = config.get("LOG_CONSOLE_HANDLER")
+        assert handler is True
 
-    @patch.dict(os.environ, {"WEBOTS_TRAIN": "0"})
+    @patch.dict(os.environ, {"WEBOTS_LOG_CONSOLE_HANDLER": "0"})
     def test_get_bool_zero_from_environment(self):
         """Test getting boolean from '0' string."""
         config = Config()
-        train = config.get("TRAIN")
-        assert train is False
+        handler = config.get("LOG_CONSOLE_HANDLER")
+        assert handler is False
 
-    @patch.dict(os.environ, {"WEBOTS_TRAIN": "yes"})
+    @patch.dict(os.environ, {"WEBOTS_LOG_CONSOLE_HANDLER": "yes"})
     def test_get_bool_yes_from_environment(self):
         """Test getting boolean from 'yes' string."""
         config = Config()
-        train = config.get("TRAIN")
-        assert train is True
+        handler = config.get("LOG_CONSOLE_HANDLER")
+        assert handler is True
 
-    @patch.dict(os.environ, {"WEBOTS_TRAIN": "on"})
+    @patch.dict(os.environ, {"WEBOTS_LOG_CONSOLE_HANDLER": "on"})
     def test_get_bool_on_from_environment(self):
         """Test getting boolean from 'on' string."""
         config = Config()
-        train = config.get("TRAIN")
-        assert train is True
+        handler = config.get("LOG_CONSOLE_HANDLER")
+        assert handler is True
 
     @patch.dict(os.environ, {"WEBOTS_LOG_CONSOLE_LEVEL": "DEBUG"})
     def test_get_loglevel_from_environment(self):
@@ -324,7 +324,7 @@ class TestConfigDictAccess:
         config = Config()
         assert "API_HOST" in config
         assert "API_PORT" in config
-        assert "TRAIN" in config
+        assert "TRAIN_ID" in config
 
     def test_contains_invalid_key(self):
         """Test __contains__ with invalid key."""
@@ -369,12 +369,11 @@ class TestConfigAllDefaults:
     def test_all_trainer_configs(self):
         """Test all trainer configuration items."""
         config = Config()
-        assert config.get("TRAIN") is False
         assert config.get("TRAIN_ID") is None
         assert config.get("WORKER_ID") is None
         assert config.get("TRAINER_OUTPUT_DIR") == "train/"
         assert config.get("TRAINER_WORKER_TIMEOUT") == 60
-        assert config.get("ENVIRONMENT_RECORD_FREQUENCY") == 100
+        assert config.get("ENVIRONMENT_RECORD_FREQUENCY") == 50
 
     def test_all_webots_configs(self):
         """Test all Webots configuration items."""
@@ -382,7 +381,8 @@ class TestConfigAllDefaults:
         assert (
             config.get("BIN_PATH") == "/Applications/Webots.app/Contents/MacOS/webots"
         )
-        assert config.get("WORLD_PATH") == "projects/worlds"
+        assert config.get("EXPERIMENTS_DIR") == "projects/"
+        assert config.get("WORLD_NAME") is None
 
 
 class TestConfigEdgeCases:
@@ -436,7 +436,7 @@ class TestConfigIntegration:
         {
             "WEBOTS_API_HOST": "http://production.com",
             "WEBOTS_API_PORT": "443",
-            "WEBOTS_TRAIN": "true",
+            "WEBOTS_LOG_FILE_HANDLER": "true",
             "WEBOTS_LOG_CONSOLE_LEVEL": "ERROR",
         },
     )
@@ -446,7 +446,7 @@ class TestConfigIntegration:
 
         assert config.get("API_HOST") == "http://production.com"
         assert config.get("API_PORT") == 443
-        assert config.get("TRAIN") is True
+        assert config.get("LOG_FILE_HANDLER") is True
         assert config.get("LOG_CONSOLE_LEVEL") == LogLevel.ERROR
 
     @patch.dict(os.environ, {"WEBOTS_API_HOST": "http://test.com"})
@@ -473,3 +473,98 @@ class TestConfigIntegration:
         if "NONEXISTENT" not in config:
             # This should execute
             assert True
+
+
+class TestConfigSet:
+    """Test Config.set() method."""
+
+    def test_set_string_value(self):
+        """Test setting a string value is readable back via get()."""
+        config = Config()
+        config.set("TRAIN_ID", "session_001")
+        assert config.get("TRAIN_ID") == "session_001"
+
+    def test_set_int_value(self):
+        """Test setting an integer value is cast correctly on next get()."""
+        config = Config()
+        config.set("WORKER_ID", 42)
+        assert config.get("WORKER_ID") == 42
+        assert isinstance(config.get("WORKER_ID"), int)
+
+    def test_set_invalidates_cache(self):
+        """Test that set() removes the cached value so get() re-resolves it."""
+        config = Config()
+        _ = config.get("TRAIN_ID")  # populate cache
+        assert "TRAIN_ID" in config._cache
+        config.set("TRAIN_ID", "new_session")
+        assert "TRAIN_ID" not in config._cache  # must be evicted
+
+    def test_set_value_reflected_in_get(self):
+        """Test that the value written by set() is returned by the next get()."""
+        config = Config()
+        config.set("API_HOST", "http://override.com")
+        assert config.get("API_HOST") == "http://override.com"
+
+    def test_set_overwrites_previous_value(self):
+        """Test that calling set() twice keeps only the last value."""
+        config = Config()
+        config.set("TRAIN_ID", "first")
+        config.set("TRAIN_ID", "second")
+        assert config.get("TRAIN_ID") == "second"
+
+    def test_set_invalid_key_raises(self):
+        """Test that set() raises ValueError for an unknown key."""
+        config = Config()
+        with pytest.raises(ValueError, match="not defined in DEFAULTS"):
+            config.set("NONEXISTENT_KEY", "value")
+
+    def test_set_writes_to_os_environ(self):
+        """Test that set() persists the value in os.environ under the prefixed key."""
+        config = Config()
+        config.set("TRAIN_ID", "env_check")
+        assert os.environ.get("WEBOTS_TRAIN_ID") == "env_check"
+
+    def test_set_case_insensitive(self):
+        """Test that set() accepts lowercase keys."""
+        config = Config()
+        config.set("train_id", "lower_case")
+        assert config.get("TRAIN_ID") == "lower_case"
+
+    def test_set_bool_value(self):
+        """Test setting a bool-typed key via set() round-trips correctly."""
+        config = Config()
+        config.set("LOG_FILE_HANDLER", True)
+        assert config.get("LOG_FILE_HANDLER") is True
+
+
+class TestConfigEnviron:
+    """Test Config.environ() static method."""
+
+    def test_returns_dict(self):
+        """Test that environ() returns a dict."""
+        result = Config.environ()
+        assert isinstance(result, dict)
+
+    def test_returns_copy(self):
+        """Test that environ() returns a copy, not the live os.environ object."""
+        result = Config.environ()
+        assert result is not os.environ
+
+    def test_reflects_os_environ(self):
+        """Test that environ() contains values from os.environ."""
+        with patch.dict(os.environ, {"WEBOTS_API_HOST": "http://test.com"}):
+            result = Config.environ()
+            assert result["WEBOTS_API_HOST"] == "http://test.com"
+
+    def test_reflects_set_values(self):
+        """Test that environ() reflects values written by set()."""
+        config = Config()
+        config.set("TRAIN_ID", "environ_test")
+        snapshot = Config.environ()
+        assert snapshot.get("WEBOTS_TRAIN_ID") == "environ_test"
+
+    def test_mutation_does_not_affect_os_environ(self):
+        """Test that mutating the returned dict does not affect os.environ."""
+        result = Config.environ()
+        result["SOME_KEY"] = "mutated"
+        assert os.environ.get("SOME_KEY") is None
