@@ -59,8 +59,8 @@ class TrainerAgent:
                 ``"worker_id"``, ``"api_host"``, and ``"api_port"``.
         """
         self.agent = agent
-        self.train_id = config["train_id"]
-        self.worker_id = config["worker_id"]
+        self.train_id = config.get("train_id")
+        self.worker_id = config.get("worker_id")
         self.api = Wrapper(config)
         logger.debug(
             f"Agent initialized for training with train_id={self.train_id} and worker_id={self.worker_id}"

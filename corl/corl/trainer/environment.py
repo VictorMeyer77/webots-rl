@@ -63,15 +63,15 @@ class TrainerEnvironment:
                 ``"environment_record_frequency"``.
         """
         self.environment = environment
-        self.train_id = config["train_id"]
-        self.worker_id = config["worker_id"]
+        self.train_id = config.get("train_id")
+        self.worker_id = config.get("worker_id")
         self.episode_id = 0
         self.video_directory = os.path.join(
-            config["trainer_output_dir"], "videos", self.train_id
+            config.get("trainer_output_dir"), "videos", self.train_id
         )
         os.makedirs(self.video_directory, exist_ok=True)
         self.is_recording = False
-        self.recording_frequency = config["environment_record_frequency"]
+        self.recording_frequency = config.get("environment_record_frequency")
         self.api = Wrapper(config)
 
     def run(self, action_repeat: int) -> None:
