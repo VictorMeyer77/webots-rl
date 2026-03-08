@@ -20,6 +20,10 @@ train = [
 [project.scripts]
 corl = "corl.__main__:main"
 
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 [dependency-groups]
 dev = [
     "pre-commit>=4.5.1",

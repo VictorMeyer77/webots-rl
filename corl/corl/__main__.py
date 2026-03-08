@@ -218,7 +218,7 @@ def _launch_training_workers(
     """
     Spawn *worker* parallel Webots worker processes and return their handles.
 
-    Registers each worker with the Backtrain API via :class:`~corl.api.wrapper.Wrapper`,
+    Registers each worker with the Backtrain API via :class:`~corl.trainer.wrapper.Wrapper`,
     builds a per-worker environment that includes the assigned ``WEBOTS_WORKER_ID``,
     and launches a Webots subprocess for each worker in fast/headless mode.
 
@@ -239,7 +239,11 @@ def _launch_training_workers(
     processes: list[subprocess.Popen] = []
     for _ in range(worker):
         worker_id = api.add_worker(config.get("train_id"))
-        worker_env = {**config.environ(), "WEBOTS_WORKER_ID": str(worker_id)}
+        worker_env = {
+            **config.environ(),
+            "WEBOTS_WORKER_ID": str(worker_id),
+            "WEBOTS_LOG_FILE_NAME": f"worker_{worker_id}",
+        }
         logger.info(
             f"Starting worker {worker_id} for training session '{config.get('train_id')}'"
         )
@@ -250,25 +254,22 @@ def _launch_training_workers(
     return processes
 
 
-def _launch_trainer(
-    experiments_dir: str, world: str, controller: str, env: dict[str, str]
-) -> subprocess.Popen:
+def _launch_trainer(config: Config, world: str, controller: str) -> subprocess.Popen:
     """
     Launch the trainer script for the given world/controller pair.
 
     Resolves the trainer script at
     ``<experiments_dir>/<world>/trainer/<controller>.py`` and executes it with
-    the current Python interpreter, passing *env* as the child-process
-    environment.
+    the current Python interpreter, using the environment derived from *config*.
 
     Args:
-        experiments_dir (str): Root directory that contains per-world project folders.
+        config (Config): Loaded application configuration. Must have
+            ``experiments_dir`` set and all environment keys required by the
+            trainer. ``LOG_FILE_NAME`` is set to ``"trainer"`` before the
+            process is spawned.
         world (str): Name of the world; used to locate the trainer subdirectory.
         controller (str): Name of the controller; used as the trainer script filename
             (without ``.py``).
-        env (dict[str, str]): Full environment dictionary passed to the child
-            process. Typically built from ``config.environ()`` with training
-            identifiers already injected.
 
     Returns:
         subprocess.Popen: Handle to the running trainer process. The caller is
@@ -277,10 +278,15 @@ def _launch_trainer(
     Raises:
         FileNotFoundError: If the trainer script does not exist at the expected path.
     """
-    trainer_path = Path(experiments_dir) / world / f"trainer/{controller}.py"
+    trainer_path = (
+        Path(config.get("experiments_dir")) / world / f"trainer/{controller}.py"
+    )
     if not trainer_path.exists():
         raise FileNotFoundError(f"Trainer script '{trainer_path}' does not exist")
-    process = subprocess.Popen([sys.executable, str(trainer_path)], env=env)
+    config.set("LOG_FILE_NAME", "trainer")
+    process = subprocess.Popen(
+        [sys.executable, str(trainer_path)], env=config.environ()
+    )
     logger.info(f"Launched trainer module '{trainer_path}' with PID {process.pid}")
     return process
 
@@ -377,9 +383,7 @@ def main() -> None:
             process.wait()
     elif args.trainer:
         config.set("TRAIN_ID", train_id)
-        _launch_trainer(
-            experiments_dir, args.world, args.controller, config.environ()
-        ).wait()
+        _launch_trainer(config, args.world, args.controller).wait()
     else:
         _run_single(config, world_path, args.fast)
 
