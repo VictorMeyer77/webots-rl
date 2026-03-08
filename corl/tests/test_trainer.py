@@ -63,15 +63,16 @@ OUTPUT_DIR = ".train"
 def _make_config() -> MagicMock:
     cfg = MagicMock(spec=Config)
 
-    def _getitem(key):
-        return {
-            "trainer_output_dir": OUTPUT_DIR,
-            "trainer_worker_timeout": 30,
-            "api_host": "http://localhost",
-            "api_port": 8000,
-        }[key.lower()]
-
-    cfg.__getitem__ = MagicMock(side_effect=_getitem)
+    values = {
+        "train_id": TRAIN_ID,
+        "trainer_output_dir": OUTPUT_DIR,
+        "trainer_worker_timeout": 30,
+        "world_name": EXPERIMENT_NAME,
+        "api_host": "http://localhost",
+        "api_port": 8000,
+    }
+    cfg.get = MagicMock(side_effect=lambda key: values[key.lower()])
+    cfg.__getitem__ = MagicMock(side_effect=lambda key: values[key.lower()])
     return cfg
 
 
@@ -98,7 +99,7 @@ def trainer():
         mock_tracker = MagicMock()
         MockTracker.return_value = mock_tracker
 
-        t = ConcreteTrainer(TRAIN_ID, model, EXPERIMENT_NAME, config)
+        t = ConcreteTrainer(model, config)
         t.api = mock_api
         t.tracker = mock_tracker
         return t
@@ -129,9 +130,6 @@ class TestInit:
     def test_model_dir_contains_train_id(self, trainer):
         assert TRAIN_ID in trainer.model_dir
 
-    def test_tensorboard_dir_contains_train_id(self, trainer):
-        assert TRAIN_ID in trainer.tensorboard_dir
-
     def test_api_is_set(self, trainer):
         assert trainer.api is not None
 
@@ -151,23 +149,8 @@ class TestInit:
         ):
             mock_api = MagicMock()
             MockWrapper.return_value = mock_api
-            ConcreteTrainer(TRAIN_ID, _make_model(), EXPERIMENT_NAME, config)
+            ConcreteTrainer(_make_model(), config)
             mock_api.create_training_session.assert_called_once_with(TRAIN_ID)
-
-    def test_tensorboard_writer_created_with_correct_path(self):
-        ConcreteTrainer = _make_trainer_class()
-        config = _make_config()
-
-        with (
-            patch("corl.trainer.trainer.Wrapper"),
-            patch("corl.trainer.trainer.Tracker"),
-            patch("corl.trainer.trainer.tf.summary.create_file_writer") as mock_fw,
-            patch("corl.trainer.trainer.mlflow"),
-            patch("os.makedirs"),
-        ):
-            ConcreteTrainer(TRAIN_ID, _make_model(), EXPERIMENT_NAME, config)
-            call_args = mock_fw.call_args[0][0]
-            assert TRAIN_ID in call_args
 
 
 # ===========================================================================
@@ -179,7 +162,6 @@ class TestClose:
     def _close(self, trainer):
         with (
             patch.object(trainer, "_generate_video"),
-            patch.object(trainer, "_close_tensorboard"),
             patch.object(trainer, "_close_mlflow"),
             patch.object(trainer, "_close_model"),
         ):
@@ -193,20 +175,9 @@ class TestClose:
         self._close(trainer)
         trainer.api.close.assert_called_once()
 
-    def test_close_calls_close_tensorboard(self, trainer):
-        with (
-            patch.object(trainer, "_generate_video"),
-            patch.object(trainer, "_close_tensorboard") as mock_tb,
-            patch.object(trainer, "_close_mlflow"),
-            patch.object(trainer, "_close_model"),
-        ):
-            trainer.close()
-        mock_tb.assert_called_once()
-
     def test_close_calls_close_mlflow(self, trainer):
         with (
             patch.object(trainer, "_generate_video"),
-            patch.object(trainer, "_close_tensorboard"),
             patch.object(trainer, "_close_mlflow") as mock_mlflow,
             patch.object(trainer, "_close_model"),
         ):
@@ -660,70 +631,3 @@ class TestGenerateVideo:
         ):
             trainer._generate_video()
         mock_gen.assert_called_once_with("/video/dir")
-
-
-# ===========================================================================
-# _close_tensorboard
-# ===========================================================================
-
-
-class TestCloseTensorboard:
-    def _run(self, trainer):
-        """Helper that patches mlflow and shutil.rmtree, returns both mocks."""
-        with (
-            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
-            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
-        ):
-            trainer._close_tensorboard()
-            return mock_mlflow, mock_rmtree
-
-    def test_flushes_tb_writer(self, trainer):
-        trainer.tensorboard_dir = "/tb/dir"
-        self._run(trainer)
-        trainer.tb_writer.flush.assert_called_once()
-
-    def test_closes_tb_writer(self, trainer):
-        trainer.tensorboard_dir = "/tb/dir"
-        self._run(trainer)
-        trainer.tb_writer.close.assert_called_once()
-
-    def test_flush_called_before_close(self, trainer):
-        trainer.tensorboard_dir = "/tb/dir"
-        call_order: list[str] = []
-        trainer.tb_writer.flush.side_effect = lambda: call_order.append("flush")
-        trainer.tb_writer.close.side_effect = lambda: call_order.append("close")
-        self._run(trainer)
-        assert call_order == ["flush", "close"]
-
-    def test_uploads_artifacts_to_mlflow(self, trainer):
-        trainer.tensorboard_dir = "/tb/dir"
-        mock_mlflow, _ = self._run(trainer)
-        mock_mlflow.log_artifacts.assert_called_once_with(
-            "/tb/dir", artifact_path="tensorboard"
-        )
-
-    def test_artifact_path_is_tensorboard(self, trainer):
-        trainer.tensorboard_dir = "/tb/dir"
-        mock_mlflow, _ = self._run(trainer)
-        assert (
-            mock_mlflow.log_artifacts.call_args.kwargs["artifact_path"] == "tensorboard"
-        )
-
-    def test_deletes_tensorboard_dir_after_upload(self, trainer):
-        trainer.tensorboard_dir = "/tb/dir"
-        _, mock_rmtree = self._run(trainer)
-        mock_rmtree.assert_called_once_with("/tb/dir")
-
-    def test_upload_called_before_rmtree(self, trainer):
-        trainer.tensorboard_dir = "/tb/dir"
-        call_order: list[str] = []
-        with (
-            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
-            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
-        ):
-            mock_mlflow.log_artifacts.side_effect = lambda *a, **kw: call_order.append(
-                "upload"
-            )
-            mock_rmtree.side_effect = lambda *a, **kw: call_order.append("rmtree")
-            trainer._close_tensorboard()
-        assert call_order == ["upload", "rmtree"]

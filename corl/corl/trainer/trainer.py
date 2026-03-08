@@ -3,10 +3,10 @@ import os
 import shutil
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import mlflow
 import numpy as np
-import tensorflow as tf
 from mlflow import ActiveRun
 from numpy.typing import NDArray
 
@@ -26,27 +26,24 @@ class Trainer(ABC):
     Abstract base class for reinforcement learning trainers.
 
     Provides the core training loop infrastructure: API communication, worker
-    tracking, TensorBoard logging, and step-level data exchange (observations,
-    actions, environment results). Subclasses must implement the model-specific
-    logic via ``policy``, ``parse_observations``, ``params``, and ``run``.
+    tracking, and step-level data exchange (observations, actions, environment
+    results). Subclasses must implement the model-specific logic via ``policy``,
+    ``parse_observations``, ``params``, and ``run``.
 
     Attributes:
         train_id: Unique identifier of the training session.
         model: The neural network or array-based model used to select actions.
         model_dir: File-system path where model checkpoints are persisted.
-        tensorboard_dir: Directory for TensorBoard event files.
         mlflow_dir: Root directory for the local MLflow SQLite database and artifacts.
         video_dir: Directory where per-episode video frames are written.
         model_checkpoint_frequency: Number of epochs between automatic checkpoints.
         api: API wrapper used to exchange data with the training server.
         tracker: Tracks worker state, step keys, and per-step result buffers.
-        tb_writer: TensorBoard summary writer for logging training metrics.
     """
 
     train_id: str
 
     model_dir: str
-    tensorboard_dir: str
     mlflow_dir: str
     video_dir: str
 
@@ -56,37 +53,36 @@ class Trainer(ABC):
     api: Wrapper
     mlflow: ActiveRun
     tracker: Tracker
-    tb_writer: tf.summary.SummaryWriter
 
     def __init__(
         self,
-        train_id: str,
         model: Model,
-        experiment_name: str,
         config: Config,
         model_checkpoint_frequency: int = 10,
     ):
         """
-        Initialise the trainer, API connection, tracker, and TensorBoard writer.
+        Initialise the trainer, API connection, and tracker.
+
+        Reads ``train_id`` and ``world_name`` from *config* to set up the MLflow
+        experiment, and ``output_dir`` to derive all output sub-directories.
 
         Args:
-            train_id: Unique identifier for this training session.
             model: The model to train. Can be a Keras model or a raw numpy array
                 for table-based methods.
-            experiment_name: Name of the MLflow experiment to log runs under.
-            config: Application configuration. Must contain ``trainer_output_dir``,
-                ``api_host``, and ``api_port``.
+            config: Application configuration. Must contain ``train_id``,
+                ``trainer_output_dir``, ``trainer_worker_timeout``, and ``world_name``.
             model_checkpoint_frequency: Number of epochs between automatic model
                 checkpoints. Defaults to 10.
         """
-        self.train_id = train_id
+        self.train_id = config.get("train_id")
         self.model = model
         self.model_checkpoint_frequency = model_checkpoint_frequency
-        self._init_output_dir(config)
+        self._init_output_dir(config.get("trainer_output_dir"))
         self._init_api(config)
-        self.tracker = Tracker(train_id, config, self.api)
-        self._init_mlflow(experiment_name)
-        self._init_tensorboard()
+        self.tracker = Tracker(
+            self.train_id, config.get("trainer_worker_timeout"), self.api
+        )
+        self._init_mlflow(config.get("world_name"))
 
     def close(self) -> None:
         """
@@ -95,12 +91,11 @@ class Trainer(ABC):
         Executes the following cleanup steps in order:
 
         1. Generate and upload the full training video (``_generate_video``).
-        2. Flush, close, and upload TensorBoard logs (``_close_tensorboard``).
-        3. Upload model artefacts and delete the local model directory
+        2. Upload model artefacts and delete the local model directory
            (``_close_model``).
-        4. End the MLflow run (``_close_mlflow``).
-        5. Mark all workers as inactive via the tracker.
-        6. Close the underlying HTTP session.
+        3. End the MLflow run (``_close_mlflow``).
+        4. Mark all workers as inactive via the tracker.
+        5. Close the underlying HTTP session.
 
         Note:
             Each step is called unconditionally. If an earlier step raises,
@@ -108,7 +103,6 @@ class Trainer(ABC):
             in ``try/except`` if partial failure resilience is required.
         """
         self._generate_video()
-        self._close_tensorboard()
         self._close_model()
         self._close_mlflow()
         self.tracker.close_workers()
@@ -143,16 +137,28 @@ class Trainer(ABC):
 
     # Working directory setup
 
-    def _init_output_dir(self, config: Config) -> None:
-        output_dir = config["trainer_output_dir"]
-        self.model_dir = os.path.join(output_dir, "models", self.train_id)
-        self.tensorboard_dir = os.path.join(output_dir, "tensorboard", self.train_id)
-        self.mlflow_dir = os.path.join(output_dir, "mlflow")
-        self.video_dir = os.path.join(output_dir, "videos", self.train_id)
-        os.makedirs(self.model_dir, exist_ok=True)
-        os.makedirs(self.tensorboard_dir, exist_ok=True)
-        os.makedirs(self.mlflow_dir, exist_ok=True)
-        os.makedirs(self.video_dir, exist_ok=True)
+    def _init_output_dir(self, output_dir: str) -> None:
+        """
+        Derive and create all output sub-directories for this training session.
+
+        Sets the following instance attributes and creates the corresponding
+        directories (including any missing parents):
+
+        - ``model_dir``  → ``<output_dir>/models/<train_id>``
+        - ``mlflow_dir`` → ``<output_dir>/mlflow``
+        - ``video_dir``  → ``<output_dir>/videos/<train_id>``
+
+        Args:
+            output_dir: Root output directory, typically from
+                ``config.get("trainer_output_dir")``.
+        """
+        base = Path(output_dir)
+        self.model_dir = str(base / "models" / self.train_id)
+        self.mlflow_dir = str(base / "mlflow")
+        self.video_dir = str(base / "videos" / self.train_id)
+        Path(self.model_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.mlflow_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.video_dir).mkdir(parents=True, exist_ok=True)
         logger.debug(f"Output directory {output_dir} initialized")
 
     # Backtrain api
@@ -171,29 +177,6 @@ class Trainer(ABC):
         self.api = Wrapper(config)
         self.api.create_training_session(self.train_id)
         logger.debug(f"Initialized API for training session {self.train_id}")
-
-    # Tensorboard
-
-    def _init_tensorboard(self) -> None:
-        """
-        Create the TensorBoard file writer for the current training session.
-
-        The log directory is constructed as ``<tensorboard_dir>/<train_id>``.
-        """
-        self.tb_writer = tf.summary.create_file_writer(self.tensorboard_dir)
-        logger.debug(f"TensorBoard logging to {self.tensorboard_dir}")
-
-    def _close_tensorboard(self) -> None:
-        """
-        Flush and close the TensorBoard writer.
-
-        Should be called after training completes to ensure all events are persisted.
-        """
-        self.tb_writer.flush()
-        self.tb_writer.close()
-        mlflow.log_artifacts(self.tensorboard_dir, artifact_path="tensorboard")
-        shutil.rmtree(self.tensorboard_dir)
-        logger.debug("TensorBoard writer closed and logs uploaded to MLflow")
 
     # MLflow
 
@@ -241,6 +224,16 @@ class Trainer(ABC):
     # Video generation
 
     def _generate_video(self) -> None:
+        """
+        Compile episode frames into a video, upload it to MLflow, and clean up.
+
+        Calls :func:`~corl.utils.video.generate_training_video` on ``video_dir``.
+        If a video is produced, it is logged to MLflow under the ``videos``
+        artefact path. If generation fails for any reason, a warning is emitted
+        and the error is suppressed so that the rest of ``close()`` can proceed.
+        The ``video_dir`` directory is always removed in a ``finally`` block,
+        regardless of success or failure.
+        """
         try:
             video_path = generate_training_video(self.video_dir)
             if video_path is not None:
@@ -279,6 +272,9 @@ class Trainer(ABC):
 
         Args:
             epochs: Number of training epochs to execute.
+
+        Returns:
+            None
         """
         raise NotImplementedError("Method run() not implemented.")
 
