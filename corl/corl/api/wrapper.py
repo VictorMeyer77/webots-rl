@@ -93,7 +93,7 @@ class Wrapper:
             config: Configuration object containing API_HOST and API_PORT settings.
             timeout: Default timeout for API requests in seconds (default: 10)
         """
-        self.base_url = f"{config['API_HOST']}:{config['API_PORT']}/api/v1"
+        self.base_url = f"{config.get('API_HOST')}:{config.get('API_PORT')}/api/v1"
         self.session = requests.Session()
         self.timeout = timeout
 

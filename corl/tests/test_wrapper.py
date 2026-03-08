@@ -30,7 +30,8 @@ BASE_URL = "http://localhost:8080/api/v1"
 @pytest.fixture
 def config() -> Config:
     cfg = MagicMock(spec=Config)
-    cfg.__getitem__ = lambda self, k: "http://localhost" if k == "API_HOST" else "8080"
+    values = {"api_host": "http://localhost", "api_port": "8080"}
+    cfg.get = MagicMock(side_effect=lambda k: values[k.lower()])
     return cfg
 
 
