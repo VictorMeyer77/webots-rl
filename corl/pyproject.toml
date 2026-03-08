@@ -13,9 +13,12 @@ dependencies = [
 
 [project.optional-dependencies]
 train = [
-    "tensorflow>=2.20.0",
+    #"tensorflow>=2.20.0",
     "mlflow>=3.10.0",
 ]
+
+[project.scripts]
+corl = "corl.__main__:main"
 
 [dependency-groups]
 dev = [
