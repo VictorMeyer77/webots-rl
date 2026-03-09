@@ -212,7 +212,7 @@ def _get_file_handler(config: Config) -> logging.Handler:
     log_dir.mkdir(parents=True, exist_ok=True)
     formatter = JsonFormatter()
     file_handler = logging.handlers.RotatingFileHandler(
-        f"{log_dir}/{config.get('log_file_name')}.log",
+        log_dir / f"{config.get('log_file_name')}.log",
         maxBytes=config.get("log_file_max_bytes"),
         backupCount=config.get("log_file_backup_count"),
     )

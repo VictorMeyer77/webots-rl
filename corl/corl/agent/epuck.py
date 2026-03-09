@@ -6,7 +6,7 @@ import numpy as np
 from controller import Camera, DistanceSensor, Motor, Robot
 
 import corl.utils.image as img
-from corl.agent import Agent
+from corl.agent.agent import Agent
 from corl.model.model import Model
 
 CAMERA_FRAME_SIZE = 4  # Number of frames to stack for temporal observation
@@ -82,11 +82,11 @@ class Epuck(Agent):
 
         self.actions = {
             0: (0.0, 0.0),  # Do nothing
-            1: (0.1, 0.0),  # Turn right
-            2: (0.0, 0.1),  # Turn left
+            1: (0.1, 0.0),  # Turn left
+            2: (0.0, 0.1),  # Turn right
             3: (0.1, 0.1),  # Move forward
-            4: (-0.1, 0.0),  # Turn left backward
-            5: (0.0, -0.1),  # Turn right backward
+            4: (-0.1, 0.0),  # Turn right backward
+            5: (0.0, -0.1),  # Turn left backward
             6: (-0.1, -0.1),  # Move backward
             7: (0.1, -0.1),  # Quick right rotate
             8: (-0.1, 0.1),  # Quick left rotate
@@ -126,9 +126,10 @@ class Epuck(Agent):
 
         self.distance_sensors = []
         names = ["ps0", "ps1", "ps2", "ps3", "ps4", "ps5", "ps6", "ps7"]
-        for i in range(8):
-            self.distance_sensors.append(self.robot.getDevice(names[i]))
-            self.distance_sensors[i].enable(self.timestep)
+        for name in names:
+            sensor = self.robot.getDevice(name)
+            sensor.enable(self.timestep)
+            self.distance_sensors.append(sensor)
         logger.debug("Epuck distance sensors initialized")
 
     def init_camera(self) -> None:

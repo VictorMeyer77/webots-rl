@@ -4,7 +4,7 @@ from typing import Any, NoReturn
 
 import numpy as np
 
-from corl.agent import Agent
+from corl.agent.agent import Agent
 from corl.schemas.learning import Observation
 from corl.trainer.wrapper import Wrapper
 from corl.utils.config import Config

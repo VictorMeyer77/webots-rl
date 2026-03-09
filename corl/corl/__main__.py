@@ -283,7 +283,7 @@ def _launch_trainer(config: Config, world: str, controller: str) -> subprocess.P
     )
     if not trainer_path.exists():
         raise FileNotFoundError(f"Trainer script '{trainer_path}' does not exist")
-    config.set("LOG_FILE_NAME", "trainer")
+    config.set("log_file_name", "trainer")
     process = subprocess.Popen(
         [sys.executable, str(trainer_path)], env=config.environ()
     )
@@ -306,7 +306,7 @@ def _run_single(config: Config, world_path: Path, fast: bool) -> None:
         fast (bool): When ``True``, Webots is started with ``--mode=fast`` to
             disable real-time synchronisation.
     """
-    config.set("LOG_FILE_NAME", "run")
+    config.set("log_file_name", "run")
     _launch_webots(config.get("bin_path"), world_path, fast, config.environ()).wait()
 
 
@@ -377,12 +377,12 @@ def main() -> None:
     world_path = _create_world(experiments_dir, args.world, args.controller)
 
     if args.worker is not None:
-        config.set("TRAIN_ID", train_id)
+        config.set("train_id", train_id)
         processes = _launch_training_workers(config, world_path, args.worker)
         for process in processes:
             process.wait()
     elif args.trainer:
-        config.set("TRAIN_ID", train_id)
+        config.set("train_id", train_id)
         _launch_trainer(config, args.world, args.controller).wait()
     else:
         _run_single(config, world_path, args.fast)

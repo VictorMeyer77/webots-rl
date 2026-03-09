@@ -53,9 +53,9 @@ class TrainerGenetic(Trainer):
     mutation_rate: float
     selection_rate: float
 
-    generation_queue: deque[NDArray[np.int32]] = deque()
-    worker_generation_map: dict[int, NDArray[np.int32]] = {}
-    worker_reward_map: dict[int, float] = {}
+    generation_queue: deque[NDArray[np.int32]]
+    worker_generation_map: dict[int, NDArray[np.int32]]
+    worker_reward_map: dict[int, float]
 
     def __init__(
         self,
@@ -85,16 +85,61 @@ class TrainerGenetic(Trainer):
             selection_rate: Fraction of top-ranked individuals selected as
                 elites for the next generation. Clamped to a minimum of 2
                 individuals.
+
+        Raises:
+            ValueError: If ``generation_size`` < 2.
+            ValueError: If ``individual_size`` < 1.
+            ValueError: If ``mutation_rate`` is not in ``[0, 1]``.
+            ValueError: If ``selection_rate`` is not in ``(0, 1]``.
         """
         super().__init__(
             model=ModelGenetic(),
             config=config,
             model_checkpoint_frequency=model_checkpoint_frequency,
         )
+        self._validate_hyperparameters(
+            generation_size, individual_size, mutation_rate, selection_rate
+        )
+
         self.generation_size = generation_size
         self.individual_size = individual_size
         self.mutation_rate = mutation_rate
         self.selection_rate = selection_rate
+
+        self.generation_queue = deque()
+        self.worker_generation_map = {}
+        self.worker_reward_map = {}
+
+    @staticmethod
+    def _validate_hyperparameters(
+        generation_size: int,
+        individual_size: int,
+        mutation_rate: float,
+        selection_rate: float,
+    ) -> None:
+        """
+        Validate the GA hyper-parameters.
+
+        Args:
+            generation_size: Number of individuals per generation.
+            individual_size: Number of genes in each individual.
+            mutation_rate: Per-gene mutation probability.
+            selection_rate: Elite selection fraction.
+
+        Raises:
+            ValueError: If ``generation_size`` < 2.
+            ValueError: If ``individual_size`` < 1.
+            ValueError: If ``mutation_rate`` is not in ``[0, 1]``.
+            ValueError: If ``selection_rate`` is not in ``(0, 1]``.
+        """
+        if generation_size < 2:
+            raise ValueError(f"generation_size must be >= 2, got {generation_size}")
+        if individual_size < 1:
+            raise ValueError(f"individual_size must be >= 1, got {individual_size}")
+        if not (0.0 <= mutation_rate <= 1.0):
+            raise ValueError(f"mutation_rate must be in [0, 1], got {mutation_rate}")
+        if not (0.0 < selection_rate <= 1.0):
+            raise ValueError(f"selection_rate must be in (0, 1], got {selection_rate}")
 
     @abstractmethod
     def create_individual(self) -> NDArray[np.int32]:
@@ -219,11 +264,16 @@ class TrainerGenetic(Trainer):
 
     def assign_generation_to_workers(self, active_worker_ids: list[int]) -> None:
         """
-        Pop individuals from :attr:`generation_queue` and assign them to idle workers.
+        Pop individuals from the right end of :attr:`generation_queue` and assign them to idle workers.
 
         A worker is considered idle when it is present in ``active_worker_ids``
         but absent from :attr:`worker_generation_map`. The reward accumulator
         for each newly assigned worker is reset to ``0.0``.
+
+        Note:
+            Individuals are popped from the right end of the deque. Individuals
+            re-queued by :meth:`remove_inactive_workers` are inserted at the left
+            end via ``appendleft`` and are therefore served first on the next call.
 
         Args:
             active_worker_ids: List of worker IDs currently reported as
@@ -288,9 +338,10 @@ class TrainerGenetic(Trainer):
         Re-queue individuals from workers that have gone offline.
 
         Any worker present in :attr:`worker_generation_map` but absent from
-        ``active_worker_ids`` is considered dead. Its individual is pushed
-        back onto :attr:`generation_queue` so it will be re-evaluated by
-        another worker. Accumulated reward for the dead worker is discarded.
+        ``active_worker_ids`` is considered dead. Its individual is pushed back
+        to the **front** of :attr:`generation_queue` (via ``appendleft``) so it
+        will be picked up with priority by the next available worker. Accumulated
+        reward for the dead worker is discarded.
 
         Args:
             active_worker_ids: List of worker IDs currently reported as
@@ -305,7 +356,7 @@ class TrainerGenetic(Trainer):
             logger.warning(
                 f"Worker {worker_id} is no longer active. Removing from generation map."
             )
-            self.generation_queue.append(self.worker_generation_map[worker_id])
+            self.generation_queue.appendleft(self.worker_generation_map[worker_id])
             del self.worker_generation_map[worker_id]
             del self.worker_reward_map[worker_id]
 
@@ -355,8 +406,10 @@ class TrainerGenetic(Trainer):
         For each epoch:
 
         1. Evaluate the current generation via :meth:`evaluate_generation`.
-        2. Log the best reward to MLflow.
-        3. Save a weight checkpoint every ``model_checkpoint_frequency`` epochs.
+        2. Log generation metrics to MLflow (``reward_best``, ``reward_mean``,
+           ``reward_std``, ``reward_worst``) via :meth:`_epoch_metrics`.
+        3. Save a weight checkpoint every ``model_checkpoint_frequency`` epochs
+           (skipped for epoch 0).
         4. Evolve the next generation via :meth:`generate_next_generation`.
 
         After all epochs, the best individual's weights are saved and
@@ -365,7 +418,14 @@ class TrainerGenetic(Trainer):
 
         Args:
             epochs: Number of generations to evolve.
+
+        Raises:
+            ValueError: If ``epochs`` < 1.
         """
+
+        if epochs < 1:
+            raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
+
         mlflow.log_params(self.params())
 
         best_individual, best_reward = None, None
@@ -378,9 +438,9 @@ class TrainerGenetic(Trainer):
 
             generation_eval = self.evaluate_generation()
             best_individual, best_reward = generation_eval[0]
-            logger.info(f"Epoch {epoch + 1}/{epochs} — best reward: {best_reward:.2f}")
-            mlflow.log_metrics({"reward": best_reward}, step=epoch)
+            rewards = [reward for _, reward in generation_eval]
 
+            self._epoch_metrics(epoch, rewards)
             if epoch > 0 and epoch % self.model_checkpoint_frequency == 0:
                 self.model.set_weights(best_individual)
                 self.model.save_weights(self.model_dir, checkpoint=True)
@@ -398,6 +458,38 @@ class TrainerGenetic(Trainer):
         self.model.save(self.model_dir)
         self.close()
 
+    @staticmethod
+    def _epoch_metrics(epoch: int, rewards: list[float]) -> None:
+        """
+        Compute and log generation reward statistics to MLflow.
+
+        Logs the following metrics for the given epoch step:
+
+        - ``reward_best``: Maximum reward in the generation.
+        - ``reward_mean``: Mean reward across all individuals.
+        - ``reward_std``: Standard deviation of rewards.
+        - ``reward_worst``: Minimum reward in the generation.
+
+        Args:
+            epoch: Current epoch index (0-based), used as the MLflow step.
+            rewards: List of cumulative rewards for all individuals evaluated
+                in the generation.
+        """
+        best_reward = float(max(rewards))
+        reward_mean = float(np.mean(rewards))
+        reward_std = float(np.std(rewards))
+        reward_worst = float(min(rewards))
+
+        mlflow.log_metrics(
+            {
+                "reward_best": best_reward,
+                "reward_mean": reward_mean,
+                "reward_std": reward_std,
+                "reward_worst": reward_worst,
+            },
+            step=epoch,
+        )
+
     def generate_next_generation(
         self, current_generation: list[NDArray[np.int32]]
     ) -> list[NDArray[np.int32]]:
@@ -405,9 +497,12 @@ class TrainerGenetic(Trainer):
         Build the next generation from the current ranked population.
 
         Keeps the top ``max(2, round(generation_size * selection_rate))``
-        individuals as elites, then fills the remainder by randomly sampling
-        two parents from the elite pool and applying :meth:`crossover`
-        followed by :meth:`mutate`.
+        individuals as elites. Elites are carried over unchanged into the
+        next generation (no mutation). The remainder (offspring) are produced
+        by randomly sampling two parents exclusively from the elite pool and
+        applying :meth:`crossover` followed by :meth:`mutate`. This ensures
+        that only proven elites act as parents, and that elites themselves
+        are never degraded by mutation.
 
         Args:
             current_generation: Full population sorted best-first (as
@@ -417,15 +512,16 @@ class TrainerGenetic(Trainer):
             list[NDArray[np.int32]]: New population of exactly
             ``generation_size`` individuals.
         """
-        next_generation = current_generation[
+        elites = current_generation[
             : max(2, round(self.generation_size * self.selection_rate))
         ]
         logger.debug(
-            f"Selected top {len(next_generation)} individuals for next generation."
+            f"Selected top {len(elites)} individuals as elites for next generation."
         )
-        while len(next_generation) < self.generation_size:
-            parent_a, parent_b = random.sample(next_generation, 2)
+        offspring = []
+        while len(elites) + len(offspring) < self.generation_size:
+            parent_a, parent_b = random.sample(elites, 2)
             child = self.crossover(parent_a, parent_b)
             child = self.mutate(child)
-            next_generation.append(child)
-        return next_generation
+            offspring.append(child)
+        return elites + offspring
