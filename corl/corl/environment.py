@@ -12,12 +12,13 @@ class Environment(ABC):
     """
     Abstract base class for a Webots reinforcement learning environment.
 
-    Subclasses must implement :meth:`step`, which advances the simulation by
-    one logical RL step and returns an :class:`~corl.schemas.learning.Environment`
-    schema describing the resulting state.
+    Subclasses must implement :meth:`evaluate_training_step`, which advances
+    the simulation by one logical RL step and returns an
+    :class:`~corl.schemas.learning.Environment` schema describing the resulting
+    state, and :meth:`is_success`, which signals early episode termination.
 
-    The simulation is driven by :meth:`run`, which steps the environment until
-    the episode ends naturally (``state.done``) or Webots stops.
+    The simulation is driven by :meth:`run` in standalone mode, or by
+    :class:`~corl.trainer.environment.TrainerEnvironment` during training.
 
     Attributes:
         supervisor: Webots ``Supervisor`` node controlling the simulation.
@@ -53,7 +54,7 @@ class Environment(ABC):
         self.max_timestep = max_timestep
 
     @abstractmethod
-    def step(self) -> EnvironmentSchema:
+    def evaluate_training_step(self) -> EnvironmentSchema:
         """
         Advance the simulation by one logical RL step.
 
@@ -66,7 +67,24 @@ class Environment(ABC):
         Returns:
             EnvironmentSchema: The updated environment state after the step.
         """
-        raise NotImplementedError("Method step() not implemented.")
+
+    @abstractmethod
+    def is_success(self) -> bool:
+        """
+        Check if the current episode has been successfully completed.
+
+        Returns:
+            bool: True if the episode is successful, False otherwise.
+        """
+
+    def is_terminated(self) -> bool:
+        """
+        Check if the current episode has been terminated.
+
+        Returns:
+            bool: True if the episode is terminated, False otherwise.
+        """
+        return self.timestep_index >= self.max_timestep or self.is_success()
 
     def reset(self) -> None:
         """
@@ -96,37 +114,31 @@ class Environment(ABC):
 
     def run(self) -> None:
         """
-        Run the simulation loop until termination.
+        Run the simulation loop in standalone mode (without a remote trainer).
 
-        Performs one warm-up ``supervisor.step()`` call before entering the
-        main loop to allow sensors to initialise. On each subsequent iteration,
-        :meth:`step` is called to advance the environment and accumulate reward.
-        The loop exits when any of the following conditions are met:
+        Advances the simulation one tick at a time, incrementing
+        ``timestep_index`` each tick. The loop exits when:
 
-        - ``state.done`` is ``True`` (episode ended naturally), or
+        - :meth:`is_terminated` returns ``True`` (``max_timestep`` reached or
+          :meth:`is_success` triggered), or
         - ``supervisor.step()`` returns ``-1`` (Webots simulation stopped).
 
-        Note:
-            ``max_timestep`` is declared but **not** enforced here. Subclasses
-            should check ``self.timestep_index >= self.max_timestep`` inside
-            :meth:`step` and set ``done=True`` accordingly.
-
         After the loop, :meth:`quit` is called to terminate the process.
-        """
-        total_reward = 0.0
 
-        self.supervisor.step(self.timestep)
+        Note:
+            For training use :class:`~corl.trainer.environment.TrainerEnvironment`
+            instead, which exchanges state with the remote trainer and handles
+            action selection.
+        """
 
         while self.supervisor.step(self.timestep) != -1:
-            state = self.step()
-            total_reward += state.reward
             self.timestep_index += 1
 
-            if state.done:
+            if self.is_terminated():
                 break
 
         logger.info(
-            f"Simulation terminated in {self.supervisor.getTime()} sim-seconds with reward: {total_reward}"
+            f"Simulation terminated in {self.supervisor.getTime()} sim-seconds."
         )
 
         self.quit()

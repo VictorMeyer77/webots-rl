@@ -143,10 +143,10 @@ class TrainerEnvironment:
         while self.execute_training_step(training_step, action_repeat):
             state = self.evaluate_step(training_step)
             total_reward += state.reward
-            training_step += 1
             logger.debug(
                 f"Completed training step {training_step} for episode {self.episode_id} with reward {state.reward}."
             )
+            training_step += 1
 
             if state.done:
                 break
@@ -174,7 +174,8 @@ class TrainerEnvironment:
 
         Returns:
             bool: ``True`` if all ``action_repeat`` ticks completed
-            successfully; ``False`` if Webots signalled termination
+            successfully, or if :meth:`~corl.environment.Environment.is_success`
+            triggered an early exit; ``False`` if Webots signalled termination
             (``supervisor.step()`` returned ``-1``).
         """
         action_repeat_count = 0
@@ -183,6 +184,8 @@ class TrainerEnvironment:
             if self.environment.supervisor.step(self.environment.timestep) != -1:
                 action_repeat_count += 1
                 self.environment.timestep_index += 1
+                if self.environment.is_success():
+                    break
             else:
                 return False
 
@@ -209,7 +212,7 @@ class TrainerEnvironment:
             EnvironmentSchema: The environment state returned by
             ``environment.step()``.
         """
-        state = self.environment.step()
+        state = self.environment.evaluate_training_step()
         if not self.api.send_environment(
             self.train_id,
             self.worker_id,

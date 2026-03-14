@@ -263,8 +263,6 @@ class Trainer(ABC):
             corresponding values (string, integer, or float).
         """
 
-        raise NotImplementedError("Method params() not implemented.")
-
     @abstractmethod
     def run(self, epochs: int) -> None:
         """
@@ -276,7 +274,6 @@ class Trainer(ABC):
         Returns:
             None
         """
-        raise NotImplementedError("Method run() not implemented.")
 
     @abstractmethod
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
@@ -290,7 +287,6 @@ class Trainer(ABC):
         Returns:
             Integer action array of shape ``(N,)``, one action per observation.
         """
-        raise NotImplementedError("Method policy() not implemented.")
 
     @abstractmethod
     def parse_observations(
@@ -308,7 +304,6 @@ class Trainer(ABC):
             List of ``(StepKey, NDArray[np.float32])`` pairs where each array is the
             numerical representation of the corresponding observation.
         """
-        raise NotImplementedError("Method parse_observations() not implemented.")
 
     # Training step implementations
 

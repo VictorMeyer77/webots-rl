@@ -21,20 +21,14 @@ class ModelGenetic(Model):
 
     Attributes:
         actions: 2-D action table of shape ``(n_states, action_dim)``.
-            ``None`` until set via :meth:`set_weights` or :meth:`load_weights`.
     """
 
-    actions: NDArray[np.float32] | None = None
+    actions: NDArray[np.float32] | None
 
-    def set_weights(self, actions: NDArray[np.float32]) -> None:
-        """
-        Directly assign a weight array to the model.
-
-        Args:
-            actions: 2-D array of shape ``(n_states, action_dim)`` that maps
-                each discrete state index to an action vector.
-        """
-        self.actions = actions
+    def __init__(self) -> None:
+        """Initialise the model with an empty action table."""
+        super().__init__()
+        self.actions = None
 
     def load_weights(self, model_dir: str) -> None:
         """
@@ -48,8 +42,19 @@ class ModelGenetic(Model):
                 ``model_dir``.
         """
         model_path = Path(model_dir) / "model.npy"
-        self.actions = np.load(model_path)
+        self.actions = np.load(model_path, allow_pickle=False)
         logger.info(f"Model loaded from {model_path}.")
+
+    def load_metadata(self, model_dir: str) -> None:
+        """
+        No-op implementation required by the :class:`~corl.model.model.Model`
+        interface.
+
+        ``ModelGenetic`` has no scalar hyperparameters, so :meth:`metadata`
+        always returns an empty dict and no ``metadata.json`` is written by
+        :meth:`save_metadata`.
+        """
+        return
 
     def save_weights(self, model_dir: str, checkpoint: bool = False) -> None:
         """
@@ -75,12 +80,11 @@ class ModelGenetic(Model):
         if checkpoint:
             model_path = Path(model_dir) / f"model_ckt_{self.checkpoint_index}.npy"
             self.checkpoint_index += 1
-            logger.debug(f"Checkpoint saved: {model_path}")
         else:
             model_path = Path(model_dir) / "model.npy"
-            logger.info(f"Final model saved: {model_path} and logged to MLflow.")
 
         np.save(model_path, self.actions)
+        logger.info(f"Model saved: {model_path}.")
 
     def predict(self, observation: NDArray[np.float32]) -> NDArray[np.int32]:
         """

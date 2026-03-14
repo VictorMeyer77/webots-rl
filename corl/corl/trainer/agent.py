@@ -1,8 +1,7 @@
 import logging
+import random
 import time
 from typing import Any, NoReturn
-
-import numpy as np
 
 from corl.agent.agent import Agent
 from corl.schemas.learning import Observation
@@ -11,8 +10,10 @@ from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
-RETRY_MAX_ATTEMPTS = 8
-RETRY_JITTER_BASE = 0.1
+REFRESH_STATUS_INTERVAL = 5.0
+REFRESH_EPISODE_INTERVAL = 0.5
+RETRY_BASE_DELAY = 0.05
+RETRY_MAX_DELAY = 2.0
 
 
 class TrainerAgent:
@@ -37,12 +38,15 @@ class TrainerAgent:
         train_id: Unique identifier for the current training run.
         worker_id: Index of this worker within the training run.
         api: HTTP client used to communicate with the remote trainer.
+        agent_request_timeout: Maximum seconds to wait for an action from the
+            trainer before raising a :class:`RuntimeError`.
     """
 
     agent: Agent
     train_id: str
     worker_id: int
     api: Wrapper
+    agent_request_timeout: float
 
     def __init__(
         self,
@@ -62,6 +66,7 @@ class TrainerAgent:
         self.train_id = config.get("train_id")
         self.worker_id = config.get("worker_id")
         self.api = Wrapper(config)
+        self.agent_request_timeout = config.get("agent_request_timeout")
         logger.debug(
             f"Agent initialized for training with train_id={self.train_id} and worker_id={self.worker_id}"
         )
@@ -94,14 +99,14 @@ class TrainerAgent:
         self.agent.robot.step(self.agent.timestep)
 
         while self.agent.timestep_index < max_timestep:
-            self.send_observation(episode_id, training_step)
+            _ = self.send_observation(episode_id, training_step)
             action = self.get_action(episode_id, training_step)
 
             if self.execute_action(training_step, action):
-                training_step += 1
                 logger.debug(
                     f"Completed training step {training_step} at {self.agent.robot.getTime()} for episode {episode_id}."
                 )
+                training_step += 1
             else:
                 logger.debug(
                     f"Simulator signaled termination at training step {training_step} for episode {episode_id}. Ending episode."
@@ -140,57 +145,123 @@ class TrainerAgent:
         """
         Poll the API for the action corresponding to the current training step.
 
-        Uses exponential back-off with jitter for retries. Two special cases
-        apply before the normal retry counter is incremented:
+        Retries until an action is received or ``agent_request_timeout`` seconds
+        have elapsed. Each retry sleeps for an exponentially increasing duration
+        capped at ``RETRY_MAX_DELAY``, with ±50 % jitter to spread concurrent
+        worker requests. Two periodic checks run during the wait:
 
-        - **Worker inactive** – if the API reports this worker as inactive,
-          the simulator is advanced one tick and polling continues without
-          consuming a retry slot.
-        - **Initial step** (``training_step == 0``) – the first step is given
-          unlimited leniency: polling retries indefinitely with a random
-          sleep of up to 2 seconds and never increments the retry counter.
+        - Every ``REFRESH_STATUS_INTERVAL`` seconds: verify the worker is still
+          active via :meth:`_check_worker_status`.
+        - Every ``REFRESH_EPISODE_INTERVAL`` seconds: verify the episode ID has
+          not changed via :meth:`_check_episode_id`.
 
         Args:
             episode_id: Current episode identifier.
             training_step: Current step index within the episode.
 
         Returns:
-            int: The discrete action to execute.
+            The discrete action index to execute.
 
         Raises:
-            RuntimeError: If no action is received within ``RETRY_MAX_ATTEMPTS``
-                retries.
+            RuntimeError: If no action is received within
+                ``agent_request_timeout`` seconds.
         """
-        retries = 0
 
-        while retries < RETRY_MAX_ATTEMPTS:
+        deadline = time.monotonic() + self.agent_request_timeout
+        last_status_check = time.monotonic()
+        last_episode_check = time.monotonic()
+        attempt = 0
+
+        while time.monotonic() < deadline:
             action = self.api.get_action(
                 self.train_id, self.worker_id, episode_id, training_step
             )
+
             if action is not None:
                 return action.action
-            elif not self.api.get_worker_status(self.train_id, self.worker_id):
-                self.agent.robot.step(self.agent.timestep)
-                logger.debug(
-                    f"Worker {self.worker_id} marked as inactive by API at training step {training_step}. Should be shutting down by the environment."
-                )
-            elif training_step == 0:
-                logger.debug(
-                    "No action received for initial training step, retrying..."
-                )
-                time.sleep(np.random.uniform(0, 2))
-            else:
-                logger.debug(
-                    f"No action received at training step {training_step}. Retrying (attempt {retries + 1}/{RETRY_MAX_ATTEMPTS})..."
-                )
-                max_delay = RETRY_JITTER_BASE * (2**retries)
-                delay = np.random.uniform(0, max_delay)
-                time.sleep(delay)
-                retries += 1
+
+            now = time.monotonic()
+
+            last_status_check = self._check_worker_status(
+                training_step, now, last_status_check
+            )
+
+            last_episode_check = self._check_episode_id(
+                episode_id, training_step, now, last_episode_check
+            )
+
+            delay = min(RETRY_BASE_DELAY * 2**attempt, RETRY_MAX_DELAY)
+            time.sleep(delay * random.uniform(0.5, 1.0))
+            attempt += 1
 
         self.propagate_error(
-            training_step, f"Failed to receive action after {retries} retries."
+            training_step,
+            f"Failed to receive action after {self.agent_request_timeout} seconds.",
         )
+
+    def _check_worker_status(
+        self, training_step: int, now: float, last_check: float
+    ) -> float:
+        """
+        Periodically verify this worker is still active.
+
+        If the API reports the worker as inactive, the simulator is advanced
+        one tick so the environment can proceed with its shutdown sequence.
+
+        Args:
+            training_step: Current step index, used for logging.
+            now: Current ``time.monotonic()`` timestamp.
+            last_check: Timestamp of the previous status check.
+
+        Returns:
+            Updated ``last_check`` timestamp (``now``) if the interval has
+            elapsed and the worker is still active, unchanged otherwise.
+
+        Raises:
+            RuntimeError: If the worker is found to be inactive.
+        """
+        if now - last_check > REFRESH_STATUS_INTERVAL:
+            if not self.api.get_worker_status(self.train_id, self.worker_id):
+                self.agent.robot.step(self.agent.timestep)
+                self.propagate_error(
+                    training_step,
+                    f"Worker {self.worker_id} marked as inactive by API, agent should be shutting down by the environment.",
+                )
+            return now
+        return last_check
+
+    def _check_episode_id(
+        self, episode_id: int, training_step: int, now: float, last_check: float
+    ) -> float:
+        """
+        Periodically verify the current episode is still active.
+
+        If the API returns a different episode ID, the simulator is advanced
+        one tick so the environment can proceed with its shutdown sequence.
+
+        Args:
+            episode_id: Expected episode identifier.
+            training_step: Current step index, used for logging.
+            now: Current ``time.monotonic()`` timestamp.
+            last_check: Timestamp of the previous episode check.
+
+        Returns:
+            Updated ``last_check`` timestamp (``now``) if the interval has
+            elapsed and the episode is still active, unchanged otherwise.
+
+        Raises:
+            RuntimeError: If the episode ID returned by the API no longer
+                matches ``episode_id``.
+        """
+        if now - last_check > REFRESH_EPISODE_INTERVAL:
+            if self.api.get_episode_id(self.train_id, self.worker_id) != episode_id:
+                self.agent.robot.step(self.agent.timestep)
+                self.propagate_error(
+                    training_step,
+                    f"Episode {episode_id} marked as done by API, agent should be shutting down by the environment.",
+                )
+            return now
+        return last_check
 
     def execute_action(self, training_step: int, action: int) -> bool:
         """
@@ -203,6 +274,10 @@ class TrainerAgent:
         Args:
             training_step: Current step index, used only for debug logging.
             action: Discrete action identifier to pass to :meth:`act`.
+
+        Returns:
+            ``True`` if all repeats completed normally, ``False`` if the
+            simulator signalled termination before the repeats finished.
         """
         action_repeat_count = 0
 

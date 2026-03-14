@@ -39,7 +39,7 @@ def model() -> ModelGenetic:
 @pytest.fixture
 def loaded_model() -> ModelGenetic:
     m = ModelGenetic()
-    m.set_weights(make_actions())
+    m.actions = make_actions()
     return m
 
 
@@ -59,28 +59,11 @@ class TestInstantiation:
         assert model.checkpoint_index == 0
 
     def test_each_instance_has_independent_actions(self):
-        """Class-level default must not be shared between instances."""
+        """Instance attributes must not be shared between instances."""
         m1 = ModelGenetic()
         m2 = ModelGenetic()
-        m1.set_weights(make_actions())
+        m1.actions = make_actions()
         assert m2.actions is None
-
-
-# ---------------------------------------------------------------------------
-# set_weights()
-# ---------------------------------------------------------------------------
-
-
-class TestSetWeights:
-    def test_assigns_actions(self, model):
-        actions = make_actions()
-        model.set_weights(actions)
-        np.testing.assert_array_equal(model.actions, actions)
-
-    def test_overwrites_previous_weights(self, loaded_model):
-        new_actions = make_actions(n_states=3, action_dim=2)
-        loaded_model.set_weights(new_actions)
-        np.testing.assert_array_equal(loaded_model.actions, new_actions)
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +77,9 @@ class TestLoadWeights:
         with patch("corl.model.genetic.np.load", return_value=actions) as mock_load:
             model.load_weights("/some/dir")
 
-        mock_load.assert_called_once_with(Path("/some/dir") / "model.npy")
+        mock_load.assert_called_once_with(
+            Path("/some/dir") / "model.npy", allow_pickle=False
+        )
         np.testing.assert_array_equal(model.actions, actions)
 
     def test_uses_correct_path(self, model):
@@ -103,7 +88,9 @@ class TestLoadWeights:
         ) as mock_load:
             model.load_weights("/my/model/dir")
 
-        mock_load.assert_called_once_with(Path("/my/model/dir") / "model.npy")
+        mock_load.assert_called_once_with(
+            Path("/my/model/dir") / "model.npy", allow_pickle=False
+        )
 
     def test_logs_info_on_success(self, model, caplog):
         with patch("corl.model.genetic.np.load", return_value=make_actions()):
@@ -171,19 +158,19 @@ class TestSaveWeights:
         with pytest.raises(RuntimeError, match="Cannot save"):
             model.save_weights("/out/dir")
 
-    def test_logs_debug_on_checkpoint(self, loaded_model, caplog):
+    def test_logs_info_on_checkpoint(self, loaded_model, caplog):
         with patch("corl.model.genetic.np.save"):
-            with caplog.at_level(logging.DEBUG, logger="corl.model.genetic"):
+            with caplog.at_level(logging.INFO, logger="corl.model.genetic"):
                 loaded_model.save_weights("/out/dir", checkpoint=True)
 
-        assert any("Checkpoint saved" in r.message for r in caplog.records)
+        assert any("Model saved" in r.message for r in caplog.records)
 
     def test_logs_info_on_final_save(self, loaded_model, caplog):
         with patch("corl.model.genetic.np.save"):
             with caplog.at_level(logging.INFO, logger="corl.model.genetic"):
                 loaded_model.save_weights("/out/dir")
 
-        assert any("Final model saved" in r.message for r in caplog.records)
+        assert any("Model saved" in r.message for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

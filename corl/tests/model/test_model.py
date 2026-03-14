@@ -6,8 +6,7 @@ No real file system access is required — file I/O is patched throughout.
 """
 
 import json
-import os
-from typing import Any
+from pathlib import Path
 from unittest.mock import mock_open, patch
 
 import numpy as np
@@ -25,8 +24,7 @@ class ConcreteModel(Model):
     """Minimal implementation of Model for testing purposes."""
 
     def __init__(self) -> None:
-        self.metadata: dict[str, Any] = {}
-        self.checkpoint_index: int = 0
+        super().__init__()
         self.save_weights_calls: list[tuple[str, bool]] = []
         self.load_weights_calls: list[str] = []
 
@@ -38,6 +36,12 @@ class ConcreteModel(Model):
 
     def load_weights(self, model_dir: str) -> None:
         self.load_weights_calls.append(model_dir)
+
+    def load_metadata(self, model_dir: str) -> None:
+        with open(Path(model_dir) / "metadata.json", "r") as f:
+            data = json.load(f)
+        for key, value in data.items():
+            setattr(self, key, value)
 
 
 # ---------------------------------------------------------------------------
@@ -66,12 +70,6 @@ class TestInstantiation:
     def test_default_checkpoint_index(self, model):
         assert model.checkpoint_index == 0
 
-    def test_default_metadata_is_instance_dict(self, model):
-        """Each instance should have its own metadata dict, not the shared class default."""
-        other = ConcreteModel()
-        model.metadata["key"] = "value"
-        assert "key" not in other.metadata
-
 
 # ---------------------------------------------------------------------------
 # predict()
@@ -91,27 +89,40 @@ class TestPredict:
 
 
 # ---------------------------------------------------------------------------
-# set_metadata()
+# metadata()
 # ---------------------------------------------------------------------------
 
 
-class TestSetMetadata:
-    def test_replaces_metadata(self, model):
-        model.set_metadata({"a": 1, "b": 2})
-        assert model.metadata == {"a": 1, "b": 2}
+class TestMetadata:
+    def test_returns_scalar_attributes(self, model):
+        model.gamma = 0.99
+        model.batch_size = 32
+        result = model.metadata()
+        assert result == {"gamma": 0.99, "batch_size": 32}
 
-    def test_overwrites_existing_metadata(self, model):
-        model.metadata = {"old": True}
-        model.set_metadata({"new": True})
-        assert model.metadata == {"new": True}
-        assert "old" not in model.metadata
+    def test_excludes_checkpoint_index(self, model):
+        result = model.metadata()
+        assert "checkpoint_index" not in result
 
-    def test_set_metadata_assigns_instance_dict(self):
-        """set_metadata must assign to the instance, not the class-level default."""
-        m1 = ConcreteModel()
-        m2 = ConcreteModel()
-        m1.set_metadata({"x": 1})
-        assert "x" not in m2.metadata
+    def test_excludes_non_scalar_attributes(self, model):
+        model.array_attr = np.array([1.0, 2.0])
+        model.list_attr = [1, 2, 3]
+        result = model.metadata()
+        assert "array_attr" not in result
+        assert "list_attr" not in result
+
+    def test_includes_bool_attributes(self, model):
+        model.flag = True
+        result = model.metadata()
+        assert result["flag"] is True
+
+    def test_includes_str_attributes(self, model):
+        model.name = "test"
+        result = model.metadata()
+        assert result["name"] == "test"
+
+    def test_returns_empty_dict_for_fresh_instance(self, model):
+        assert model.metadata() == {}
 
 
 # ---------------------------------------------------------------------------
@@ -121,12 +132,13 @@ class TestSetMetadata:
 
 class TestSaveMetadata:
     def test_writes_json_to_correct_path(self, model):
-        model.metadata = {"epoch": 5, "loss": 0.42}
+        model.epoch = 5
+        model.loss = 0.42
         m = mock_open()
         with patch("builtins.open", m):
             model.save_metadata("/some/dir")
 
-        m.assert_called_once_with(os.path.join("/some/dir", "metadata.json"), "w")
+        m.assert_called_once_with(Path("/some/dir") / "metadata.json", "w")
         handle = m()
         written = "".join(call.args[0] for call in handle.write.call_args_list)
         parsed = json.loads(written)
@@ -145,8 +157,9 @@ class TestLoadMetadata:
         with patch("builtins.open", m):
             model.load_metadata("/some/dir")
 
-        m.assert_called_once_with(os.path.join("/some/dir", "metadata.json"), "r")
-        assert model.metadata == {"epoch": 3, "score": 0.9}
+        m.assert_called_once_with(Path("/some/dir") / "metadata.json", "r")
+        assert model.epoch == 3
+        assert model.score == 0.9
 
     def test_raises_file_not_found(self, model):
         with patch("builtins.open", side_effect=FileNotFoundError("no file")):
@@ -217,7 +230,7 @@ class TestLoad:
 
 
 # ---------------------------------------------------------------------------
-# save_weights() / load_weights() (abstract contract via concrete stub)
+# Abstract method enforcement
 # ---------------------------------------------------------------------------
 
 
@@ -234,6 +247,7 @@ class TestAbstractMethods:
         class Incomplete(Model):
             def save_weights(self, model_dir, checkpoint=False): ...
             def load_weights(self, model_dir): ...
+            def load_metadata(self, model_dir): ...
 
         with pytest.raises(TypeError):
             Incomplete()  # type: ignore
@@ -242,6 +256,7 @@ class TestAbstractMethods:
         class Incomplete(Model):
             def predict(self, observation): ...
             def load_weights(self, model_dir): ...
+            def load_metadata(self, model_dir): ...
 
         with pytest.raises(TypeError):
             Incomplete()  # type: ignore
@@ -250,6 +265,16 @@ class TestAbstractMethods:
         class Incomplete(Model):
             def predict(self, observation): ...
             def save_weights(self, model_dir, checkpoint=False): ...
+            def load_metadata(self, model_dir): ...
+
+        with pytest.raises(TypeError):
+            Incomplete()  # type: ignore
+
+    def test_subclass_missing_load_metadata_raises(self):
+        class Incomplete(Model):
+            def predict(self, observation): ...
+            def save_weights(self, model_dir, checkpoint=False): ...
+            def load_weights(self, model_dir): ...
 
         with pytest.raises(TypeError):
             Incomplete()  # type: ignore

@@ -63,7 +63,6 @@ class Agent(ABC):
         Returns:
             dict[str, Any]: Structured sensor data for policy consumption.
         """
-        raise NotImplementedError("Method observe() not implemented.")
 
     @abstractmethod
     def policy(self, observation: dict[str, Any]) -> int:
@@ -79,7 +78,6 @@ class Agent(ABC):
         Returns:
             int: Discrete action identifier to be passed to :meth:`act`.
         """
-        raise NotImplementedError("Method policy() not implemented.")
 
     @abstractmethod
     def act(self, action: int) -> None:
@@ -92,15 +90,12 @@ class Agent(ABC):
         Args:
             action: Discrete action identifier returned by :meth:`policy`.
         """
-        raise NotImplementedError("Method act() not implemented.")
 
     def run(self) -> None:
         """
         Continuous control loop until simulation termination.
 
-        Performs one warm-up ``robot.step()`` call before entering the main
-        loop to allow sensors to initialise. On each subsequent iteration a
-        fresh perception-decision cycle (:meth:`observe` → :meth:`policy` →
+        On each subsequent iteration a fresh perception-decision cycle (:meth:`observe` → :meth:`policy` →
         :meth:`act`) is triggered, and the resulting action is then held for
         up to ``action_repeat`` consecutive steps before the next cycle begins.
         ``timestep_index`` is incremented on every step, including repeated
@@ -110,8 +105,6 @@ class Agent(ABC):
 
         current_action = None
         action_repeat_count = 0
-
-        self.robot.step(self.timestep)
 
         while self.robot.step(self.timestep) != -1:
             if current_action is not None and action_repeat_count < self.action_repeat:

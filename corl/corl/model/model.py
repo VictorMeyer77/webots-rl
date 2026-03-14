@@ -1,7 +1,6 @@
 import json
-import os
 from abc import ABC, abstractmethod
-from typing import Any
+from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
@@ -13,23 +12,20 @@ class Model(ABC):
 
     Defines the interface for prediction, persistence, and metadata management
     that every concrete model must implement. Subclasses are expected to
-    override :meth:`predict`, :meth:`save_weights`, and :meth:`load_weights`.
+    override :meth:`predict`, :meth:`save_weights`, :meth:`load_weights` and
+    :meth:`load_metadata`.
 
     Attributes:
-        model_dir: Directory used for saving and loading weights and metadata.
-            Declared here for type-checking purposes; must be set by the
-            subclass before calling :meth:`save` or :meth:`load`.
-        metadata: Arbitrary key-value store persisted alongside model weights
-            as ``metadata.json``. Defaults to an empty dict — subclasses
-            should initialise their own instance dict in ``__init__`` to avoid
-            sharing state across instances.
-        checkpoint_index: Counter incremented by subclasses each time a
+        checkpoint_index: Per-instance counter incremented each time a
             checkpoint is saved. Used to generate unique checkpoint filenames.
+            Initialised to ``0`` in :meth:`__init__`.
     """
 
-    model_dir: str
-    metadata: dict[str, Any] = {}
-    checkpoint_index: int = 0
+    checkpoint_index: int
+
+    def __init__(self):
+        """Initialise per-instance state shared by all model subclasses."""
+        self.checkpoint_index = 0
 
     @abstractmethod
     def predict(
@@ -67,6 +63,34 @@ class Model(ABC):
             model_dir: Source directory containing the weight file(s).
         """
 
+    def metadata(self) -> dict[str, int | float | bool | str]:
+        """
+        Collect scalar hyperparameters from this instance for logging.
+
+        Inspects all instance attributes, excluding ``model_dir`` and
+        ``checkpoint_index``, and returns those whose value is a plain
+        ``int``, ``float``, ``bool``, or ``str``. This is used by
+        :meth:`save_metadata` and passed directly to MLflow via
+        :meth:`~corl.trainer.algorithm.monte_carlo.TrainerMonteCarlo.params`.
+
+        Returns:
+            dict mapping attribute name → scalar value for every qualifying
+            instance attribute.
+        """
+
+        metadata = {}
+
+        for name, value in self.__dict__.items():
+            if name not in ("model_dir", "checkpoint_index") and type(value) in (
+                int,
+                float,
+                bool,
+                str,
+            ):
+                metadata[name] = value
+
+        return metadata
+
     def save_metadata(self, model_dir: str) -> None:
         """
         Write :attr:`metadata` to ``<model_dir>/metadata.json``.
@@ -77,9 +101,10 @@ class Model(ABC):
         Raises:
             OSError: If the file cannot be written.
         """
-        with open(os.path.join(model_dir, "metadata.json"), "w") as f:
-            json.dump(self.metadata, f, indent=4)
+        with open(Path(model_dir) / "metadata.json", "w") as f:
+            json.dump(self.metadata(), f, indent=4)
 
+    @abstractmethod
     def load_metadata(self, model_dir: str) -> None:
         """
         Load :attr:`metadata` from ``<model_dir>/metadata.json``.
@@ -92,8 +117,6 @@ class Model(ABC):
                 ``model_dir``.
             json.JSONDecodeError: If the file is not valid JSON.
         """
-        with open(os.path.join(model_dir, "metadata.json"), "r") as f:
-            self.metadata = json.load(f)
 
     def save(self, model_dir: str) -> None:
         """
@@ -123,15 +146,3 @@ class Model(ABC):
         """
         self.load_weights(model_dir)
         self.load_metadata(model_dir)
-
-    def set_metadata(self, metadata: dict[str, Any]) -> None:
-        """
-        Replace :attr:`metadata` with a new dict.
-
-        Prefer this over direct assignment to ensure the instance receives
-        its own dict rather than mutating the shared class-level default.
-
-        Args:
-            metadata: New metadata mapping to assign.
-        """
-        self.metadata = metadata

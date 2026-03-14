@@ -188,6 +188,12 @@ class Config:
             cast=int,
             description="Interval in episodes at which worker 0 (witness) records an environment video during training",
         ),
+        # Agent
+        "AGENT_REQUEST_TIMEOUT": ConfigItem(
+            default=60.0,
+            cast=float,
+            description="Seconds to wait for an agent request to get action from the trainer.",
+        ),
     }
 
     def __init__(self, prefix: str = "webots"):

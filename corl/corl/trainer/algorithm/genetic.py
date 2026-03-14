@@ -150,7 +150,6 @@ class TrainerGenetic(Trainer):
             NDArray[np.int32]: A 1-D integer array of length
             :attr:`individual_size` whose values represent discrete actions.
         """
-        raise NotImplementedError("Method create_individual() not implemented.")
 
     @abstractmethod
     def crossover(
@@ -166,7 +165,6 @@ class TrainerGenetic(Trainer):
         Returns:
             NDArray[np.int32]: Child genome of the same length as the parents.
         """
-        raise NotImplementedError("Method crossover() not implemented.")
 
     @abstractmethod
     def mutate(self, individual: NDArray[np.int32]) -> NDArray[np.int32]:
@@ -182,7 +180,6 @@ class TrainerGenetic(Trainer):
         Returns:
             NDArray[np.int32]: Mutated genome of the same length as the input.
         """
-        raise NotImplementedError("Method mutate() not implemented.")
 
     def params(self) -> dict[str, str | int | float]:
         """
@@ -442,7 +439,7 @@ class TrainerGenetic(Trainer):
 
             self._epoch_metrics(epoch, rewards)
             if epoch > 0 and epoch % self.model_checkpoint_frequency == 0:
-                self.model.set_weights(best_individual)
+                self.model.actions = best_individual
                 self.model.save_weights(self.model_dir, checkpoint=True)
 
             generation = [individual for individual, _ in generation_eval]
@@ -454,7 +451,7 @@ class TrainerGenetic(Trainer):
             f"Best individual after {epochs} epochs: {best_individual} with reward {best_reward:.2f}"
         )
 
-        self.model.set_weights(best_individual)
+        self.model.actions = best_individual
         self.model.save(self.model_dir)
         self.close()
 
