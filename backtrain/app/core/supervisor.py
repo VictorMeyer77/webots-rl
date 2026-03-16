@@ -68,7 +68,7 @@ class Supervisor:
             - episode_id is an integer counter of completed episodes for that worker
             - status is a boolean indicating the worker's active status
         """
-        self._training: dict[str, dict[int, tuple[int, bool]]] = {}
+        self._training = {}
 
     @property
     def trainings(self) -> list[TrainingSchema]:
