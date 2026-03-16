@@ -145,7 +145,11 @@ class Wrapper:
             logger.debug(f"GET {url} returned {result}")
             return result
         except requests.RequestException as e:
-            content = e.response.content if e.response else str(e)
+            content = (
+                e.response.content.decode("utf-8", errors="replace")
+                if e.response
+                else str(e)
+            )
             logger.debug(f"GET {url} failed with error: {content}")
         except Exception as e:
             logger.debug(f"GET {url} failed with unexpected error: {e}")
@@ -194,7 +198,11 @@ class Wrapper:
             else:
                 logger.debug(f"POST {url} returned unexpected result: {result}")
         except requests.RequestException as e:
-            content = e.response.content if e.response else str(e)
+            content = (
+                e.response.content.decode("utf-8", errors="replace")
+                if e.response
+                else str(e)
+            )
             logger.debug(f"POST {url} failed with error: {content}")
         except Exception as e:
             logger.debug(f"POST {url} failed with unexpected error: {e}")
@@ -295,7 +303,11 @@ class Wrapper:
                 )
             return result["results"] if "results" in result else []
         except requests.RequestException as e:
-            content = e.response.content if e.response else str(e)
+            content = (
+                e.response.content.decode("utf-8", errors="replace")
+                if e.response
+                else str(e)
+            )
             logger.debug(f"POST {url} failed with error: {content}")
         except Exception as e:
             logger.debug(f"POST {url} failed with unexpected error: {e}")
@@ -342,7 +354,11 @@ class Wrapper:
             else:
                 return True
         except requests.RequestException as e:
-            content = e.response.content if e.response else str(e)
+            content = (
+                e.response.content.decode("utf-8", errors="replace")
+                if e.response
+                else str(e)
+            )
             logger.debug(f"POST {url} failed with error: {content}")
         except Exception as e:
             logger.debug(f"POST {url} failed with unexpected error: {e}")

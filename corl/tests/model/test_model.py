@@ -180,7 +180,7 @@ class TestLoadMetadata:
 
 class TestSave:
     def test_calls_save_weights_then_save_metadata(self, model):
-        call_order: list[str] = []
+        call_order = []
         model.save_weights = lambda d, **kw: call_order.append("weights")  # type: ignore
         with patch.object(
             model, "save_metadata", side_effect=lambda d: call_order.append("metadata")
@@ -209,7 +209,7 @@ class TestSave:
 
 class TestLoad:
     def test_calls_load_weights_then_load_metadata(self, model):
-        call_order: list[str] = []
+        call_order = []
         model.load_weights = lambda d: call_order.append("weights")  # type: ignore
         with patch.object(
             model, "load_metadata", side_effect=lambda d: call_order.append("metadata")

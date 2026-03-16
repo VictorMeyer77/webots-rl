@@ -2,5 +2,4 @@
 
 ## todo
 
-- [ ] lazy imports
-- [ ] handle global variables
+
