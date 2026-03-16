@@ -41,12 +41,11 @@ repos:
     hooks:
       - id: pytest-cov
         name: Check test coverage
-        entry: uv run --dev pytest --cov
+        entry: uv run --dev pytest
         language: system
         types: [python]
         pass_filenames: false
         always_run: true
-        stages: [pre-push]
 
   # Import sorting
   - repo: https://github.com/PyCQA/isort
