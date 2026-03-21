@@ -40,7 +40,7 @@ repos:
   - repo: local
     hooks:
       - id: pytest-cov
-        name: Check test coverage
+        name: Run tests
         entry: uv run --dev pytest
         language: system
         types: [python]

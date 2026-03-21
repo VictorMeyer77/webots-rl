@@ -29,8 +29,9 @@ class TrainerMonteCarlo(Trainer):
         batch_size: Number of complete episodes to collect before updating
             the value table.
         epsilon: Current exploration rate for the ε-greedy policy.
+        epsilon_min: Lower bound for epsilon; decay stops here.
         epsilon_decay: Multiplicative decay applied to ``epsilon`` after each
-            epoch. Clipped to a minimum of ``0.01``.
+            epoch. Clipped to a minimum of ``epsilon_min``.
         current_batch_done: Number of episodes completed in the current batch.
         current_batch_running: Number of episodes currently in progress.
         batch_worker_results: Maps worker ID → list of step results for the
@@ -46,24 +47,24 @@ class TrainerMonteCarlo(Trainer):
     gamma: float
     batch_size: int
     epsilon: float
+    epsilon_min: float
     epsilon_decay: float
 
     current_batch_done: int
     current_batch_running: int
     batch_worker_results: dict[int, list[StepResult]]
     returns: dict[tuple[int, int], collections.deque]
+    returns_window: int
 
     def __init__(
         self,
         config: Config,
         model: ModelValueTable,
         model_checkpoint_frequency: int,
-        observation_cardinality: int,
-        observation_size: int,
-        action_size: int,
         batch_size: int,
         gamma: float,
         epsilon: float,
+        epsilon_min: float,
         epsilon_decay: float,
         returns_window: int,
     ):
@@ -76,15 +77,13 @@ class TrainerMonteCarlo(Trainer):
             model: Tabular Q-value model to train.
             model_checkpoint_frequency: Number of epochs between automatic
                 weight checkpoints.
-            observation_cardinality: Number of discrete bins per observation
-                dimension (forwarded for reference; the model owns the table).
-            observation_size: Number of observation dimensions.
-            action_size: Number of discrete actions.
             batch_size: Number of complete episodes to collect per epoch.
             gamma: Discount factor ``γ ∈ (0, 1]``.
             epsilon: Initial exploration rate for the ε-greedy policy.
+            epsilon_min: Lower bound for epsilon; decay stops once this value
+                is reached.
             epsilon_decay: Multiplicative decay applied to ``epsilon`` after
-                each epoch, clipped to a minimum of ``0.01``.
+                each epoch, clipped to a minimum of ``epsilon_min``.
             returns_window: Maximum number of returns to retain per
                 ``(state, action)`` pair. Older returns are evicted
                 automatically.
@@ -97,6 +96,7 @@ class TrainerMonteCarlo(Trainer):
         self.gamma = gamma
         self.batch_size = batch_size
         self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
         self.returns_window = returns_window
 
@@ -120,6 +120,7 @@ class TrainerMonteCarlo(Trainer):
             "gamma": self.gamma,
             "batch_size": self.batch_size,
             "epsilon_initial": self.epsilon,
+            "epsilon_min": self.epsilon_min,
             "epsilon_decay": self.epsilon_decay,
             "returns_window": self.returns_window,
         } | self.model.metadata()
@@ -209,7 +210,7 @@ class TrainerMonteCarlo(Trainer):
         3. Log ``return_avg``, ``reward_avg``, ``episode_length_avg``,
            ``value_table_nonzero``, and ``epsilon`` to MLflow.
         4. Save a weight checkpoint every ``model_checkpoint_frequency`` epochs.
-        5. Decay ``epsilon`` by ``epsilon_decay`` (floored at ``0.01``).
+        5. Decay ``epsilon`` by ``epsilon_decay`` (floored at ``epsilon_min``).
 
         After all epochs, the final model is saved and the trainer is closed.
 
@@ -256,7 +257,7 @@ class TrainerMonteCarlo(Trainer):
             if (epoch + 1) % self.model_checkpoint_frequency == 0:
                 self.model.save_weights(self.model_dir, checkpoint=True)
 
-            self.epsilon = max(0.01, self.epsilon * self.epsilon_decay)
+            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
         self.model.save(self.model_dir)
         self.close()

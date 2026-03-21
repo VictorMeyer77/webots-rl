@@ -379,7 +379,7 @@ class TrainerGenetic(Trainer):
         if len(self.generation_queue) == 0:
             raise RuntimeError("Generation queue is empty. Cannot evaluate generation.")
 
-        evaluations = []
+        evaluations: list[tuple[NDArray[np.int32], float]] = []
 
         while len(evaluations) < self.generation_size:
             workers = self.tracker.worker_step_keys()
@@ -515,7 +515,7 @@ class TrainerGenetic(Trainer):
         logger.debug(
             f"Selected top {len(elites)} individuals as elites for next generation."
         )
-        offspring = []
+        offspring: list[NDArray[np.int32]] = []
         while len(elites) + len(offspring) < self.generation_size:
             parent_a, parent_b = random.sample(elites, 2)
             child = self.crossover(parent_a, parent_b)

@@ -108,10 +108,35 @@ class TestConfigInitialization:
         assert config.prefix == ""
 
     @patch("corl.utils.config.load_dotenv")
-    def test_load_dotenv_called(self, mock_load_dotenv):
-        """Test that load_dotenv is called during initialization."""
+    def test_load_dotenv_called_without_env_path(self, mock_load_dotenv):
+        """When no env_path is given, load_dotenv() is called with no arguments."""
         Config()
-        mock_load_dotenv.assert_called_once()
+        mock_load_dotenv.assert_called_once_with()
+
+    @patch("corl.utils.config.load_dotenv")
+    def test_env_path_existing_file_passed_to_load_dotenv(
+        self, mock_load_dotenv, tmp_path
+    ):
+        """When env_path points to an existing file, load_dotenv receives that path."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("WEBOTS_API_PORT=9999\n")
+        Config(env_path=env_file)
+        mock_load_dotenv.assert_called_once_with(env_file)
+
+    @patch("corl.utils.config.load_dotenv")
+    def test_env_path_missing_file_falls_back(self, mock_load_dotenv, tmp_path):
+        """When env_path does not exist, load_dotenv() is called with no arguments."""
+        missing = tmp_path / "nonexistent.env"
+        Config(env_path=missing)
+        mock_load_dotenv.assert_called_once_with()
+
+    def test_env_path_values_loaded(self, tmp_path, monkeypatch):
+        """Values defined in the env file are accessible via Config.get()."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("WEBOTS_API_PORT=7777\n")
+        monkeypatch.setenv("WEBOTS_API_PORT", "7777")
+        config = Config(env_path=env_file)
+        assert config.get("api_port") == 7777
 
 
 class TestConfigGet:

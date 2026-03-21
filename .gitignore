@@ -211,4 +211,5 @@ __marimo__/
 *.wbproj
 *_run_*
 .train/
+train/
 

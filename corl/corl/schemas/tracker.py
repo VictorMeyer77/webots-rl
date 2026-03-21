@@ -80,3 +80,25 @@ class StepResult(BaseModel):
                 self.done is not None,
             ]
         )
+
+
+class Transition(BaseModel):
+    """
+    A temporal-difference (TD) transition pair used for training.
+
+    Bundles a consecutive pair of :class:`StepResult` objects — the step at
+    time *t* and the step at time *t+1* — into a single unit suitable for
+    computing TD targets (e.g. Q-learning, actor-critic updates).
+
+    ``next_step`` is ``None`` for terminal transitions, i.e. when
+    ``current_step.done`` is ``True`` and there is no following state.
+
+    Attributes:
+        current_step: The step result at time *t*, including observation,
+            action, reward, and done flag.
+        next_step: The step result at time *t+1*, or ``None`` if
+            ``current_step`` is the last step of an episode.
+    """
+
+    current_step: StepResult
+    next_step: StepResult | None

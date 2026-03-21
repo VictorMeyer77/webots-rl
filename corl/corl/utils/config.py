@@ -8,6 +8,7 @@ environment variables and .env files with type validation and caching support.
 import os
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -196,7 +197,7 @@ class Config:
         ),
     }
 
-    def __init__(self, prefix: str = "webots"):
+    def __init__(self, env_path: Path | None = None, prefix: str = "webots"):
         """
         Initialise the configuration object and load any ``.env`` file.
 
@@ -206,13 +207,20 @@ class Config:
         variables are always respected.
 
         Args:
+            env_path (Path | None): Path to a ``.env`` file to load. When provided
+                and the file exists, that file is loaded explicitly. When ``None``
+                or the path does not exist, ``load_dotenv()`` searches the working
+                directory and its parents automatically. Defaults to ``None``.
             prefix (str): Prefix for environment variable names. Uppercased
                 automatically, so ``"webots"`` and ``"WEBOTS"`` are equivalent.
                 Defaults to ``"webots"``.
         """
         self.prefix = prefix
         self._cache: dict[str, Any] = {}
-        load_dotenv()
+        if env_path is not None and env_path.exists():
+            load_dotenv(env_path)
+        else:
+            load_dotenv()
 
     def get(self, key: str) -> Any:
         """

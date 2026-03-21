@@ -6,8 +6,8 @@ learning toolkit. It handles argument parsing, world file generation, subprocess
 management for Webots instances, and cleanup of generated artifacts.
 
 Usage:
-    corl --world <world> --controller <controller> [--worker <n>] [--trainer] [--fast]
-    python -m corl --world <world> --controller <controller> [--worker <n>] [--trainer] [--fast]
+    corl --world <world> --controller <controller> [--worker <n>] [--trainer] [--fast] [--env <file>]
+    python -m corl --world <world> --controller <controller> [--worker <n>] [--trainer] [--fast] [--env <file>]
 
 Modes:
     Default (no mode flag):
@@ -54,6 +54,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
                              generated world file.
 
     Optional:
+        --env (Path):        Path to a ``.env`` file to load before reading configuration.
+                             When omitted, ``python-dotenv`` searches the working directory
+                             and its parents for a ``.env`` file automatically.
         --fast (flag):       Run Webots in fast mode (no real-time synchronisation).
 
     Mutually exclusive mode flags (at most one may be supplied):
@@ -75,6 +78,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--controller", type=str, default=None, help="Controller name or path"
+    )
+    parser.add_argument(
+        "--env", type=Path, default=None, metavar="FILE", help="Path to .env file"
     )
     parser.add_argument("--fast", action="store_true", help="Run Webots in fast mode")
 
@@ -368,7 +374,7 @@ def main() -> None:
     args = parser.parse_args()
     _validate_args(args, parser)
 
-    config = Config()
+    config = Config(env_path=args.env)
     config.set("world_name", args.world)
     experiments_dir = config.get("experiments_dir")
     setup_logging(config)
