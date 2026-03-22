@@ -213,3 +213,6 @@ __marimo__/
 .train/
 train/
 
+# Macos
+
+.DS_Store
