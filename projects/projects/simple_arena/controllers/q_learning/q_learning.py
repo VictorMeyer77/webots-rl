@@ -17,12 +17,12 @@ MAX_TIMESTEP = (
 )
 
 
-class EpuckMonteCarloController(Epuck):
+class EpuckQLearningController(Epuck):
     """
-    E-puck controller driven by a Monte Carlo value-table policy.
+    E-puck controller driven by a Q-learning value-table policy.
 
     Discretises distance-sensor readings into bins and looks up the
-    greedy action from a pre-trained value table.
+    greedy action from a pre-trained Q-table.
     """
 
     def __init__(
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     robot = Robot()
 
     if config.get("train_id") is not None:
-        epuck = EpuckMonteCarloController(
+        epuck = EpuckQLearningController(
             robot=robot,
             timestep=TIME_STEP,
             action_repeat=ACTION_REPEAT,
@@ -93,10 +93,10 @@ if __name__ == "__main__":
         TrainerAgent(epuck, config).run(MAX_TIMESTEP)
     else:
         model = ModelValueTable(
-            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.train/mlflow/2e33d21c5d1641038ac2ed83ec79b0d0/artifacts/model"
+            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.train/mlflow/f15f149aca69478b82ba05de73fdae83/artifacts/model"
         )
 
-        epuck = EpuckMonteCarloController(
+        epuck = EpuckQLearningController(
             robot=robot,
             timestep=TIME_STEP,
             action_repeat=ACTION_REPEAT,

@@ -6,44 +6,42 @@ from numpy.typing import NDArray
 from corl.model.value_table import ModelValueTable
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.monte_carlo import TrainerMonteCarlo
+from corl.trainer.algorithm.q_learning import TrainerQLearning
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
-MODEL_CHECKPOINT_FREQUENCY = 100  # Save a checkpoint every N epochs
-EPOCHS = 4000  # Total number of training epochs
+EPOCHS = 30000  # Total number of training epochs
+MODEL_CHECKPOINT_FREQUENCY = 500  # Save a checkpoint every N epochs
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 OBSERVATION_CARDINALITY = (
     3  # Number of discrete bins per sensor (must equal len(bins) + 1)
 )
 OBSERVATION_SIZE = 8  # Number of distance sensors
-BATCH_SIZE = 8  # Episodes collected per training batch
-GAMMA = 0.99  # Discount factor: how much future rewards are valued
+ALPHA = 0.05  # Learning rate: how much new estimates overwrite old ones
+GAMMA = 0.97  # Discount factor: how much future rewards are valued
 EPSILON = 1.0  # Initial exploration rate (fully random)
 EPSILON_MIN = 0.05  # Minimum exploration rate after decay
 EPSILON_DECAY = (
-    0.9992  # Multiplicative decay applied each epoch (~floor reached at epoch 3200)
+    0.9999  # Multiplicative decay applied each epoch (~floor reached at epoch 30000)
 )
-RETURNS_WINDOW = 100  # Max number of past returns kept per (state, action) pair
 
 
-class SimpleArenaMonteCarlo(TrainerMonteCarlo):
+class SimpleArenaQLearning(TrainerQLearning):
     """
-    Monte Carlo trainer for the simple arena task.
+    Q-learning trainer for the simple arena task.
 
-    Collects full episodes using an epsilon-greedy policy, then applies
-    first-visit Monte Carlo updates to a discrete value table. Observations
-    are distance-sensor readings discretised into 3 bins before lookup.
+    Applies online TD updates to a discrete Q-table after each step using
+    an epsilon-greedy policy. Observations are distance-sensor readings
+    discretised into 3 bins before lookup.
     """
 
     def parse_observations(
         self, observations: list[tuple[StepKey, Observation]]
     ) -> list[tuple[StepKey, NDArray[np.float32]]]:
         """
-        Discretise raw distance-sensor readings for active workers.
+        Discretise raw distance-sensor readings for all workers.
 
-        Filters out workers not currently tracked in the batch, then bins
-        each sensor value into one of three categories using ``[70, 80]``
+        Bins each sensor value into one of three categories using ``[70, 80]``
         as boundaries, matching ``OBSERVATION_CARDINALITY = 3``.
 
         Args:
@@ -51,8 +49,8 @@ class SimpleArenaMonteCarlo(TrainerMonteCarlo):
                 current training step.
 
         Returns:
-            List of ``(StepKey, binned_observation)`` pairs, one per active
-            worker, where each binned observation is a float32 array of shape
+            List of ``(StepKey, binned_observation)`` pairs for every worker,
+            where each binned observation is a float32 array of shape
             ``(OBSERVATION_SIZE,)`` with values in ``{0, 1, 2}``.
         """
         return [
@@ -64,7 +62,6 @@ class SimpleArenaMonteCarlo(TrainerMonteCarlo):
                 ).astype(np.float32),
             )
             for step_key, observation in observations
-            if step_key.worker_id in self.batch_worker_results
         ]
 
 
@@ -83,14 +80,13 @@ if __name__ == "__main__":
         action_size=ACTION_SIZE,
     )
 
-    SimpleArenaMonteCarlo(
+    SimpleArenaQLearning(
         config=config,
         model=model,
         model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
-        batch_size=BATCH_SIZE,
+        alpha=ALPHA,
         gamma=GAMMA,
         epsilon=EPSILON,
         epsilon_min=EPSILON_MIN,
         epsilon_decay=EPSILON_DECAY,
-        returns_window=RETURNS_WINDOW,
     ).run(epochs=EPOCHS)
