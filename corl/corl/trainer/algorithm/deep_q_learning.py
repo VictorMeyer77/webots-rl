@@ -1,23 +1,61 @@
 import logging
 
 import mlflow
+import numpy as np
+import tensorflow as tf
 from numpy.typing import NDArray
+
 from corl.memory.prioritized_experience_replay import PrioritizedExperienceReplayBuffer
 from corl.memory.transition import Transition as TransitionMemory
-
 from corl.model.deep_value_table import ModelDeepValueTable
 from corl.trainer.trainer import Trainer
-
-
 from corl.utils.config import Config
-import tensorflow as tf
-import numpy as np
-
 
 logger = logging.getLogger(__name__)
 
 
 class TrainerDeepQLearning(Trainer):
+    """
+    Double Deep Q-Network (DDQN) trainer with Prioritized Experience Replay.
+
+    Implements the DQN training loop with a target network for stable
+    bootstrapping and a
+    :class:`~corl.memory.prioritized_experience_replay.PrioritizedExperienceReplayBuffer`
+    for efficient experience sampling. Training is driven by the Backtrain
+    API via the parent :class:`~corl.trainer.trainer.Trainer` class.
+
+    Key design decisions:
+
+    - **Target network**: a frozen copy of the online network updated
+      periodically (every ``update_target_weights_frequency`` steps) to
+      reduce the moving-target problem.
+    - **PER**: experiences are sampled proportionally to their TD-error;
+      importance-sampling weights correct the resulting bias.
+    - **ε-greedy exploration**: epsilon decays multiplicatively per
+      transition down to ``epsilon_min``.
+    - **β annealing**: the PER importance-sampling exponent is linearly
+      annealed from ``per_beta_start`` to ``1.0`` over ``epochs`` steps.
+
+    Attributes:
+        gamma: Discount factor for future rewards.
+        epsilon: Current exploration rate (decays during training).
+        epsilon_min: Lower bound for ``epsilon``.
+        epsilon_decay: Multiplicative decay applied to ``epsilon`` after
+            each transition.
+        batch_size: Number of experiences sampled per training step.
+        fit_frequency: Minimum number of steps between model fitting calls.
+        update_target_weights_frequency: Steps between target network syncs.
+        target_weights: Frozen copy of the online Keras model used for
+            Bellman target computation.
+        per_beta: Current importance-sampling exponent (annealed toward
+            ``1.0``).
+        per_beta_increment: Per-transition increment added to ``per_beta``,
+            set at the start of :meth:`run`.
+        transition: Helper for assembling raw step results into
+            :class:`~corl.memory.transition.Transition` objects.
+        experience_replay: PER buffer storing and sampling transitions.
+    """
+
     gamma: float
     epsilon: float
     epsilon_min: float
@@ -47,7 +85,28 @@ class TrainerDeepQLearning(Trainer):
         per_alpha: float,
         per_beta_start: float,
     ):
+        """
+        Initialise the DQN trainer and create the target network.
 
+        Args:
+            config: Application configuration (experiment paths, env vars).
+            model: Online Q-network to train.
+            model_checkpoint_frequency: Steps between checkpoint saves.
+            gamma: Discount factor in ``[0, 1]``.
+            epsilon: Initial exploration rate.
+            epsilon_min: Minimum value ``epsilon`` can decay to.
+            epsilon_decay: Multiplicative factor applied to ``epsilon``
+                after each transition.
+            batch_size: Number of transitions to sample per fit call.
+            fit_frequency: Steps between calls to :meth:`fit_model`.
+            update_target_weights_frequency: Steps between calls to
+                :meth:`update_target_weights`.
+            per_size: Capacity of the PER replay buffer.
+            per_alpha: PER priority exponent. ``0`` = uniform, ``1`` =
+                full prioritisation.
+            per_beta_start: Initial IS correction exponent, annealed to
+                ``1.0`` over the course of training.
+        """
         super().__init__(
             model=model,
             config=config,
@@ -69,7 +128,16 @@ class TrainerDeepQLearning(Trainer):
         self.target_weights.set_weights(model.weights.get_weights())
 
     def params(self) -> dict[str, str | int | float]:
+        """
+        Return hyperparameters for MLflow logging.
 
+        Merges DQN-specific hyperparameters with the model's own metadata
+        (from :meth:`~corl.model.model.Model.metadata`).
+
+        Returns:
+            dict mapping parameter name → scalar value, suitable for
+            ``mlflow.log_params()``.
+        """
         return {
             "gamma": self.gamma,
             "epsilon_initial": self.epsilon,
@@ -83,16 +151,53 @@ class TrainerDeepQLearning(Trainer):
         } | self.model.metadata()
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
+        """
+        Select actions for a batch of observations using the current ε-greedy policy.
 
+        Delegates to
+        :meth:`~corl.model.deep_value_table.ModelDeepValueTable.epsilon_greedy_policy`
+        with the current ``epsilon``.
+
+        Args:
+            observations: Batch of observations, shape ``(batch_size, obs_dim)``.
+
+        Returns:
+            NDArray[np.int32]: Selected action indices, shape ``(batch_size,)``.
+        """
         return self.model.epsilon_greedy_policy(observations, self.epsilon)
 
     def update_target_weights(self) -> None:
+        """
+        Copy the online network's weights into the target network.
 
+        Called periodically during training (every
+        ``update_target_weights_frequency`` steps) to refresh the frozen
+        Bellman bootstrap target.
+        """
         self.target_weights.set_weights(self.model.weights.get_weights())
         logger.debug("Target model weights updated from training model")
 
     def fit_model(self) -> dict[str, float] | None:
+        """
+        Sample a batch from the PER buffer and perform one gradient update.
 
+        Returns ``None`` immediately if the buffer holds fewer experiences
+        than ``batch_size``. Otherwise:
+
+        1. Samples a stratified batch from
+           :attr:`experience_replay` with the current ``per_beta``.
+        2. Computes Bellman targets using the **target network**:
+           ``y = r + γ · max Q_target(s', ·) · (1 - done)``.
+        3. Fits the online network for one epoch with PER importance-
+           sampling weights as ``sample_weight``.
+        4. Updates PER priorities using the pre-fit TD-errors
+           (no extra forward pass required).
+
+        Returns:
+            dict with keys ``"loss"``, ``"mean_td_error"``,
+            ``"mean_reward"``, ``"mean_max_next_q"`` on success, or
+            ``None`` if the buffer is not yet full enough to sample.
+        """
         if len(self.experience_replay) < self.batch_size:
             return None
 
@@ -131,8 +236,33 @@ class TrainerDeepQLearning(Trainer):
             "mean_max_next_q": float(np.mean(max_next_q)),
         }
 
-    def run(self, epochs: int) -> None:
+    def run(self, epochs: int) -> None:  # TODO rename epochs
+        """
+        Execute the full DQN training loop for ``epochs`` steps.
 
+        Logs hyperparameters to MLflow, then repeatedly calls
+        :meth:`~corl.trainer.trainer.Trainer.training_step` to collect
+        environment interactions. After each step batch:
+
+        - Transitions are pushed into the PER buffer.
+        - :meth:`fit_model` is called every ``fit_frequency`` steps;
+          metrics are logged to MLflow when a fit occurs.
+        - :meth:`update_target_weights` is called every
+          ``update_target_weights_frequency`` steps.
+        - A model checkpoint is saved every
+          ``model_checkpoint_frequency`` steps.
+        - ``epsilon`` and ``per_beta`` are updated once per transition.
+
+        On completion, the final model is saved via
+        :meth:`~corl.model.deep_value_table.ModelDeepValueTable.save`
+        and the trainer is closed.
+
+        Args:
+            epochs: Total number of simulation steps to run.
+
+        Raises:
+            ValueError: If ``epochs`` is less than ``1``.
+        """
         if epochs < 1:
             raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
 
