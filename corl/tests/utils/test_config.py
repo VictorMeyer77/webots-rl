@@ -396,7 +396,7 @@ class TestConfigAllDefaults:
         config = Config()
         assert config.get("TRAIN_ID") is None
         assert config.get("WORKER_ID") is None
-        assert config.get("TRAINER_OUTPUT_DIR") == "train/"
+        assert config.get("TRAINER_OUTPUT_DIR") == ".train/"
         assert config.get("TRAINER_WORKER_TIMEOUT") == 60
         assert config.get("ENVIRONMENT_RECORD_FREQUENCY") == 50
 

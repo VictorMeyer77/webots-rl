@@ -174,7 +174,7 @@ class Config:
         ),
         # Trainer
         "TRAINER_OUTPUT_DIR": ConfigItem(
-            default="train/",
+            default=".train/",
             cast=str,
             description="Root output directory for trainer artefacts (checkpoints, TensorBoard logs, MLflow runs)",
         ),
