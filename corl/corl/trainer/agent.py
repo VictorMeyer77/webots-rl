@@ -169,7 +169,6 @@ class TrainerAgent:
 
         deadline = time.monotonic() + self.agent_request_timeout
         last_status_check = time.monotonic()
-        last_episode_check = time.monotonic()
         attempt = 0
 
         while time.monotonic() < deadline:
@@ -184,10 +183,6 @@ class TrainerAgent:
 
             last_status_check = self._check_worker_status(
                 training_step, now, last_status_check
-            )
-
-            last_episode_check = self._check_episode_id(
-                episode_id, training_step, now, last_episode_check
             )
 
             delay = min(RETRY_BASE_DELAY * 2**attempt, RETRY_MAX_DELAY)
@@ -258,7 +253,7 @@ class TrainerAgent:
                 self.agent.robot.step(self.agent.timestep)
                 self.propagate_error(
                     training_step,
-                    f"Episode {episode_id} marked as done by API, agent should be shutting down by the environment.",
+                    f"Episode {episode_id} no longer active",
                 )
             return now
         return last_check
