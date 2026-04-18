@@ -1,14 +1,12 @@
 import collections
 import logging
-from abc import abstractmethod
 
 import mlflow
 import numpy as np
 from numpy.typing import NDArray
 
 from corl.model.value_table import ModelValueTable
-from corl.schemas.learning import Observation
-from corl.schemas.tracker import StepKey, StepResult
+from corl.schemas.tracker import StepResult
 from corl.trainer.trainer import Trainer
 from corl.utils.config import Config
 
@@ -21,17 +19,17 @@ class TrainerMonteCarlo(Trainer):
 
     Collects full episodes in batches, then applies first-visit Monte Carlo
     updates to a :class:`~corl.model.value_table.ModelValueTable`. Actions are
-    selected with an ε-greedy policy whose exploration rate is decayed after
-    each epoch.
+    selected with an ε-greedy policy whose exploration rate is decayed once
+    per transition.
 
     Attributes:
         gamma: Discount factor applied when computing episode returns.
-        batch_size: Number of complete episodes to collect before updating
-            the value table.
+        batch_size: Number of complete episodes to collect per batch before
+            updating the value table.
         epsilon: Current exploration rate for the ε-greedy policy.
         epsilon_min: Lower bound for epsilon; decay stops here.
-        epsilon_decay: Multiplicative decay applied to ``epsilon`` after each
-            epoch. Clipped to a minimum of ``epsilon_min``.
+        epsilon_decay: Multiplicative factor applied to ``epsilon`` once per
+            transition. Clipped to a minimum of ``epsilon_min``.
         current_batch_done: Number of episodes completed in the current batch.
         current_batch_running: Number of episodes currently in progress.
         batch_worker_results: Maps worker ID → list of step results for the
@@ -75,24 +73,31 @@ class TrainerMonteCarlo(Trainer):
             config: Application configuration forwarded to the base
                 :class:`~corl.trainer.trainer.Trainer`.
             model: Tabular Q-value model to train.
-            model_checkpoint_frequency: Number of epochs between automatic
-                weight checkpoints.
-            batch_size: Number of complete episodes to collect per epoch.
+            model_checkpoint_frequency: Minimum number of transitions between
+                automatic weight checkpoints.
+            batch_size: Number of complete episodes to collect per batch.
             gamma: Discount factor ``γ ∈ (0, 1]``.
             epsilon: Initial exploration rate for the ε-greedy policy.
             epsilon_min: Lower bound for epsilon; decay stops once this value
                 is reached.
-            epsilon_decay: Multiplicative decay applied to ``epsilon`` after
-                each epoch, clipped to a minimum of ``epsilon_min``.
+            epsilon_decay: Multiplicative factor applied to ``epsilon`` once
+                per transition, clipped to a minimum of ``epsilon_min``.
             returns_window: Maximum number of returns to retain per
                 ``(state, action)`` pair. Older returns are evicted
                 automatically.
+
+        Raises:
+            ValueError: If ``batch_size < 1``.
         """
         super().__init__(
             model=model,
             config=config,
             model_checkpoint_frequency=model_checkpoint_frequency,
         )
+
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+
         self.gamma = gamma
         self.batch_size = batch_size
         self.epsilon = epsilon
@@ -143,27 +148,7 @@ class TrainerMonteCarlo(Trainer):
             ]
         )
 
-    @abstractmethod
-    def parse_observations(
-        self, observations: list[tuple[StepKey, Observation]]
-    ) -> list[tuple[StepKey, NDArray[np.float32]]]:
-        """
-        Convert raw observations into numpy arrays for the model.
-
-        Implementations should also filter out observations belonging to
-        workers that are no longer active, to avoid feeding stale data into
-        the value table update.
-
-        Args:
-            observations: List of ``(StepKey, Observation)`` pairs received
-                from the environment.
-
-        Returns:
-            List of ``(StepKey, NDArray[np.float32])`` pairs containing the
-            numerical representation of each observation.
-        """
-
-    def update_value_table(self, step_results: list[StepResult]) -> float:
+    def update_value_table(self, step_results: list[StepResult]) -> tuple[float, float]:
         """
         Apply a first-visit Monte Carlo update to the value table.
 
@@ -176,13 +161,19 @@ class TrainerMonteCarlo(Trainer):
             step_results: Ordered list of step results for a single episode.
 
         Returns:
-            The discounted return ``G`` from the first step of the episode.
+            Tuple of ``(G, reward_total)`` where ``G`` is the full discounted
+            episode return at ``t=0`` (i.e. the return from the first step,
+            computed as the episode accumulates backwards), and
+            ``reward_total`` is the undiscounted sum of all rewards in the
+            episode.
         """
         logger.debug(f"Updating value table with {len(step_results)} step results.")
         g = 0.0
+        reward_total = 0.0
         visited = set()
         for step_result in reversed(step_results):
             g = step_result.reward + self.gamma * g
+            reward_total += step_result.reward
             observation_index = self.model.observation_to_index(step_result.observation)
             table_key = (observation_index, step_result.action)
             if table_key not in visited:
@@ -195,27 +186,35 @@ class TrainerMonteCarlo(Trainer):
                 self.model.value_table[observation_index][step_result.action] = np.mean(
                     self.returns[table_key]
                 )
-        return g
+        return g, reward_total
 
     def run(self, epochs: int) -> None:
         """
         Run the full Monte Carlo training loop.
 
-        For each epoch:
+        Iterates until ``epochs`` total transitions have been collected.
+        Each iteration:
 
-        1. Log the current epsilon and collect a batch of ``batch_size``
-           complete episodes via :meth:`run_batch`.
-        2. Apply first-visit Monte Carlo updates to the value table via
-           :meth:`update_value_table`.
-        3. Log ``return_avg``, ``reward_avg``, ``episode_length_avg``,
-           ``value_table_nonzero``, and ``epsilon`` to MLflow.
-        4. Save a weight checkpoint every ``model_checkpoint_frequency`` epochs.
-        5. Decay ``epsilon`` by ``epsilon_decay`` (floored at ``epsilon_min``).
+        1. Collects a batch of ``batch_size`` complete episodes via
+           :meth:`run_batch`.
+        2. Applies first-visit Monte Carlo updates to the value table via
+           :meth:`update_value_table` for each episode in the batch.
+        3. Logs the following metrics to MLflow every
+           ``log_metric_frequency`` transitions:
+           ``episode_return_avg``, ``episode_return_std``,
+           ``episode_reward_avg``, ``episode``, ``batch_count``,
+           ``transition_per_episode``, ``value_table_nonzero``, ``epsilon``.
+        4. Saves a weight checkpoint every ``model_checkpoint_frequency``
+           transitions.
+        5. Decays ``epsilon`` by ``epsilon_decay`` once per transition in
+           the batch (floored at ``epsilon_min``).
 
-        After all epochs, the final model is saved and the trainer is closed.
+        After all transitions, the final model is saved and the trainer is
+        closed.
 
         Args:
-            epochs: Number of training epochs to run. Must be >= 1.
+            epochs: Total number of environment transitions to collect before
+                stopping. Must be >= 1.
 
         Raises:
             ValueError: If ``epochs < 1``.
@@ -225,39 +224,59 @@ class TrainerMonteCarlo(Trainer):
 
         mlflow.log_params(self.params())
 
-        for epoch in range(epochs):
+        training_step_count = 0
+        episode_count = 0
+        batch_count = 0
+        last_checkpoint = 0
+        last_metric_log = 0
+
+        while training_step_count < epochs:
             logger.info(
-                f"Starting epoch {epoch + 1}/{epochs} with epsilon {self.epsilon:.4f}"
+                f"Starting batch {batch_count + 1} with epsilon {self.epsilon:.4f}. Transitions {training_step_count} / {epochs}"
             )
             batch_results = self.run_batch()
-            episode_returns = []
+
+            batch_transition_count = sum([len(episode) for episode in batch_results])
+            training_step_count += batch_transition_count
+            episode_count += len(batch_results)
+            batch_count += 1
+
+            episode_metrics = []
             for episode in batch_results:
-                episode_returns.append(self.update_value_table(episode))
+                episode_metrics.append(self.update_value_table(episode))
 
-            all_rewards = [
-                step_result.reward
-                for episode in batch_results
-                for step_result in episode
-            ]
-            mlflow.log_metrics(
-                {
-                    "return_avg": float(np.mean(episode_returns)),
-                    "reward_avg": float(np.mean(all_rewards)),
-                    "episode_length_avg": float(
-                        np.mean([len(episode) for episode in batch_results])
-                    ),
-                    "value_table_nonzero": int(
-                        np.count_nonzero(self.model.value_table)
-                    ),
-                    "epsilon": self.epsilon,
-                },
-                step=epoch,
-            )
+            if training_step_count - last_metric_log >= self.log_metric_frequency:
+                mlflow.log_metrics(
+                    {
+                        "episode_return_avg": float(
+                            np.mean([metric[0] for metric in episode_metrics])
+                        ),
+                        "episode_return_std": float(
+                            np.std([metric[0] for metric in episode_metrics])
+                        ),
+                        "episode_reward_avg": float(
+                            np.mean([metric[1] for metric in episode_metrics])
+                        ),
+                        "episode": episode_count,
+                        "batch_count": batch_count,
+                        "transition_per_episode": float(
+                            np.mean([len(episode) for episode in batch_results])
+                        ),
+                        "value_table_nonzero": int(
+                            np.count_nonzero(self.model.value_table)
+                        ),
+                        "epsilon": self.epsilon,
+                    },
+                    step=training_step_count,
+                )
+                last_metric_log = training_step_count
 
-            if (epoch + 1) % self.model_checkpoint_frequency == 0:
+            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
                 self.model.save_weights(self.model_dir, checkpoint=True)
+                last_checkpoint = training_step_count
 
-            self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+            for _ in range(batch_transition_count):
+                self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
         self.model.save(self.model_dir)
         self.close()
