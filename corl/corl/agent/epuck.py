@@ -169,9 +169,12 @@ class Epuck(Agent):
         - ``"distance_sensors"`` (``list[float]``) — present when
           :meth:`init_distance_sensors` has been called. Contains one
           float per sensor (``ps0``–``ps7``).
-        - ``"camera"`` (``NDArray[np.float32]``) — present when
-          :meth:`init_camera` has been called. Shape is
-          ``(*frame_shape, CAMERA_FRAME_SIZE)``.
+        - ``"camera"`` (``list``) — present when :meth:`init_camera` has
+          been called. Nested list representation of a stacked-frame array
+          with shape ``(height, width, CAMERA_FRAME_SIZE)`` for grayscale,
+          or ``(height, width, channels * CAMERA_FRAME_SIZE)`` for colour,
+          where ``height`` and ``width`` match the configured
+          ``image_shape`` (or native camera resolution if unset).
 
         Returns:
             dict[str, Any]: Observation dictionary with zero, one, or both
@@ -183,7 +186,7 @@ class Epuck(Agent):
                 s.getValue() for s in self.distance_sensors
             ]
         if self.camera is not None:
-            observation["camera"] = self.camera.process_camera_image()
+            observation["camera"] = self.camera.process_camera_image().tolist()
         return observation
 
     def act(self, action: int) -> None:
