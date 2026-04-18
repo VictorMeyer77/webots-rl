@@ -6,15 +6,21 @@ All external collaborators (Wrapper, Tracker) are mocked
 so no real API server, GPU, or file system is required.
 """
 
+import sys
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pytest
+# mlflow is not installed in the test environment — mock before any corl import
+sys.modules.setdefault("mlflow", MagicMock())
 
-from corl.schemas.learning import Observation
-from corl.schemas.tracker import StepKey
-from corl.trainer.tracker import StepResult
-from corl.utils.config import Config
+from pathlib import Path  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
+
+from corl.schemas.learning import Observation  # noqa: E402
+from corl.schemas.tracker import StepKey  # noqa: E402
+from corl.trainer.tracker import StepResult  # noqa: E402
+from corl.utils.config import Config  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Minimal concrete subclass
@@ -63,6 +69,8 @@ def _make_config() -> MagicMock:
         "train_id": TRAIN_ID,
         "trainer_output_dir": OUTPUT_DIR,
         "trainer_worker_timeout": 30,
+        "trainer_log_metric_frequency": 10,
+        "trainer_mlflow_url": "localhost:5001",
         "world_name": EXPERIMENT_NAME,
         "api_host": "http://localhost",
         "api_port": 8000,
@@ -86,7 +94,7 @@ def trainer():
         patch("corl.trainer.trainer.Wrapper") as MockWrapper,
         patch("corl.trainer.trainer.Tracker") as MockTracker,
         patch("corl.trainer.trainer.mlflow"),
-        patch("os.makedirs"),
+        patch("pathlib.Path.mkdir"),
     ):
         mock_api = MagicMock()
         MockWrapper.return_value = mock_api
@@ -139,7 +147,7 @@ class TestInit:
             patch("corl.trainer.trainer.Wrapper") as MockWrapper,
             patch("corl.trainer.trainer.Tracker"),
             patch("corl.trainer.trainer.mlflow"),
-            patch("os.makedirs"),
+            patch("pathlib.Path.mkdir"),
         ):
             mock_api = MagicMock()
             MockWrapper.return_value = mock_api
@@ -503,10 +511,16 @@ class TestAbstractInterface:
 
 
 class TestCloseModel:
-    def _run(self, trainer, listdir_files, mlflow_mock=None):
-        """Helper that patches os.listdir, mlflow, and shutil.rmtree."""
+    def _run(self, trainer, filenames):
+        """Helper that mocks Path.iterdir, mlflow, and shutil.rmtree."""
+        model_dir = trainer.model_dir
+        file_paths = [Path(model_dir) / f for f in filenames]
+
+        mock_path_instance = MagicMock()
+        mock_path_instance.iterdir.return_value = iter(file_paths)
+
         with (
-            patch("corl.trainer.trainer.os.listdir", return_value=listdir_files),
+            patch("corl.trainer.trainer.Path", return_value=mock_path_instance),
             patch("corl.trainer.trainer.mlflow") as mock_mlflow,
             patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
         ):
@@ -518,8 +532,8 @@ class TestCloseModel:
         mock_mlflow, _ = self._run(trainer, ["weights.h5", "config.json"])
         assert mock_mlflow.log_artifact.call_count == 2
         paths = [c.args[0] for c in mock_mlflow.log_artifact.call_args_list]
-        assert "/model/dir/weights.h5" in paths
-        assert "/model/dir/config.json" in paths
+        assert str(Path("/model/dir") / "weights.h5") in paths
+        assert str(Path("/model/dir") / "config.json") in paths
 
     def test_skips_checkpoint_files(self, trainer):
         trainer.model_dir = "/model/dir"
@@ -527,7 +541,9 @@ class TestCloseModel:
             trainer, ["weights.h5", "weights_ckt_001.h5", "_ckt_backup.h5"]
         )
         assert mock_mlflow.log_artifact.call_count == 1
-        assert mock_mlflow.log_artifact.call_args.args[0] == "/model/dir/weights.h5"
+        assert mock_mlflow.log_artifact.call_args.args[0] == str(
+            Path("/model/dir") / "weights.h5"
+        )
 
     def test_all_checkpoint_files_skipped(self, trainer):
         trainer.model_dir = "/model/dir"

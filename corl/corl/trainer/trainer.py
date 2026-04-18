@@ -1,5 +1,4 @@
 import logging
-import os
 import shutil
 import time
 from abc import ABC, abstractmethod
@@ -34,9 +33,9 @@ class Trainer(ABC):
         train_id: Unique identifier of the training session.
         model: The neural network or array-based model used to select actions.
         model_dir: File-system path where model checkpoints are persisted.
-        mlflow_dir: Root directory for the local MLflow SQLite database and artifacts.
         video_dir: Directory where per-episode video frames are written.
-        model_checkpoint_frequency: Number of epochs between automatic checkpoints.
+        model_checkpoint_frequency: Number of transitions between automatic checkpoints.
+        log_metric_frequency: Minimum number of transitions between MLflow metric log calls.
         api: API wrapper used to exchange data with the training server.
         tracker: Tracks worker state, step keys, and per-step result buffers.
     """
@@ -44,11 +43,11 @@ class Trainer(ABC):
     train_id: str
 
     model_dir: str
-    mlflow_dir: str
     video_dir: str
 
     model: Model
     model_checkpoint_frequency: int
+    log_metric_frequency: int
 
     api: Wrapper
     mlflow: ActiveRun
@@ -70,19 +69,22 @@ class Trainer(ABC):
             model: The model to train. Can be a Keras model or a raw numpy array
                 for table-based methods.
             config: Application configuration. Must contain ``train_id``,
-                ``trainer_output_dir``, ``trainer_worker_timeout``, and ``world_name``.
-            model_checkpoint_frequency: Number of epochs between automatic model
-                checkpoints. Defaults to 10.
+                ``trainer_output_dir``, ``trainer_worker_timeout``,
+                ``trainer_mlflow_url``, ``trainer_log_metric_frequency``,
+                and ``world_name``.
+            model_checkpoint_frequency: Number of transitions between automatic
+                model checkpoints. Defaults to 10.
         """
         self.train_id = config.get("train_id")
         self.model = model
         self.model_checkpoint_frequency = model_checkpoint_frequency
+        self.log_metric_frequency = config.get("trainer_log_metric_frequency")
         self._init_output_dir(config.get("trainer_output_dir"))
         self._init_api(config)
         self.tracker = Tracker(
             self.train_id, config.get("trainer_worker_timeout"), self.api
         )
-        self._init_mlflow(config.get("world_name"))
+        self._init_mlflow(config.get("world_name"), config.get("trainer_mlflow_url"))
 
     def close(self) -> None:
         """
@@ -126,12 +128,11 @@ class Trainer(ABC):
             MLflow. Ensure a non-checkpoint save is performed before calling
             ``close()``.
         """
-        for file in os.listdir(self.model_dir):
-            if "_ckt_" not in file:
-                mlflow.log_artifact(
-                    os.path.join(self.model_dir, file), artifact_path="model"
-                )
-                logger.debug(f"Model file {file} logged to MLflow")
+        model_path = Path(self.model_dir)
+        for file in model_path.iterdir():
+            if "_ckt_" not in file.name:
+                mlflow.log_artifact(str(file), artifact_path="model")
+                logger.debug(f"Model file {file.name} logged to MLflow")
         shutil.rmtree(self.model_dir)
         logger.debug(f"Model directory {self.model_dir} deleted")
 
@@ -145,7 +146,6 @@ class Trainer(ABC):
         directories (including any missing parents):
 
         - ``model_dir``  → ``<output_dir>/models/<train_id>``
-        - ``mlflow_dir`` → ``<output_dir>/mlflow``
         - ``video_dir``  → ``<output_dir>/videos/<train_id>``
 
         Args:
@@ -154,10 +154,8 @@ class Trainer(ABC):
         """
         base = Path(output_dir)
         self.model_dir = str(base / "models" / self.train_id)
-        self.mlflow_dir = str(base / "mlflow")
         self.video_dir = str(base / "videos" / self.train_id)
         Path(self.model_dir).mkdir(parents=True, exist_ok=True)
-        Path(self.mlflow_dir).mkdir(parents=True, exist_ok=True)
         Path(self.video_dir).mkdir(parents=True, exist_ok=True)
         logger.debug(f"Output directory {output_dir} initialized")
 
@@ -180,28 +178,27 @@ class Trainer(ABC):
 
     # MLflow
 
-    def _init_mlflow(self, experiment_name: str) -> None:
+    def _init_mlflow(self, experiment_name: str, mlflow_url: str) -> None:
         """
         Initialize MLflow tracking for the training session.
 
-        Sets the tracking URI to a local SQLite database, creates the experiment
-        if it does not already exist, and starts a new run named after
+        Sets the tracking URI to ``mlflow_url``, creates the experiment if it
+        does not already exist, and starts a new MLflow run named after
         ``train_id``.
 
         Args:
             experiment_name: Name of the MLflow experiment to log runs under.
+                Created automatically if it does not already exist.
+            mlflow_url: Tracking server URI passed to
+                ``mlflow.set_tracking_uri`` (e.g.
+                ``"http://localhost:5001"``).
         """
 
-        mlflow.set_tracking_uri(
-            f"sqlite:///{os.path.join(self.mlflow_dir, 'mlflow.db')}"
-        )
+        mlflow.set_tracking_uri(mlflow_url)
 
         experiment = mlflow.get_experiment_by_name(experiment_name)
         if experiment is None:
-            experiment_id = mlflow.create_experiment(
-                experiment_name,
-                artifact_location=f"file:{self.mlflow_dir}",
-            )
+            experiment_id = mlflow.create_experiment(experiment_name)
         else:
             experiment_id = experiment.experiment_id
         mlflow.set_experiment(experiment_id=experiment_id)
