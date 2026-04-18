@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   
   # MLFlow Backend
@@ -31,7 +29,8 @@ services:
     command: >
       mlflow server
       --backend-store-uri postgresql://mlflow:mlflow@postgres:5432/mlflow
-      --default-artifact-root /mlruns
+      --artifacts-destination /mlruns
+      --serve-artifacts
       --host 0.0.0.0
       --port 5001
 
