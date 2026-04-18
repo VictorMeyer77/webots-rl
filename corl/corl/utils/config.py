@@ -183,6 +183,16 @@ class Config:
             cast=int,
             description="Time in seconds to wait for a worker to respond before marking it as unresponsive",
         ),
+        "TRAINER_MLFLOW_URL": ConfigItem(
+            default="http://localhost:5001",
+            cast=str,
+            description="URL of the MLflow server",
+        ),
+        "TRAINER_LOG_METRIC_FREQUENCY": ConfigItem(
+            default=10,
+            cast=int,
+            description="Interval in transitions to log metrics in mlflow",
+        ),
         # Environment
         "ENVIRONMENT_RECORD_FREQUENCY": ConfigItem(
             default=50,

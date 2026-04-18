@@ -398,7 +398,25 @@ class TestConfigAllDefaults:
         assert config.get("WORKER_ID") is None
         assert config.get("TRAINER_OUTPUT_DIR") == ".train/"
         assert config.get("TRAINER_WORKER_TIMEOUT") == 60
+        assert config.get("TRAINER_MLFLOW_URL") == "http://localhost:5001"
+        assert config.get("TRAINER_LOG_METRIC_FREQUENCY") == 10
         assert config.get("ENVIRONMENT_RECORD_FREQUENCY") == 50
+
+    @patch.dict(
+        os.environ, {"WEBOTS_TRAINER_MLFLOW_URL": "http://mlflow.internal:5000"}
+    )
+    def test_trainer_mlflow_url_from_environment(self):
+        """Test TRAINER_MLFLOW_URL is overridden from environment."""
+        config = Config()
+        assert config.get("TRAINER_MLFLOW_URL") == "http://mlflow.internal:5000"
+
+    @patch.dict(os.environ, {"WEBOTS_TRAINER_LOG_METRIC_FREQUENCY": "25"})
+    def test_trainer_log_metric_frequency_from_environment(self):
+        """Test TRAINER_LOG_METRIC_FREQUENCY is cast to int from environment."""
+        config = Config()
+        value = config.get("TRAINER_LOG_METRIC_FREQUENCY")
+        assert value == 25
+        assert isinstance(value, int)
 
     def test_all_webots_configs(self):
         """Test all Webots configuration items."""
