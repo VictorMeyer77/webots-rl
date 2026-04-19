@@ -24,7 +24,7 @@ class TrainerQLearning(TrainerTDTabular):
     off-policy.
     """
 
-    def update_value_table(self, transition: TransitionSchema) -> float:
+    def update_value_table(self, transition: TransitionSchema) -> dict[str, float]:
         """
         Apply a single Q-learning update and return the TD error.
 
@@ -38,8 +38,11 @@ class TrainerQLearning(TrainerTDTabular):
                 ``current_step.done`` is ``True``.
 
         Returns:
-            float: The TD error ``δ = td_target − Q(s, a)`` computed before
-                the update is applied.
+            dict[str, float]: Metrics dict with keys:
+
+            - ``"td_error"``: absolute TD error ``|td_target − Q(s, a)|``
+              computed before the update is applied.
+            - ``"reward"``: immediate reward from ``current_step``.
         """
 
         current, next_ = transition.current_step, transition.next_step
@@ -63,4 +66,7 @@ class TrainerQLearning(TrainerTDTabular):
             f"done={current.done}"
         )
 
-        return td_error
+        return {
+            "td_error": abs(td_error),
+            "reward": current.reward if current.reward is not None else 0.0,
+        }
