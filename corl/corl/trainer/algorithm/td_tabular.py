@@ -1,4 +1,3 @@
-import collections
 import logging
 from abc import abstractmethod
 
@@ -8,15 +7,11 @@ from numpy.typing import NDArray
 
 from corl.memory.transition import Transition as TransitionMemory
 from corl.model.value_table import ModelValueTable
-from corl.schemas.learning import Observation
-from corl.schemas.tracker import StepKey
 from corl.schemas.tracker import Transition as TransitionSchema
 from corl.trainer.trainer import Trainer
 from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)
-
-METRICS_WINDOW = 100  # Rolling window size for td_error and reward averages
 
 
 class TrainerTDTabular(Trainer):
@@ -36,10 +31,10 @@ class TrainerTDTabular(Trainer):
         gamma (float): Discount factor — weights the importance of future
             rewards relative to immediate rewards (0 = myopic, 1 = far-sighted).
         epsilon (float): Current exploration probability for the ε-greedy
-            policy. Decayed after every completed episode.
+            policy. Decayed once per transition.
         epsilon_min (float): Lower bound for epsilon; decay stops here.
-        epsilon_decay (float): Multiplicative factor applied to epsilon at the
-            end of each episode (e.g. ``0.995``).
+        epsilon_decay (float): Multiplicative factor applied to epsilon once
+            per transition (e.g. ``0.9999``).
         transition (TransitionMemory): Stateful buffer that pairs consecutive
             steps into :class:`~corl.schemas.tracker.Transition` objects
             suitable for TD updates.
@@ -71,15 +66,15 @@ class TrainerTDTabular(Trainer):
                 :class:`~corl.trainer.trainer.Trainer`.
             model (ModelValueTable): Discrete value-table model that stores and
                 updates Q-values.
-            model_checkpoint_frequency (int): Number of completed episodes
+            model_checkpoint_frequency (int): Minimum number of transitions
                 between automatic model checkpoints.
             alpha (float): Learning rate for TD updates.
             gamma (float): Discount factor for future rewards.
             epsilon (float): Initial exploration probability for ε-greedy
                 action selection.
             epsilon_min (float): Minimum value epsilon can decay to.
-            epsilon_decay (float): Multiplicative decay applied to epsilon
-                after each completed episode.
+            epsilon_decay (float): Multiplicative factor applied to epsilon
+                once per transition.
         """
         super().__init__(
             model=model,
@@ -131,23 +126,7 @@ class TrainerTDTabular(Trainer):
         )
 
     @abstractmethod
-    def parse_observations(
-        self, observations: list[tuple[StepKey, Observation]]
-    ) -> list[tuple[StepKey, NDArray[np.float32]]]:
-        """
-        Convert raw observations into numpy arrays for the model.
-
-        Args:
-            observations: List of ``(StepKey, Observation)`` pairs received
-                from the environment.
-
-        Returns:
-            List of ``(StepKey, NDArray[np.float32])`` pairs containing the
-            numerical representation of each observation.
-        """
-
-    @abstractmethod
-    def update_value_table(self, transition: TransitionSchema) -> float:
+    def update_value_table(self, transition: TransitionSchema) -> dict[str, float]:
         """
         Apply a single TD update to the value table and return the TD error.
 
@@ -162,71 +141,53 @@ class TrainerTDTabular(Trainer):
                 :attr:`transition`.
 
         Returns:
-            float: The TD error ``δ = td_target − Q(s, a)`` before the update
-                is applied, used for logging and diagnostics.
+            dict[str, float]: Metrics from the update, typically including
+                ``td_error`` and ``reward``, merged with shared metrics
+                (``episode``, ``transition_per_episode``,
+                ``value_table_nonzero``, ``epsilon``) before being logged
+                to MLflow.
         """
-
-    def _log_metrics(
-        self,
-        epoch: int,
-        accumulated_td_errors: collections.deque[float],
-        accumulated_rewards: collections.deque[float],
-    ) -> None:
-        """
-        Log rolling training metrics to MLflow.
-
-        Computes statistics over the last :data:`METRICS_WINDOW` episodes and
-        logs them as MLflow metrics at the given epoch step.
-
-        Args:
-            epoch (int): Current episode index, used as the MLflow step.
-            accumulated_td_errors (deque[float]): Rolling buffer of recent TD
-                errors (absolute values are averaged).
-            accumulated_rewards (deque[float]): Rolling buffer of recent
-                per-step rewards.
-        """
-        mlflow.log_metrics(
-            {
-                "td_error_avg": float(np.mean(np.abs(accumulated_td_errors))),
-                "reward_avg": float(np.mean(accumulated_rewards)),
-                "value_table_nonzero": int(np.count_nonzero(self.model.value_table)),
-                "epsilon": self.epsilon,
-            },
-            step=epoch,
-        )
 
     def run(self, epochs: int) -> None:
         """
-        Execute the full training loop for a given number of episodes.
+        Run the full TD training loop.
 
-        Each iteration collects steps from all workers, converts them into
-        transitions, applies TD updates, and logs metrics. Epsilon is decayed
-        once per completed episode (``done=True`` step). A model checkpoint is
-        saved every :attr:`model_checkpoint_frequency` episodes, and the final
-        model is saved when all epochs are complete.
+        Iterates until ``epochs`` total transitions have been processed.
+        Each outer iteration calls :meth:`~corl.trainer.trainer.Trainer.training_step`
+        to collect a batch of steps, then for every transition in the batch:
+
+        1. Calls :meth:`update_value_table` to apply the TD update.
+        2. Logs metrics to MLflow every ``log_metric_frequency`` transitions
+           (only when ``update_value_table`` returns a non-empty dict):
+           subclass metrics merged with ``episode``,
+           ``transition_per_episode``, ``value_table_nonzero``, ``epsilon``.
+        3. Saves a weight checkpoint every ``model_checkpoint_frequency``
+           transitions.
+        4. Decays ``epsilon`` by ``epsilon_decay`` once per transition
+           (floored at ``epsilon_min``).
+
+        After all transitions, saves the final model and closes the trainer.
 
         Args:
-            epochs (int): Total number of episodes to train for. Must be ≥ 1.
+            epochs: Total number of transitions to process before stopping.
+                Must be >= 1.
 
         Raises:
             ValueError: If ``epochs < 1``.
         """
         if epochs < 1:
-            raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
+            raise ValueError(f"Number of transitions must be >= 1, got {epochs}")
 
         mlflow.log_params(self.params())
 
-        epoch = 0
-        accumulated_td_errors: collections.deque[float] = collections.deque(
-            maxlen=METRICS_WINDOW
-        )
-        accumulated_rewards: collections.deque[float] = collections.deque(
-            maxlen=METRICS_WINDOW
-        )
+        training_step_count = 0
+        episode_count = 0
+        last_checkpoint = 0
+        last_metric_log = 0
 
-        logger.info(f"Starting training for {epochs} episodes")
+        logger.info(f"Starting training for {epochs} transitions")
 
-        while epoch < epochs:
+        while training_step_count < epochs:
             steps = self.training_step()
 
             transitions = [
@@ -236,27 +197,45 @@ class TrainerTDTabular(Trainer):
             ]
 
             for transition in transitions:
-                accumulated_td_errors.append(self.update_value_table(transition))
+                training_step_count += 1
 
-            accumulated_rewards.extend(t.current_step.reward for t in transitions)
+                if transition.current_step.done:
+                    episode_count += 1
 
-            dones = sum(transition.current_step.done for transition in transitions)
+                fit_metrics = self.update_value_table(transition)
 
-            if dones > 0:
-                self._log_metrics(
-                    epoch=epoch,
-                    accumulated_td_errors=accumulated_td_errors,
-                    accumulated_rewards=accumulated_rewards,
-                )
+                if (
+                    fit_metrics
+                    and training_step_count - last_metric_log
+                    >= self.log_metric_frequency
+                ):
+                    mlflow.log_metrics(
+                        fit_metrics
+                        | {
+                            "episode": episode_count,
+                            "transition_per_episode": round(
+                                training_step_count / episode_count, 2
+                            )
+                            if episode_count > 100
+                            else 0.0,
+                            "value_table_nonzero": int(
+                                np.count_nonzero(self.model.value_table)
+                            ),
+                            "epsilon": self.epsilon,
+                        },
+                        step=training_step_count,
+                    )
+                    last_metric_log = training_step_count
 
-            for _ in range(dones):
-                epoch += 1
-                if epoch % self.model_checkpoint_frequency == 0:
-                    self.model.save_weights(self.model_dir, checkpoint=True)
+            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
+                self.model.save_weights(self.model_dir, checkpoint=True)
+                last_checkpoint = training_step_count
+
+            for _ in transitions:
                 self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
             logger.debug(
-                f"Processed {len(steps)} steps with {len(transitions)} transitions and {dones} dones. Epoch {epoch}/{epochs}."
+                f"Processed {len(steps)} steps with {len(transitions)}. {training_step_count}/{epochs}."
             )
 
         self.model.save(self.model_dir)

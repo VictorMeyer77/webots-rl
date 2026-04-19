@@ -22,7 +22,7 @@ class TrainerSarsa(TrainerTDTabular):
     bootstraps from :math:`\\max_{a'} Q(s', a')`.
     """
 
-    def update_value_table(self, transition: TransitionSchema) -> float:
+    def update_value_table(self, transition: TransitionSchema) -> dict[str, float]:
         """
         Apply a single SARSA update and return the TD error.
 
@@ -37,8 +37,11 @@ class TrainerSarsa(TrainerTDTabular):
                 ``current_step.done`` is ``True``.
 
         Returns:
-            float: The TD error ``δ = td_target − Q(s, a)`` computed before
-                the update is applied.
+            dict[str, float]: Metrics dict with keys:
+
+            - ``"td_error"``: absolute TD error ``|td_target − Q(s, a)|``
+              computed before the update is applied.
+            - ``"reward"``: immediate reward from ``current_step``.
         """
 
         current, next_ = transition.current_step, transition.next_step
@@ -62,4 +65,8 @@ class TrainerSarsa(TrainerTDTabular):
             f"td_target={td_target:.4f} td_error={td_error:.4f} "
             f"done={current.done}"
         )
-        return td_error
+
+        return {
+            "td_error": abs(td_error),
+            "reward": current.reward if current.reward is not None else 0.0,
+        }
