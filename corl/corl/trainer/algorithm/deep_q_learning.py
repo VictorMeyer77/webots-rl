@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class TrainerDeepQLearning(Trainer):
     """
-    Double Deep Q-Network (DDQN) trainer with Prioritized Experience Replay.
+    Deep Q-Network (DQN) trainer with Prioritized Experience Replay.
 
     Implements the DQN training loop with a target network for stable
     bootstrapping and a
@@ -236,7 +236,7 @@ class TrainerDeepQLearning(Trainer):
             "mean_max_next_q": float(np.mean(max_next_q)),
         }
 
-    def run(self, epochs: int) -> None:  # TODO rename epochs
+    def run(self, epochs: int) -> None:
         """
         Execute the full DQN training loop for ``epochs`` steps.
 
@@ -268,20 +268,19 @@ class TrainerDeepQLearning(Trainer):
 
         mlflow.log_params(self.params())
 
-        # epoch = 0
         training_step_count = 0
+        episode_count = 0
         last_fit = 0
         last_target_update = 0
         last_checkpoint = 0
         self.per_beta_increment = (1.0 - self.per_beta) / epochs
 
         logger.info(
-            f"Starting training for {epochs} episodes, beta increment: {self.per_beta_increment}"
+            f"Starting training for {epochs} transitions, beta increment: {self.per_beta_increment}"
         )
 
         while training_step_count < epochs:
             steps = self.training_step()
-            training_step_count += len(steps)
 
             transitions = [
                 transition
@@ -290,6 +289,11 @@ class TrainerDeepQLearning(Trainer):
             ]
 
             for transition in transitions:
+                training_step_count += 1
+
+                if transition.current_step.done:
+                    episode_count += 1
+
                 self.experience_replay.add(
                     transition.current_step.observation,
                     transition.current_step.action,
@@ -306,6 +310,12 @@ class TrainerDeepQLearning(Trainer):
                     mlflow.log_metrics(
                         fit_metrics
                         | {
+                            "episode": episode_count,
+                            "transition_per_episode": round(
+                                training_step_count / episode_count, 2
+                            )
+                            if episode_count > 100
+                            else 0.0,
                             "epsilon": self.epsilon,
                             "per_size": len(self.experience_replay),
                             "per_beta": self.per_beta,
@@ -330,7 +340,7 @@ class TrainerDeepQLearning(Trainer):
                 self.per_beta = min(1.0, self.per_beta + self.per_beta_increment)
 
             logger.debug(
-                f"Processed {len(steps)} steps with {len(transitions)}. Epoch {training_step_count}/{epochs}."
+                f"Processed {len(steps)} steps with {len(transitions)}. {training_step_count}/{epochs}."
             )
 
         self.model.save(self.model_dir)
