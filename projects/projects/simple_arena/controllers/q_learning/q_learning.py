@@ -93,7 +93,7 @@ if __name__ == "__main__":
         TrainerAgent(epuck, config).run(MAX_TIMESTEP)
     else:
         model = ModelValueTable(
-            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.train/mlflow/f15f149aca69478b82ba05de73fdae83/artifacts/model"
+            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/q_learning"
         )
 
         epuck = EpuckQLearningController(

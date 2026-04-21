@@ -10,8 +10,8 @@ from corl.trainer.algorithm.monte_carlo import TrainerMonteCarlo
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
-MODEL_CHECKPOINT_FREQUENCY = 100  # Save a checkpoint every N epochs
-EPOCHS = 4000  # Total number of training epochs
+MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N epochs
+TRANSITIONS = 500_000
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 OBSERVATION_CARDINALITY = (
     3  # Number of discrete bins per sensor (must equal len(bins) + 1)
@@ -20,9 +20,9 @@ OBSERVATION_SIZE = 8  # Number of distance sensors
 BATCH_SIZE = 8  # Episodes collected per training batch
 GAMMA = 0.99  # Discount factor: how much future rewards are valued
 EPSILON = 1.0  # Initial exploration rate (fully random)
-EPSILON_MIN = 0.05  # Minimum exploration rate after decay
+EPSILON_MIN = 0.01  # Minimum exploration rate after decay
 EPSILON_DECAY = (
-    0.9992  # Multiplicative decay applied each epoch (~floor reached at epoch 3200)
+    0.99999  # Multiplicative decay applied each epoch (~floor reached at epoch 3200)
 )
 RETURNS_WINDOW = 100  # Max number of past returns kept per (state, action) pair
 
@@ -93,4 +93,4 @@ if __name__ == "__main__":
         epsilon_min=EPSILON_MIN,
         epsilon_decay=EPSILON_DECAY,
         returns_window=RETURNS_WINDOW,
-    ).run(epochs=EPOCHS)
+    ).run(epochs=TRANSITIONS)

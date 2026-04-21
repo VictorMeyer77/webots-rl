@@ -199,8 +199,7 @@ class TrainerMonteCarlo(Trainer):
            :meth:`run_batch`.
         2. Applies first-visit Monte Carlo updates to the value table via
            :meth:`update_value_table` for each episode in the batch.
-        3. Logs the following metrics to MLflow every
-           ``log_metric_frequency`` transitions:
+        3. Logs the following metrics to MLflow once per completed batch:
            ``episode_return_avg``, ``episode_return_std``,
            ``episode_reward_avg``, ``episode``, ``batch_count``,
            ``transition_per_episode``, ``value_table_nonzero``, ``epsilon``.
@@ -228,7 +227,6 @@ class TrainerMonteCarlo(Trainer):
         episode_count = 0
         batch_count = 0
         last_checkpoint = 0
-        last_metric_log = 0
 
         while training_step_count < epochs:
             logger.info(
@@ -245,31 +243,29 @@ class TrainerMonteCarlo(Trainer):
             for episode in batch_results:
                 episode_metrics.append(self.update_value_table(episode))
 
-            if training_step_count - last_metric_log >= self.log_metric_frequency:
-                mlflow.log_metrics(
-                    {
-                        "episode_return_avg": float(
-                            np.mean([metric[0] for metric in episode_metrics])
-                        ),
-                        "episode_return_std": float(
-                            np.std([metric[0] for metric in episode_metrics])
-                        ),
-                        "episode_reward_avg": float(
-                            np.mean([metric[1] for metric in episode_metrics])
-                        ),
-                        "episode": episode_count,
-                        "batch_count": batch_count,
-                        "transition_per_episode": float(
-                            np.mean([len(episode) for episode in batch_results])
-                        ),
-                        "value_table_nonzero": int(
-                            np.count_nonzero(self.model.value_table)
-                        ),
-                        "epsilon": self.epsilon,
-                    },
-                    step=training_step_count,
-                )
-                last_metric_log = training_step_count
+            mlflow.log_metrics(
+                {
+                    "episode_return_avg": float(
+                        np.mean([metric[0] for metric in episode_metrics])
+                    ),
+                    "episode_return_std": float(
+                        np.std([metric[0] for metric in episode_metrics])
+                    ),
+                    "episode_reward_avg": float(
+                        np.mean([metric[1] for metric in episode_metrics])
+                    ),
+                    "episode": episode_count,
+                    "batch_count": batch_count,
+                    "transition_per_episode": float(
+                        np.mean([len(episode) for episode in batch_results])
+                    ),
+                    "value_table_nonzero": int(
+                        np.count_nonzero(self.model.value_table)
+                    ),
+                    "epsilon": self.epsilon,
+                },
+                step=training_step_count,
+            )
 
             if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
                 self.model.save_weights(self.model_dir, checkpoint=True)

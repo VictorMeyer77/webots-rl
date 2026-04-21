@@ -93,7 +93,7 @@ if __name__ == "__main__":
         TrainerAgent(epuck, config).run(MAX_TIMESTEP)
     else:
         model = ModelValueTable(
-            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.train/mlflow/144aa4da0afe423893be53f5c83a3dce/artifacts/model"
+            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/sarsa"
         )
 
         epuck = EpuckSarsaController(

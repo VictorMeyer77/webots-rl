@@ -10,8 +10,8 @@ from corl.trainer.algorithm.q_learning import TrainerQLearning
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
-EPOCHS = 30000  # Total number of training epochs
-MODEL_CHECKPOINT_FREQUENCY = 500  # Save a checkpoint every N epochs
+TRANSITIONS = 1_000_000  # Total number of training epochs
+MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N epochs
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 OBSERVATION_CARDINALITY = (
     3  # Number of discrete bins per sensor (must equal len(bins) + 1)
@@ -19,11 +19,9 @@ OBSERVATION_CARDINALITY = (
 OBSERVATION_SIZE = 8  # Number of distance sensors
 ALPHA = 0.05  # Learning rate: how much new estimates overwrite old ones
 GAMMA = 0.97  # Discount factor: how much future rewards are valued
-EPSILON = 1.0  # Initial exploration rate (fully random)
-EPSILON_MIN = 0.05  # Minimum exploration rate after decay
-EPSILON_DECAY = (
-    0.9999  # Multiplicative decay applied each epoch (~floor reached at epoch 30000)
-)
+EPSILON = 1.0
+EPSILON_MIN = 0.01
+EPSILON_DECAY = 0.999995
 
 
 class SimpleArenaQLearning(TrainerQLearning):
@@ -89,4 +87,4 @@ if __name__ == "__main__":
         epsilon=EPSILON,
         epsilon_min=EPSILON_MIN,
         epsilon_decay=EPSILON_DECAY,
-    ).run(epochs=EPOCHS)
+    ).run(epochs=TRANSITIONS)
