@@ -19,9 +19,9 @@ OBSERVATION_CARDINALITY = (
 OBSERVATION_SIZE = 8  # Number of distance sensors
 ALPHA = 0.05  # Learning rate: how much new estimates overwrite old ones
 GAMMA = 0.97  # Discount factor: how much future rewards are valued
-EPSILON = 1.0 # Epsilon-greedy initial value
-EPSILON_MIN = 0.01 # Epsilon-greedy minimum value
-EPSILON_DECAY = 0.999995 # Epsilon-greedy decay rate per transition
+EPSILON = 1.0  # Epsilon-greedy initial value
+EPSILON_MIN = 0.01  # Epsilon-greedy minimum value
+EPSILON_DECAY = 0.999995  # Epsilon-greedy decay rate per transition
 
 
 class SimpleArenaDoubleQLearning(TrainerDoubleQLearning):

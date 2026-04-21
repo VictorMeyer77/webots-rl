@@ -1,13 +1,14 @@
 from typing import Any
 
+import numpy as np
 from controller import Robot
-from corl.model.deep_value_table_lite import ModelDeepValueTableLite
+
 from corl.agent.epuck import Epuck
+from corl.model.deep_value_table_lite import ModelDeepValueTableLite
 from corl.model.model import Model
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
-import numpy as np
 
 TIME_STEP = 32  # Simulation timestep in milliseconds (15.625 Hz)
 ACTION_REPEAT = 25  # Number of simulation timesteps to repeat each action

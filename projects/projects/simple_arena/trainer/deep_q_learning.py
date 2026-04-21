@@ -1,16 +1,18 @@
 import logging
-from corl.trainer.algorithm.deep_q_learning import TrainerDeepQLearning
-from corl.schemas.tracker import StepKey
-from corl.schemas.learning import Observation
+
 import numpy as np
 from numpy.typing import NDArray
+from tensorflow.keras.layers import Conv2D, Dense, Flatten
+from tensorflow.keras.losses import Huber
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.optimizers import Adam
+
+from corl.model.deep_value_table import ModelDeepValueTable
+from corl.schemas.learning import Observation
+from corl.schemas.tracker import StepKey
+from corl.trainer.algorithm.deep_q_learning import TrainerDeepQLearning
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
-from corl.model.deep_value_table import ModelDeepValueTable
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, Flatten, Dense
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import Huber
 
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 TRANSITIONS = 1_000_000  # Total number of training transitions
