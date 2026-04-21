@@ -213,6 +213,13 @@ __marimo__/
 .train/
 train/
 
+# Model
+
+*.tflite
+*.keras
+*.npy
+metadata.json
+
 # Macos
 
 .DS_Store
