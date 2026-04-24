@@ -14,6 +14,7 @@ REFRESH_STATUS_INTERVAL = 5.0
 REFRESH_EPISODE_INTERVAL = 0.5
 RETRY_BASE_DELAY = 0.05
 RETRY_MAX_DELAY = 2.0
+SEND_OBS_RETRY_MAX_ATTEMPTS = 5
 
 
 class TrainerAgent:
@@ -60,7 +61,8 @@ class TrainerAgent:
             agent: The :class:`~corl.agent.Agent` instance to drive during
                 training.
             config: Application configuration. Must contain ``"train_id"``,
-                ``"worker_id"``, ``"api_host"``, and ``"api_port"``.
+                ``"worker_id"``, ``"agent_request_timeout"``, and the
+                keys required by :class:`~corl.trainer.wrapper.Wrapper`.
         """
         self.agent = agent
         self.train_id = config.get("train_id")
@@ -117,6 +119,11 @@ class TrainerAgent:
         """
         Collect an observation and send it to the remote trainer.
 
+        Retries up to ``SEND_OBS_RETRY_MAX_ATTEMPTS`` times with exponential
+        back-off (base ``RETRY_BASE_DELAY``, cap ``RETRY_MAX_DELAY``) and ±50 % jitter
+        to spread concurrent worker requests. If all attempts fail, the error
+        is propagated via :meth:`propagate_error`.
+
         Args:
             episode_id: Current episode identifier.
             training_step: Current step index within the episode.
@@ -126,20 +133,34 @@ class TrainerAgent:
             :meth:`~corl.agent.Agent.observe`, passed through after being sent.
 
         Raises:
-            RuntimeError: If the observation cannot be sent to the API.
+            RuntimeError: If the observation cannot be sent after all retries.
         """
         observation = self.agent.observe()
 
-        if not self.api.send_observation(
-            self.train_id,
-            self.worker_id,
-            episode_id,
-            training_step,
-            Observation(data=observation),
-        ):
-            self.propagate_error(training_step, "Failed to send observation.")
+        for attempt in range(SEND_OBS_RETRY_MAX_ATTEMPTS):
+            if self.api.send_observation(
+                self.train_id,
+                self.worker_id,
+                episode_id,
+                training_step,
+                Observation(data=observation),
+            ):
+                return observation
 
-        return observation
+            delay = min(RETRY_BASE_DELAY * 2**attempt, RETRY_MAX_DELAY)
+            jittered = delay * random.uniform(0.5, 1.5)
+            logger.warning(
+                f"Failed to send observation "
+                f"(attempt {attempt + 1}/{SEND_OBS_RETRY_MAX_ATTEMPTS}) "
+                f"for episode {episode_id}, step {training_step}. "
+                f"Retrying in {jittered:.3f}s."
+            )
+            time.sleep(jittered)
+
+        self.propagate_error(
+            training_step,
+            f"Failed to send observation after {SEND_OBS_RETRY_MAX_ATTEMPTS} attempts.",
+        )
 
     def get_action(self, episode_id: int, training_step: int) -> int:
         """
@@ -148,12 +169,9 @@ class TrainerAgent:
         Retries until an action is received or ``agent_request_timeout`` seconds
         have elapsed. Each retry sleeps for an exponentially increasing duration
         capped at ``RETRY_MAX_DELAY``, with ±50 % jitter to spread concurrent
-        worker requests. Two periodic checks run during the wait:
-
-        - Every ``REFRESH_STATUS_INTERVAL`` seconds: verify the worker is still
-          active via :meth:`_check_worker_status`.
-        - Every ``REFRESH_EPISODE_INTERVAL`` seconds: verify the episode ID has
-          not changed via :meth:`_check_episode_id`.
+        worker requests. During the wait, a periodic check runs every
+        ``REFRESH_STATUS_INTERVAL`` seconds to verify the worker is still
+        active via :meth:`_check_worker_status`.
 
         Args:
             episode_id: Current episode identifier.
@@ -221,39 +239,6 @@ class TrainerAgent:
                 self.propagate_error(
                     training_step,
                     f"Worker {self.worker_id} marked as inactive by API, agent should be shutting down by the environment.",
-                )
-            return now
-        return last_check
-
-    def _check_episode_id(
-        self, episode_id: int, training_step: int, now: float, last_check: float
-    ) -> float:
-        """
-        Periodically verify the current episode is still active.
-
-        If the API returns a different episode ID, the simulator is advanced
-        one tick so the environment can proceed with its shutdown sequence.
-
-        Args:
-            episode_id: Expected episode identifier.
-            training_step: Current step index, used for logging.
-            now: Current ``time.monotonic()`` timestamp.
-            last_check: Timestamp of the previous episode check.
-
-        Returns:
-            Updated ``last_check`` timestamp (``now``) if the interval has
-            elapsed and the episode is still active, unchanged otherwise.
-
-        Raises:
-            RuntimeError: If the episode ID returned by the API no longer
-                matches ``episode_id``.
-        """
-        if now - last_check > REFRESH_EPISODE_INTERVAL:
-            if self.api.get_episode_id(self.train_id, self.worker_id) != episode_id:
-                self.agent.robot.step(self.agent.timestep)
-                self.propagate_error(
-                    training_step,
-                    f"Episode {episode_id} no longer active",
                 )
             return now
         return last_check

@@ -1,5 +1,6 @@
 import logging
 import os
+import random
 import time
 
 from corl.environment import Environment as BaseEnvironment
@@ -9,6 +10,10 @@ from corl.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
+RETRY_BASE_DELAY = 0.05
+RETRY_MAX_DELAY = 2.0
+RETRY_MAX_ATTEMPTS = 5
+
 
 class TrainerEnvironment:
     """
@@ -16,7 +21,7 @@ class TrainerEnvironment:
 
     Drives the environment through successive training episodes by exchanging
     state information with the remote trainer over HTTP via
-    :class:`~corl.api.wrapper.Wrapper`. Each episode follows the pattern:
+    :class:`~corl.trainer.wrapper.Wrapper`. Each episode follows the pattern:
 
     1. **Warm-up** – one unchecked ``supervisor.step()`` to initialise sensors.
     2. **Loop** – alternate :meth:`execute_training_step` (advance simulation)
@@ -198,11 +203,13 @@ class TrainerEnvironment:
         """
         Evaluate the current state and send it to the remote agent.
 
-        Calls ``environment.step()`` to obtain the current environment state,
-        then forwards it to the remote agent via
-        :meth:`~corl.api.wrapper.Wrapper.send_environment`. If the API call
-        fails, logs an error and calls ``environment.quit()`` to terminate
-        the process.
+        Calls ``environment.evaluate_training_step()`` to obtain the current
+        environment state, then forwards it to the remote agent via
+        :meth:`~corl.trainer.wrapper.Wrapper.send_environment`. If the API
+        call fails, retries up to ``RETRY_MAX_ATTEMPTS`` times with
+        exponential back-off (base ``RETRY_BASE_DELAY``, cap
+        ``RETRY_MAX_DELAY``) and ±50 % jitter. If all attempts fail, logs
+        an error and calls ``environment.quit()`` to terminate the process.
 
         Args:
             training_step: Current logical RL step index within the episode,
@@ -210,20 +217,34 @@ class TrainerEnvironment:
 
         Returns:
             EnvironmentSchema: The environment state returned by
-            ``environment.step()``.
+            ``environment.evaluate_training_step()``.
         """
         state = self.environment.evaluate_training_step()
-        if not self.api.send_environment(
-            self.train_id,
-            self.worker_id,
-            self.episode_id,
-            training_step,
-            state,
-        ):
-            logger.error(
-                f"Failed to send environment state for episode {self.episode_id}, training step {training_step}."
+
+        for attempt in range(RETRY_MAX_ATTEMPTS):
+            if self.api.send_environment(
+                self.train_id,
+                self.worker_id,
+                self.episode_id,
+                training_step,
+                state,
+            ):
+                return state
+
+            delay = min(RETRY_BASE_DELAY * 2**attempt, RETRY_MAX_DELAY)
+            jittered = delay * random.uniform(0.5, 1.5)
+            logger.warning(
+                f"Failed to send environment state (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS}) "
+                f"for episode {self.episode_id}, step {training_step}. "
+                f"Retrying in {jittered:.3f}s."
             )
-            self.environment.quit()
+            time.sleep(jittered)
+
+        logger.error(
+            f"Failed to send environment state after {RETRY_MAX_ATTEMPTS} attempts "
+            f"for episode {self.episode_id}, training step {training_step}."
+        )
+        self.environment.quit()
 
         return state
 
