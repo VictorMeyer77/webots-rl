@@ -1,0 +1,33 @@
+[project]
+name = "corl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10,<=3.12"
+dependencies = [
+    "dotenv>=0.9.9",
+    "opencv-python>=4.13.0.90",
+    "psycopg2>=2.9.11",
+    "pydantic>=2.12.5",
+    "requests>=2.32.5",
+]
+
+[project.optional-dependencies]
+train = [
+    "tensorflow>=2.20.0",
+    "mlflow>=3.10.0",
+]
+
+[project.scripts]
+corl = "corl.__main__:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+]

@@ -1,4 +1,0 @@
-pip-tools==7.5.2
-black
-isort
-flake8

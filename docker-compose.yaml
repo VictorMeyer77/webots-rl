@@ -1,0 +1,51 @@
+services:
+  
+  # MLFlow Backend
+  postgres:
+    image: postgres:15
+    container_name: mlflow-postgres
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow
+      POSTGRES_DB: mlflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # MLFlow Server
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: mlflow-server
+    depends_on:
+      - postgres
+    ports:
+      - "5001:5001"
+    environment:
+      MLFLOW_BACKEND_STORE_URI: postgresql://mlflow:mlflow@postgres:5432/mlflow
+      MLFLOW_ARTIFACT_ROOT: /mlruns
+    volumes:
+      - mlflow_artifacts:/mlruns
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://mlflow:mlflow@postgres:5432/mlflow
+      --artifacts-destination /mlruns
+      --serve-artifacts
+      --host 0.0.0.0
+      --port 5001
+
+  # Backtrain API
+  backtrain:
+    build:
+      context: ./backtrain
+      dockerfile: Dockerfile
+    container_name: backtrain
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - mlflow
+
+volumes:
+  postgres_data:
+  mlflow_artifacts:

@@ -1,0 +1,32 @@
+[project]
+name = "webots-rl"
+version = "0.1.0"
+requires-python = ">=3.10,<=3.12"
+
+[dependency-groups]
+dev = [
+    "corl[train]",
+    "pytest>=9.0.2",
+    "pytest-cov>=7.0.0",
+]
+
+[tool.uv.sources]
+corl = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "backtrain",
+    "corl",
+    "projects"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["backtrain/tests", "corl/tests"]
+pythonpath = ["backtrain", "corl"]
+addopts = "--import-mode=importlib"
+
+[tool.coverage.run]
+source = ["backtrain/app", "corl/corl"]
+
+[tool.coverage.report]
+show_missing = true
