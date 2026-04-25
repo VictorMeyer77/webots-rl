@@ -1,10 +1,11 @@
+import json
 import logging
 from pathlib import Path
 
 import numpy as np
 import tensorflow as tf  # TODO ai-edge-litert not available on MACOS M2
 from numpy.typing import NDArray
-import json
+
 from corl.model.model import Model
 
 logger = logging.getLogger(__name__)
