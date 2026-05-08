@@ -1,0 +1,16 @@
+#VRML_SIM R2023b utf8
+# license: Copyright Cyberbotics Ltd. Licensed for use only with Webots.
+# license url: https://cyberbotics.com/webots_assets_license
+# tags: hidden
+# Supervisor that manages the Pit Escape benchmark.
+
+PROTO PitEscapeBenchmark [
+  field SFString window "pit_escape"
+]
+{
+  Robot {
+    controller "environment"
+    supervisor TRUE
+    window IS window
+  }
+}
