@@ -26,9 +26,9 @@ class Settings(BaseSettings):
                  Not used with `fastapi dev` command - use --port flag instead.
         memory_capacity: The maximum number of items that can be stored in memory
                         buffers (environment, observation, and action memories).
-                        Defaults to 100000 if not specified.
+                        Defaults to 1000.
         log_console_level: Logging level for console output (e.g., "DEBUG", "INFO",
-                          "WARNING", "ERROR", "CRITICAL"). Defaults to "INFO".
+                          "WARNING", "ERROR", "CRITICAL"). Defaults to "WARNING".
         log_console_handler: Enable or disable console logging handler. Defaults to True.
         log_file_level: Logging level for file output. Defaults to "DEBUG".
         log_file_handler: Enable or disable file logging handler. Defaults to False.
@@ -42,9 +42,9 @@ class Settings(BaseSettings):
 
     memory_capacity: int = 1000
 
-    log_console_level: str = "INFO"
+    log_console_level: str = "WARNING"
     log_console_handler: bool = True
-    log_file_level: str = "DEBUG"
+    log_file_level: str = "INFO"
     log_file_handler: bool = False
     log_file_dir: str = "log"
 

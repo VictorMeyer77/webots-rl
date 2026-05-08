@@ -18,7 +18,7 @@ function windowOnClick(event) {
 }
 
 closeButton.addEventListener("click", toggleModal);
-window.addEventListener("click", windowOnClick); 
+window.addEventListener("click", windowOnClick);
 
 window.robotWindow.receive = function(message, robot) {
   // updates the metric
