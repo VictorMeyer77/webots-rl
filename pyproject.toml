@@ -8,6 +8,8 @@ dev = [
     "corl[train]",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
+    "httpx>=0.27.0",
+    "pydantic-settings>=2.0.0"
 ]
 
 [tool.uv.sources]
