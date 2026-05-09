@@ -187,6 +187,7 @@ class TrainerAgent:
 
         deadline = time.monotonic() + self.agent_request_timeout
         last_status_check = time.monotonic()
+        last_episode_check = time.monotonic()
         attempt = 0
 
         while time.monotonic() < deadline:
@@ -201,6 +202,10 @@ class TrainerAgent:
 
             last_status_check = self._check_worker_status(
                 training_step, now, last_status_check
+            )
+
+            last_episode_check = self._check_episode_id(
+                episode_id, now, last_episode_check
             )
 
             delay = min(RETRY_BASE_DELAY * 2**attempt, RETRY_MAX_DELAY)
@@ -240,6 +245,37 @@ class TrainerAgent:
                     training_step,
                     f"Worker {self.worker_id} marked as inactive by API, agent should be shutting down by the environment.",
                 )
+            return now
+        return last_check
+
+    def _check_episode_id(
+        self, episode_id: int, now: float, last_check: float
+    ) -> float:
+        """
+        Periodically verify the current episode is still active.
+
+        If the API returns a different episode ID, the simulator is advanced
+        one tick so the environment can proceed with its shutdown sequence.
+
+        Args:
+            episode_id: Expected episode identifier.
+            now: Current ``time.monotonic()`` timestamp.
+            last_check: Timestamp of the previous episode check.
+
+        Returns:
+            Updated ``last_check`` timestamp (``now``) if the interval has
+            elapsed and the episode is still active, unchanged otherwise.
+
+        Raises:
+            RuntimeError: If the episode ID returned by the API no longer
+                matches ``episode_id``.
+        """
+        if now - last_check > REFRESH_EPISODE_INTERVAL:
+            if self.api.get_episode_id(self.train_id, self.worker_id) != episode_id:
+                self.agent.robot.step(self.agent.timestep)
+                warning_message = f"Episode {episode_id} marked as done by API, agent should be shutting down by the environment."
+                logger.warning(warning_message)
+                raise RuntimeError(warning_message)
             return now
         return last_check
 

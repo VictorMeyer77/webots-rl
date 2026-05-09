@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
-import tensorflow as tf  # TODO ai-edge-litert not available on MACOS M2
+from ai_edge_litert.interpreter import Interpreter
 from numpy.typing import NDArray
 
 from corl.model.model import Model
@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 
 class ModelActorCriticLite(Model):
     """
-    Inference-only actor model backed by a TFLite interpreter.
+    Inference-only actor model backed by an ai-edge-litert interpreter.
 
     Loads an ``actor.tflite`` file produced by
     :meth:`~corl.model.actor_critic.ModelActorCritic.save_weights_lite`
-    and runs forward passes using the TFLite runtime. The interpreter
+    and runs forward passes using the LiteRT runtime. The interpreter
     outputs action logits from which actions are sampled via softmax.
 
     Intended for deployment where the full TensorFlow training stack is
@@ -28,7 +28,7 @@ class ModelActorCriticLite(Model):
 
     Attributes:
         action_size: Number of discrete actions in the actor output layer.
-        _actor_interpreter: TFLite ``Interpreter`` for the actor network,
+        _actor_interpreter: LiteRT ``Interpreter`` for the actor network,
             or ``None`` until :meth:`load_weights` is called.
         _actor_input_index: Index of the actor's first input tensor.
         _actor_output_index: Index of the actor's first output tensor.
@@ -36,7 +36,7 @@ class ModelActorCriticLite(Model):
 
     action_size: int
 
-    _actor_interpreter: tf.lite.Interpreter | None
+    _actor_interpreter: Interpreter | None
     _actor_input_index: int | None
     _actor_output_index: int | None
 
@@ -64,9 +64,9 @@ class ModelActorCriticLite(Model):
     @staticmethod
     def _load_interpreter(
         model_path: Path,
-    ) -> tuple[tf.lite.Interpreter, int, int]:
+    ) -> tuple[Interpreter, int, int]:
         """
-        Create a TFLite interpreter and return it with I/O tensor indices.
+        Create a LiteRT interpreter and return it with I/O tensor indices.
 
         Args:
             model_path: Path to the ``.tflite`` file.
@@ -77,7 +77,7 @@ class ModelActorCriticLite(Model):
         Raises:
             FileNotFoundError: If the file does not exist.
         """
-        interpreter = tf.lite.Interpreter(model_path=str(model_path))
+        interpreter = Interpreter(model_path=str(model_path))
         interpreter.allocate_tensors()
         input_index = interpreter.get_input_details()[0]["index"]
         output_index = interpreter.get_output_details()[0]["index"]
@@ -85,7 +85,7 @@ class ModelActorCriticLite(Model):
 
     def load_weights(self, model_dir: str) -> None:
         """
-        Load the actor TFLite model from ``model_dir``.
+        Load the actor LiteRT model from ``model_dir``.
 
         Expects ``actor.tflite`` in the given directory. The interpreter
         is allocated and its I/O tensor indices are cached.
@@ -102,13 +102,13 @@ class ModelActorCriticLite(Model):
             self._load_interpreter(base / "actor.tflite")
         )
 
-        logger.info(f"Loaded actor TFLite model from {model_dir}")
+        logger.info(f"Loaded actor LiteRT model from {model_dir}")
 
     def save_weights(self, model_dir: str, checkpoint: bool = False) -> None:
         """
         Not supported — always raises ``RuntimeError``.
 
-        TFLite models are read-only at inference time. To produce
+        LiteRT models are read-only at inference time. To produce
         ``.tflite`` files, call
         :meth:`~corl.model.actor_critic.ModelActorCritic.save` on the
         full Keras model.
@@ -117,7 +117,7 @@ class ModelActorCriticLite(Model):
             RuntimeError: Always.
         """
         raise RuntimeError(
-            "TFLite models should be saved with ModelActorCritic.save()."
+            "LiteRT models should be saved with ModelActorCritic.save()."
         )
 
     def predict(self, observation: NDArray[np.float32]) -> NDArray[np.int32]:
@@ -140,7 +140,7 @@ class ModelActorCriticLite(Model):
         """
         if self._actor_interpreter is None:
             raise RuntimeError(
-                "TFLite actor interpreter not loaded. Call load_weights() first."
+                "LiteRT actor interpreter not loaded. Call load_weights() first."
             )
 
         self._actor_interpreter.set_tensor(self._actor_input_index, observation)

@@ -1,12 +1,11 @@
 import logging
 from typing import Any
 
+import numpy as np
 from controller import Accelerometer, Gyro, Motor, Robot
 
 from corl.agent.agent import Agent
 from corl.model.model import Model
-import numpy as np
-
 
 MAX_VELOCITY = 8.72
 
@@ -128,7 +127,6 @@ class BB8(Agent):
         logger.debug("Gyros initialized")
 
     def observe(self) -> dict[str, Any]:
-
         observation = np.array(
             [
                 [s.getValues() for s in self.accelerometers],
@@ -139,7 +137,6 @@ class BB8(Agent):
         return {"base": observation.tolist()}
 
     def act(self, action: int) -> None:
-
         if action not in self.actions:
             raise ValueError(
                 f"Invalid action {action}. Must be one of {list(self.actions)}."

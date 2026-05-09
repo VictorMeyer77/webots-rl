@@ -133,6 +133,47 @@ def get_train(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
+@router.delete(
+    "/train/{train_id}",
+    summary="Delete a training session",
+    description="Delete an existing training session and all its associated workers.",
+    responses={
+        200: {
+            "description": "Training session deleted successfully",
+            "content": {"application/json": {"example": {"status": "success"}}},
+        },
+        404: {
+            "description": "Training session not found",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Train ID train_001 does not exist."}
+                }
+            },
+        },
+    },
+)
+def del_train(
+    train_id: str, supervisor: Supervisor = Depends(get_supervisor)
+) -> SuccessResponseSchema:
+    """Delete an existing training session.
+
+    Args:
+        train_id: Training session identifier.
+        supervisor: Supervisor instance injected as dependency.
+
+    Returns:
+        Success confirmation message.
+
+    Raises:
+        HTTPException: 404 if the training session doesn't exist.
+    """
+    try:
+        supervisor.del_train(train_id)
+        return SuccessResponseSchema()
+    except SupervisorError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
 @router.post(
     "/train/{train_id}/worker",
     status_code=status.HTTP_201_CREATED,

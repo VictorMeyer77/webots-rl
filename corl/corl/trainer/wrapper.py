@@ -392,6 +392,27 @@ class Wrapper:
                 f"Failed to create training session {train_id}: {result}"
             )
 
+    def delete_training_session(self, train_id: str) -> None:
+        """
+        Delete an existing training session.
+
+        Args:
+            train_id: Unique identifier for the training session to delete.
+
+        Raises:
+            requests.RequestException: If the HTTP request fails.
+            RuntimeError: If the API returns a non-success status.
+        """
+        url = f"{self.base_url}/supervisor/train/{train_id}"
+        response = self.session.delete(url, timeout=self.timeout)
+        response.raise_for_status()
+        result = response.json()
+        logger.debug(f"DELETE {url} returned {result}")
+        if result.get("status") != "success":
+            raise RuntimeError(
+                f"Failed to delete training session {train_id}: {result}"
+            )
+
     def add_worker(self, train_id: str) -> int:
         """
         Add a new worker to a training session.
