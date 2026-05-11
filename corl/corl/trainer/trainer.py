@@ -415,7 +415,7 @@ class Trainer(ABC):
 
         if len(self.tracker.worker_step_keys()) == 0:
             time.sleep(1)
-            logger.debug("No active workers found for episode step.")
+            logger.debug("No active workers found.")
             return []
 
         observations = self._training_step_observation()

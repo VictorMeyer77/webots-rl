@@ -96,6 +96,42 @@ def test_add_train_empty_train_id(client, mock_get_supervisor):
     assert response.status_code == 409
 
 
+def test_del_train_success(client, mock_get_supervisor):
+    """Test successfully deleting a training session."""
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+
+    response = client.delete("/supervisor/train/train_001")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
+
+def test_del_train_removes_session(client, mock_get_supervisor):
+    """Test that deleted session is no longer accessible."""
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.delete("/supervisor/train/train_001")
+
+    response = client.get("/supervisor/train/train_001")
+    assert response.status_code == 404
+
+
+def test_del_train_nonexistent_returns_404(client, mock_get_supervisor):
+    """Test deleting a non-existent training session returns 404."""
+    response = client.delete("/supervisor/train/nonexistent")
+
+    assert response.status_code == 404
+    assert "detail" in response.json()
+
+
+def test_del_train_allows_readd(client, mock_get_supervisor):
+    """Test that a deleted session ID can be re-created."""
+    client.post("/supervisor/train", json={"train_id": "train_001"})
+    client.delete("/supervisor/train/train_001")
+
+    response = client.post("/supervisor/train", json={"train_id": "train_001"})
+    assert response.status_code == 201
+
+
 def test_add_worker_success(client, mock_get_supervisor):
     """Test successfully adding a worker to a training session."""
     # Create training session first

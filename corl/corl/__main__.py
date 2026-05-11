@@ -94,6 +94,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     mode_group.add_argument(
         "--trainer", action="store_true", help="Launch trainer module mode"
     )
+    mode_group.add_argument(
+        "--del",
+        dest="delete",
+        action="store_true",
+        help="Delete the training session for the given world/controller pair",
+    )
 
     return parser
 
@@ -297,6 +303,27 @@ def _launch_trainer(config: Config, world: str, controller: str) -> subprocess.P
     return process
 
 
+def _del_train(config: Config) -> None:
+    """
+    Delete the current training session via the Backtrain API.
+
+    Reads the ``train_id`` from *config* and calls
+    :meth:`~corl.trainer.wrapper.Wrapper.delete_training_session`. Failures are
+    logged as warnings and suppressed so that cleanup always completes.
+
+    Args:
+        config (Config): Loaded application configuration. Must have ``train_id``
+            and all connection keys required by :class:`~corl.trainer.wrapper.Wrapper`.
+    """
+    train_id = config.get("train_id")
+    try:
+        api = Wrapper(config)
+        api.delete_training_session(train_id)
+        logger.info(f"Deleted training session '{train_id}'")
+    except Exception as e:
+        logger.warning(f"Failed to delete training session '{train_id}': {e}")
+
+
 def _run_single(config: Config, world_path: Path, fast: bool) -> None:
     """
     Launch a single Webots instance for a non-training run and block until it exits.
@@ -360,6 +387,9 @@ def main() -> None:
                  of them to finish.
                - ``--trainer``: set ``TRAIN_ID`` on config, start the trainer
                  subprocess via :func:`_launch_trainer`, and wait for it.
+               - ``--del``: set ``TRAIN_ID`` on config and delete the training
+                 session via :func:`_del_train`. Exits immediately after, skipping
+                 world file creation and removal.
                - *(default)*: run a single Webots instance via :func:`_run_single`
                  and wait for it.
         6. Remove the generated world file via :func:`_remove_world`.
@@ -380,6 +410,12 @@ def main() -> None:
     setup_logging(config)
 
     train_id = f"{args.world}_{args.controller}"
+
+    if args.delete:
+        config.set("train_id", train_id)
+        _del_train(config)
+        return
+
     world_path = _create_world(experiments_dir, args.world, args.controller)
 
     if args.worker is not None:

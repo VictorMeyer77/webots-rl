@@ -46,6 +46,8 @@ Exception Handling:
 import logging
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from corl.schemas.api import Endpoint
 from corl.schemas.learning import Action, Environment, Observation
@@ -95,6 +97,18 @@ class Wrapper:
         """
         self.base_url = f"{config.get('API_HOST')}:{config.get('API_PORT')}/api/v1"
         self.session = requests.Session()
+        retry = Retry(
+            total=3,
+            connect=3,
+            read=3,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET", "POST", "DELETE"],
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
         self.timeout = timeout
 
     def __enter__(self):
@@ -390,6 +404,27 @@ class Wrapper:
         if result.get("status") != "success":
             raise RuntimeError(
                 f"Failed to create training session {train_id}: {result}"
+            )
+
+    def delete_training_session(self, train_id: str) -> None:
+        """
+        Delete an existing training session.
+
+        Args:
+            train_id: Unique identifier for the training session to delete.
+
+        Raises:
+            requests.RequestException: If the HTTP request fails.
+            RuntimeError: If the API returns a non-success status.
+        """
+        url = f"{self.base_url}/supervisor/train/{train_id}"
+        response = self.session.delete(url, timeout=self.timeout)
+        response.raise_for_status()
+        result = response.json()
+        logger.debug(f"DELETE {url} returned {result}")
+        if result.get("status") != "success":
+            raise RuntimeError(
+                f"Failed to delete training session {train_id}: {result}"
             )
 
     def add_worker(self, train_id: str) -> int:

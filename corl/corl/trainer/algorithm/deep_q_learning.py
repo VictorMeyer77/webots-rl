@@ -16,10 +16,11 @@ logger = logging.getLogger(__name__)
 
 class TrainerDeepQLearning(Trainer):
     """
-    Deep Q-Network (DQN) trainer with Prioritized Experience Replay.
+    Double Deep Q-Network (DDQN) trainer with Prioritized Experience Replay.
 
-    Implements the DQN training loop with a target network for stable
-    bootstrapping and a
+    Implements the Double DQN training loop where the **online network**
+    selects the greedy next action and the **target network** evaluates it,
+    reducing the maximisation bias present in standard DQN. Uses a
     :class:`~corl.memory.prioritized_experience_replay.PrioritizedExperienceReplayBuffer`
     for efficient experience sampling. Training is driven by the Backtrain
     API via the parent :class:`~corl.trainer.trainer.Trainer` class.
@@ -86,7 +87,7 @@ class TrainerDeepQLearning(Trainer):
         per_beta_start: float,
     ):
         """
-        Initialise the DQN trainer and create the target network.
+        Initialise the DDQN trainer and create the target network.
 
         Args:
             config: Application configuration (experiment paths, env vars).
@@ -131,7 +132,7 @@ class TrainerDeepQLearning(Trainer):
         """
         Return hyperparameters for MLflow logging.
 
-        Merges DQN-specific hyperparameters with the model's own metadata
+        Merges DDQN-specific hyperparameters with the model's own metadata
         (from :meth:`~corl.model.model.Model.metadata`).
 
         Returns:
@@ -186,8 +187,11 @@ class TrainerDeepQLearning(Trainer):
 
         1. Samples a stratified batch from
            :attr:`experience_replay` with the current ``per_beta``.
-        2. Computes Bellman targets using the **target network**:
-           ``y = r + γ · max Q_target(s', ·) · (1 - done)``.
+        2. Computes Double DQN Bellman targets: the **online network**
+           selects the best next action
+           ``a* = argmax Q_online(s', ·)`` and the **target network**
+           evaluates it:
+           ``y = r + γ · Q_target(s', a*) · (1 - done)``.
         3. Fits the online network for one epoch with PER importance-
            sampling weights as ``sample_weight``.
         4. Updates PER priorities using the pre-fit TD-errors
@@ -210,8 +214,11 @@ class TrainerDeepQLearning(Trainer):
             f"actions shape: {actions.shape} rewards shape: {rewards.shape} terminals shape: {terminals.shape}"
         )
 
-        next_q_values = self.target_weights(next_observations, training=False).numpy()
-        max_next_q = np.max(next_q_values, axis=1)
+        # Double DQN: online network selects, target network evaluates
+        online_next_q = self.model.weights(next_observations, training=False).numpy()
+        best_actions = np.argmax(online_next_q, axis=1)
+        target_next_q = self.target_weights(next_observations, training=False).numpy()
+        max_next_q = target_next_q[np.arange(self.batch_size), best_actions]
         non_terminal = ~terminals
 
         current_q = self.model.weights(observations, training=False).numpy()
@@ -238,7 +245,7 @@ class TrainerDeepQLearning(Trainer):
 
     def run(self, epochs: int) -> None:
         """
-        Execute the full DQN training loop for ``epochs`` steps.
+        Execute the full DDQN training loop for ``epochs`` steps.
 
         Logs hyperparameters to MLflow, then repeatedly calls
         :meth:`~corl.trainer.trainer.Trainer.training_step` to collect

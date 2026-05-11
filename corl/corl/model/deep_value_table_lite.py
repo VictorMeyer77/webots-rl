@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
-import tensorflow as tf  # TODO ai-edge-litert not available on MACOS M2
+from ai_edge_litert.interpreter import Interpreter
 from numpy.typing import NDArray
 
 from corl.model.model import Model
@@ -12,11 +12,11 @@ logger = logging.getLogger(__name__)
 
 class ModelDeepValueTableLite(Model):
     """
-    Inference-only Deep Q-network backed by a TFLite interpreter.
+    Inference-only Deep Q-network backed by an ai-edge-litert interpreter.
 
     Loads a ``model.tflite`` file produced by
     :meth:`~corl.model.deep_value_table.ModelDeepValueTable.save_weights_lite`
-    and runs forward passes using the TFLite runtime. Intended for
+    and runs forward passes using the LiteRT runtime. Intended for
     deployment where the full TensorFlow training stack is not required.
 
     Saving is not supported — use
@@ -24,7 +24,7 @@ class ModelDeepValueTableLite(Model):
     export the model, then load the resulting ``.tflite`` file here.
 
     Attributes:
-        _tflite_interpreter: The TFLite ``Interpreter`` instance, or
+        _tflite_interpreter: The LiteRT ``Interpreter`` instance, or
             ``None`` until :meth:`load_weights` is called.
         _tflite_input_index: Index of the first input tensor, cached after
             ``allocate_tensors()``.
@@ -32,15 +32,15 @@ class ModelDeepValueTableLite(Model):
             ``allocate_tensors()``.
     """
 
-    _tflite_interpreter: tf.lite.Interpreter | None = None
+    _tflite_interpreter: Interpreter | None = None
     _tflite_input_index: int | None = None
     _tflite_output_index: int | None = None
 
     def load_weights(self, model_dir: str):
         """
-        Load a TFLite model from ``<model_dir>/model.tflite``.
+        Load a LiteRT model from ``<model_dir>/model.tflite``.
 
-        Creates the TFLite interpreter, allocates tensors, and caches the
+        Creates the LiteRT interpreter, allocates tensors, and caches the
         input and output tensor indices for use in :meth:`predict`.
 
         Args:
@@ -51,7 +51,7 @@ class ModelDeepValueTableLite(Model):
                 ``model_dir``.
         """
         model_path = Path(model_dir) / "model.tflite"
-        self._tflite_interpreter = tf.lite.Interpreter(model_path=str(model_path))
+        self._tflite_interpreter = Interpreter(model_path=str(model_path))
         self._tflite_interpreter.allocate_tensors()
         self._tflite_input_index = self._tflite_interpreter.get_input_details()[0][
             "index"
@@ -64,7 +64,7 @@ class ModelDeepValueTableLite(Model):
         """
         Not supported — always raises ``RuntimeError``.
 
-        TFLite models are read-only at inference time. To produce a
+        LiteRT models are read-only at inference time. To produce a
         ``.tflite`` file, call
         :meth:`~corl.model.deep_value_table.ModelDeepValueTable.save`
         on the full Keras model.
@@ -73,7 +73,7 @@ class ModelDeepValueTableLite(Model):
             RuntimeError: Always.
         """
         raise RuntimeError(
-            "TFLite model should be saved with ModelDeepValueTable.save()."
+            "LiteRT model should be saved with ModelDeepValueTable.save()."
         )
 
     def predict(
@@ -82,7 +82,7 @@ class ModelDeepValueTableLite(Model):
         """
         Return the greedy action for the given observation.
 
-        Sets the input tensor, invokes the TFLite interpreter, and returns
+        Sets the input tensor, invokes the LiteRT interpreter, and returns
         the ``argmax`` over the output Q-values.
 
         Args:
@@ -99,7 +99,7 @@ class ModelDeepValueTableLite(Model):
 
         if self._tflite_interpreter is None:
             raise RuntimeError(
-                "TFLite interpreter not loaded. Pass tflite_model_path to __init__."
+                "LiteRT interpreter not loaded. Call load_weights() first."
             )
         self._tflite_interpreter.set_tensor(self._tflite_input_index, observation)
         self._tflite_interpreter.invoke()

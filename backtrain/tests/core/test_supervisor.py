@@ -363,6 +363,50 @@ class TestSupervisorUpdateWorkerStatus:
             supervisor.update_worker_status("train_1", 99, False)
 
 
+class TestSupervisorDelTrain:
+    """Test cases for deleting training sessions."""
+
+    def test_del_train_removes_session(self):
+        """Verify that del_train removes the training session."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        supervisor.del_train("train_1")
+        assert len(supervisor.trainings) == 0
+
+    def test_del_train_removes_correct_session(self):
+        """Verify that del_train removes only the specified session."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        supervisor.add_train("train_2")
+        supervisor.del_train("train_1")
+        trainings = supervisor.trainings
+        assert len(trainings) == 1
+        assert trainings[0].id == "train_2"
+
+    def test_del_train_also_removes_workers(self):
+        """Verify that del_train removes all associated workers."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        supervisor.add_worker("train_1")
+        supervisor.del_train("train_1")
+        with pytest.raises(SupervisorError):
+            supervisor.get_train("train_1")
+
+    def test_del_train_nonexistent_raises_error(self):
+        """Verify that deleting a non-existent session raises SupervisorError."""
+        supervisor = Supervisor()
+        with pytest.raises(SupervisorError, match="Train ID invalid does not exist"):
+            supervisor.del_train("invalid")
+
+    def test_del_train_allows_readd(self):
+        """Verify that a deleted session ID can be re-added."""
+        supervisor = Supervisor()
+        supervisor.add_train("train_1")
+        supervisor.del_train("train_1")
+        supervisor.add_train("train_1")
+        assert supervisor.get_train("train_1").id == "train_1"
+
+
 class TestSupervisorTrainingsProperty:
     """Test cases for the trainings property."""
 

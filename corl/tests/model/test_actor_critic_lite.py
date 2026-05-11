@@ -1,7 +1,6 @@
 """
 Unit tests for corl.model.actor_critic_lite.ModelActorCriticLite.
 
-TensorFlow is mocked at import time (pyarrow crash on macOS M2).
 All TFLite interpreter calls are mocked — no real .tflite files are used.
 """
 
@@ -14,10 +13,10 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-# Mock TF before any corl imports that pull it in
-_tf_mock = MagicMock()
-sys.modules.setdefault("tensorflow", _tf_mock)
-sys.modules.setdefault("tensorflow.lite", _tf_mock.lite)
+# Mock ai_edge_litert before any corl imports that pull it in
+_litert_mock = MagicMock()
+sys.modules.setdefault("ai_edge_litert", _litert_mock)
+sys.modules.setdefault("ai_edge_litert.interpreter", _litert_mock.interpreter)
 
 from corl.model.actor_critic_lite import ModelActorCriticLite  # noqa: E402
 
@@ -118,7 +117,7 @@ class TestLoadInterpreter:
     def test_creates_interpreter_with_string_path(self):
         interp = make_interpreter()
         with patch(
-            "corl.model.actor_critic_lite.tf.lite.Interpreter",
+            "corl.model.actor_critic_lite.Interpreter",
             return_value=interp,
         ) as mock_cls:
             ModelActorCriticLite._load_interpreter(Path("/some/dir/actor.tflite"))
@@ -127,7 +126,7 @@ class TestLoadInterpreter:
     def test_allocates_tensors(self):
         interp = make_interpreter()
         with patch(
-            "corl.model.actor_critic_lite.tf.lite.Interpreter",
+            "corl.model.actor_critic_lite.Interpreter",
             return_value=interp,
         ):
             ModelActorCriticLite._load_interpreter(Path("/f.tflite"))
@@ -136,7 +135,7 @@ class TestLoadInterpreter:
     def test_returns_interpreter_and_indices(self):
         interp = make_interpreter(input_index=3, output_index=7)
         with patch(
-            "corl.model.actor_critic_lite.tf.lite.Interpreter",
+            "corl.model.actor_critic_lite.Interpreter",
             return_value=interp,
         ):
             result = ModelActorCriticLite._load_interpreter(Path("/f.tflite"))

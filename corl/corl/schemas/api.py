@@ -1,7 +1,7 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class Endpoint(str, Enum):
+class Endpoint(StrEnum):
     """
     API endpoint identifiers for the RL training system.
 

@@ -142,6 +142,18 @@ class Supervisor:
             )
         return TrainingSchema(id=train_id, workers=workers)
 
+    def del_train(self, train_id: str) -> None:
+        """Delete an existing training session and all its workers.
+
+        Args:
+            train_id: Unique string identifier of the training session to delete.
+
+        Raises:
+            SupervisorError: If the training session does not exist.
+        """
+        self._validate_train_exists(train_id)
+        del self._training[train_id]
+
     def add_worker(self, train_id: str) -> int:
         """Register a new worker for an existing training session.
 
