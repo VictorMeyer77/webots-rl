@@ -162,7 +162,7 @@ class TrainerAgent:
             f"Failed to send observation after {SEND_OBS_RETRY_MAX_ATTEMPTS} attempts.",
         )
 
-    def get_action(self, episode_id: int, training_step: int) -> int:
+    def get_action(self, episode_id: int, training_step: int) -> list[float]:
         """
         Poll the API for the action corresponding to the current training step.
 
@@ -178,7 +178,7 @@ class TrainerAgent:
             training_step: Current step index within the episode.
 
         Returns:
-            The discrete action index to execute.
+            The action vector to execute as a list of floats.
 
         Raises:
             RuntimeError: If no action is received within
@@ -279,7 +279,7 @@ class TrainerAgent:
             return now
         return last_check
 
-    def execute_action(self, training_step: int, action: int) -> bool:
+    def execute_action(self, training_step: int, action: list[float]) -> bool:
         """
         Execute an action for ``action_repeat`` consecutive simulation steps.
 
@@ -289,7 +289,7 @@ class TrainerAgent:
 
         Args:
             training_step: Current step index, used only for debug logging.
-            action: Discrete action identifier to pass to :meth:`act`.
+            action: Action vector to pass to :meth:`act`.
 
         Returns:
             ``True`` if all repeats completed normally, ``False`` if the

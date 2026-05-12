@@ -136,13 +136,14 @@ class BB8(Agent):
 
         return {"base": observation.tolist()}
 
-    def act(self, action: int) -> None:
-        if action not in self.actions:
+    def act(self, action: list[float]) -> None:
+        action_index = int(action[0])
+        if action_index not in self.actions:
             raise ValueError(
-                f"Invalid action {action}. Must be one of {list(self.actions)}."
+                f"Invalid action {action_index}. Must be one of {list(self.actions)}."
             )
 
-        pitch_delta, yaw_delta = self.actions[action]
+        pitch_delta, yaw_delta = self.actions[action_index]
 
         new_pitch = np.clip(
             self.motors[0].getVelocity() + pitch_delta, -MAX_VELOCITY, MAX_VELOCITY
@@ -155,5 +156,5 @@ class BB8(Agent):
         self.motors[1].setVelocity(new_yaw)
 
         logger.debug(
-            f"BB8 action {action} executed: pitch velocity {self.motors[0].getVelocity()}, yaw velocity {self.motors[1].getVelocity()}"
+            f"BB8 action {action_index} executed: pitch velocity {self.motors[0].getVelocity()}, yaw velocity {self.motors[1].getVelocity()}"
         )

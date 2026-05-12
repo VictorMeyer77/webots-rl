@@ -273,7 +273,7 @@ class Trainer(ABC):
         """
 
     @abstractmethod
-    def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
+    def policy(self, observations: NDArray[np.float32]) -> NDArray[np.float32]:
         """
         Select actions for a batch of observations.
 
@@ -282,7 +282,9 @@ class Trainer(ABC):
                 observations for ``N`` workers.
 
         Returns:
-            Integer action array of shape ``(N,)``, one action per observation.
+            Action array of shape ``(N,)`` for discrete actions or ``(N, action_dim)``
+            for continuous actions. Each row is converted to ``list[float]`` before
+            being wrapped in an ``Action`` object.
         """
 
     @abstractmethod
@@ -357,7 +359,7 @@ class Trainer(ABC):
         )
         action_array = self.policy(observation_batch)
         actions = [
-            Action(action=int(action), executed=False) for action in action_array
+            Action(action=np.atleast_1d(a).astype(float).tolist()) for a in action_array
         ]
         if len(actions) != len(step_keys):
             logger.error(

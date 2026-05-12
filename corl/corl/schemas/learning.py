@@ -20,15 +20,15 @@ class Environment(BaseModel):
 
 class Action(BaseModel):
     """
-    Represents an action to be executed in the environment.
+    Represents an action to be taken in the environment.
 
     Attributes:
-        action: The action identifier/value
-        executed: Whether the action has been executed
+        action: List of float values encoding the action (supports both
+            discrete actions encoded as ``[float(index)]`` and continuous
+            action vectors).
     """
 
-    action: int
-    executed: bool = False
+    action: list[float]
 
 
 class Observation(BaseModel):

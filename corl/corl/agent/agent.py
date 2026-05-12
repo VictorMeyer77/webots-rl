@@ -65,7 +65,7 @@ class Agent(ABC):
         """
 
     @abstractmethod
-    def policy(self, observation: dict[str, Any]) -> int:
+    def policy(self, observation: dict[str, Any]) -> list[float]:
         """
         Decide an action based on the current observation.
 
@@ -76,19 +76,21 @@ class Agent(ABC):
             observation: Sensor-derived observation returned by :meth:`observe`.
 
         Returns:
-            int: Discrete action identifier to be passed to :meth:`act`.
+            list[float]: Action vector to be passed to :meth:`act`. Use a
+            single-element list (e.g. ``[2.0]``) for discrete actions and a
+            multi-element list for continuous action spaces.
         """
 
     @abstractmethod
-    def act(self, action: int) -> None:
+    def act(self, action: list[float]) -> None:
         """
         Execute the chosen action on the robot.
 
-        Subclasses must override this method to translate the discrete action
-        identifier into concrete motor or actuator commands.
+        Subclasses must override this method to translate the action vector
+        into concrete motor or actuator commands.
 
         Args:
-            action: Discrete action identifier returned by :meth:`policy`.
+            action: Action vector returned by :meth:`policy`.
         """
 
     def run(self) -> None:

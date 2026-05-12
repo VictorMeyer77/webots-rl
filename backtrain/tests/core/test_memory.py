@@ -31,7 +31,7 @@ def sample_observation_message() -> ObservationSchema:
 @pytest.fixture
 def sample_action_message() -> ActionSchema:
     """Provide a sample action message."""
-    return ActionSchema(action=2)
+    return ActionSchema(action=[2.0])
 
 
 def test_memory_initialization():
@@ -319,17 +319,17 @@ def test_memory_observation_message_data_structure(sample_key):
 
 
 def test_memory_action_message_values(sample_key):
-    """Test that action messages store integer action identifiers correctly."""
+    """Test that action messages store float list action values correctly."""
     memory = Memory(capacity=10)
 
     for action_value in [0, 1, 5, 100]:
-        action_msg = ActionSchema(action=action_value)
+        action_msg = ActionSchema(action=[float(action_value)])
         key = ("train_001", 0, 1, action_value)
         memory.add(key, action_msg)
         retrieved = memory.get(key)
 
         assert isinstance(retrieved, ActionSchema)
-        assert retrieved.action == action_value
+        assert retrieved.action == [float(action_value)]
 
 
 def test_memory_hierarchical_keys():

@@ -89,11 +89,9 @@ class TestWrapperInit:
 
 class TestGet:
     def test_returns_dict_on_success(self, wrapper):
-        wrapper.session.get = MagicMock(
-            return_value=_mock_response({"action": 2, "executed": False})
-        )
+        wrapper.session.get = MagicMock(return_value=_mock_response({"action": [2.0]}))
         result = wrapper.get(Endpoint.ACTION, TRAIN_ID, WORKER_ID, EPISODE_ID, STEP)
-        assert result == {"action": 2, "executed": False}
+        assert result == {"action": [2.0]}
 
     def test_url_is_correct(self, wrapper):
         wrapper.session.get = MagicMock(return_value=_mock_response({}))
@@ -208,7 +206,7 @@ class TestBatchPayloadHelpers:
 
     def test_post_batch_payload_structure(self):
         key = StepKey(worker_id=1, episode_id=2, step=3)
-        action = Action(action=4, executed=True)
+        action = Action(action=[4.0])
         payload = Wrapper._post_batch_payload("t1", [(key, action)])
         assert len(payload["items"]) == 1
         item = payload["items"][0]
@@ -218,11 +216,11 @@ class TestBatchPayloadHelpers:
             "episode_id": 2,
             "step": 3,
         }
-        assert item["value"] == {"action": 4, "executed": True}
+        assert item["value"] == {"action": [4.0]}
 
     def test_post_batch_payload_multiple_values(self):
         values = [
-            (StepKey(worker_id=0, episode_id=0, step=i), Action(action=i))
+            (StepKey(worker_id=0, episode_id=0, step=i), Action(action=[float(i)]))
             for i in range(3)
         ]
         payload = Wrapper._post_batch_payload("t1", values)
@@ -277,14 +275,14 @@ class TestGetBatch:
 
 class TestPostBatch:
     def test_returns_true_on_success(self, wrapper, step_key):
-        action = Action(action=1)
+        action = Action(action=[1.0])
         wrapper.session.post = MagicMock(return_value=_mock_response({"total": 1}))
         assert (
             wrapper.post_batch(Endpoint.ACTION, TRAIN_ID, [(step_key, action)]) is True
         )
 
     def test_returns_false_when_total_mismatch(self, wrapper, step_key):
-        action = Action(action=1)
+        action = Action(action=[1.0])
         wrapper.session.post = MagicMock(return_value=_mock_response({"total": 0}))
         assert (
             wrapper.post_batch(Endpoint.ACTION, TRAIN_ID, [(step_key, action)]) is False
@@ -298,7 +296,7 @@ class TestPostBatch:
         )
         assert (
             wrapper.post_batch(
-                Endpoint.ACTION, TRAIN_ID, [(step_key, Action(action=0))]
+                Endpoint.ACTION, TRAIN_ID, [(step_key, Action(action=[0.0]))]
             )
             is False
         )
@@ -307,14 +305,16 @@ class TestPostBatch:
         wrapper.session.post = MagicMock(side_effect=Exception("boom"))
         assert (
             wrapper.post_batch(
-                Endpoint.ACTION, TRAIN_ID, [(step_key, Action(action=0))]
+                Endpoint.ACTION, TRAIN_ID, [(step_key, Action(action=[0.0]))]
             )
             is False
         )
 
     def test_url_is_correct(self, wrapper, step_key):
         wrapper.session.post = MagicMock(return_value=_mock_response({"total": 1}))
-        wrapper.post_batch(Endpoint.ACTION, TRAIN_ID, [(step_key, Action(action=0))])
+        wrapper.post_batch(
+            Endpoint.ACTION, TRAIN_ID, [(step_key, Action(action=[0.0]))]
+        )
         expected_url = f"{BASE_URL}/action/batch/publish"
         call_args = wrapper.session.post.call_args
         assert call_args[0][0] == expected_url
@@ -547,13 +547,10 @@ class TestGetWorkerStatus:
 
 class TestGetAction:
     def test_returns_action_on_success(self, wrapper):
-        wrapper.session.get = MagicMock(
-            return_value=_mock_response({"action": 3, "executed": False})
-        )
+        wrapper.session.get = MagicMock(return_value=_mock_response({"action": [3.0]}))
         action = wrapper.get_action(TRAIN_ID, WORKER_ID, EPISODE_ID, STEP)
         assert isinstance(action, Action)
-        assert action.action == 3
-        assert action.executed is False
+        assert action.action == [3.0]
 
     def test_returns_none_on_failure(self, wrapper):
         wrapper.session.get = MagicMock(
@@ -561,12 +558,12 @@ class TestGetAction:
         )
         assert wrapper.get_action(TRAIN_ID, WORKER_ID, EPISODE_ID, STEP) is None
 
-    def test_executed_true_is_preserved(self, wrapper):
+    def test_multi_float_action_is_preserved(self, wrapper):
         wrapper.session.get = MagicMock(
-            return_value=_mock_response({"action": 0, "executed": True})
+            return_value=_mock_response({"action": [0.5, -1.2]})
         )
         action = wrapper.get_action(TRAIN_ID, WORKER_ID, EPISODE_ID, STEP)
-        assert action.executed is True
+        assert action.action == [0.5, -1.2]
 
 
 class TestSendAction:
@@ -575,14 +572,18 @@ class TestSendAction:
             return_value=_mock_response({"status": "success"})
         )
         assert (
-            wrapper.send_action(TRAIN_ID, WORKER_ID, EPISODE_ID, STEP, Action(action=1))
+            wrapper.send_action(
+                TRAIN_ID, WORKER_ID, EPISODE_ID, STEP, Action(action=[1.0])
+            )
             is True
         )
 
     def test_returns_false_on_failure(self, wrapper):
         wrapper.session.post = MagicMock(side_effect=Exception("err"))
         assert (
-            wrapper.send_action(TRAIN_ID, WORKER_ID, EPISODE_ID, STEP, Action(action=1))
+            wrapper.send_action(
+                TRAIN_ID, WORKER_ID, EPISODE_ID, STEP, Action(action=[1.0])
+            )
             is False
         )
 
@@ -590,23 +591,25 @@ class TestSendAction:
         wrapper.session.post = MagicMock(
             return_value=_mock_response({"status": "success"})
         )
-        action = Action(action=2, executed=True)
+        action = Action(action=[2.0])
         wrapper.send_action(TRAIN_ID, WORKER_ID, EPISODE_ID, STEP, action)
         call_kwargs = wrapper.session.post.call_args[1]
-        assert call_kwargs["json"] == {"action": 2, "executed": True}
+        assert call_kwargs["json"] == {"action": [2.0]}
 
 
 class TestSendActionBatch:
     def test_returns_true_on_success(self, wrapper, step_key):
         wrapper.session.post = MagicMock(return_value=_mock_response({"total": 1}))
         assert (
-            wrapper.send_action_batch(TRAIN_ID, [(step_key, Action(action=0))]) is True
+            wrapper.send_action_batch(TRAIN_ID, [(step_key, Action(action=[0.0]))])
+            is True
         )
 
     def test_returns_false_on_failure(self, wrapper, step_key):
         wrapper.session.post = MagicMock(side_effect=Exception("err"))
         assert (
-            wrapper.send_action_batch(TRAIN_ID, [(step_key, Action(action=0))]) is False
+            wrapper.send_action_batch(TRAIN_ID, [(step_key, Action(action=[0.0]))])
+            is False
         )
 
 

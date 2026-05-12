@@ -282,15 +282,15 @@ class TestTrainingStepAction:
         trainer.api.send_action_batch.assert_not_called()
         trainer.tracker.add_buffer_actions.assert_not_called()
 
-    def test_action_is_int_and_not_executed(self, trainer):
+    def test_action_is_list_of_float(self, trainer):
         key = _step_key()
         obs = np.array([1.0, 2.0], dtype=np.float32)
         trainer.api.send_action_batch.return_value = True
         trainer._training_step_action([(key, obs)])
         _, sent_pairs = trainer.api.send_action_batch.call_args[0]
         _, action = sent_pairs[0]
-        assert isinstance(action.action, int)
-        assert action.executed is False
+        assert isinstance(action.action, list)
+        assert all(isinstance(v, float) for v in action.action)
 
     def test_multiple_observations_produce_multiple_actions(self, trainer):
         keys = [_step_key(worker_id=i) for i in range(3)]

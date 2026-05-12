@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+import numpy as np
 from controller import DistanceSensor, Motor, Robot
 
 from corl.agent.agent import Agent
@@ -189,11 +190,11 @@ class Epuck(Agent):
             observation["camera"] = self.camera.process_camera_image().tolist()
         return observation
 
-    def act(self, action: int) -> None:
+    def act(self, action: list[float]) -> None:
         """
         Apply a velocity increment to both wheel motors.
 
-        Looks up ``action`` in :attr:`actions` to retrieve a
+        Looks up the action index in :attr:`actions` to retrieve a
         ``(left_delta, right_delta)`` pair and adds each delta to the
         corresponding motor's current velocity. The update is only applied
         when the resulting speed stays within ``±MAX_VELOCITY``; if the
@@ -201,26 +202,31 @@ class Epuck(Agent):
         that wheel.
 
         Args:
-            action: Integer action identifier. Must be a key in
+            action: Single-element list containing the integer action index
+                as a float (e.g. ``[2.0]``). The index must be a key in
                 :attr:`actions` (``0``–``8``).
 
         Raises:
-            ValueError: If ``action`` is not a valid key in :attr:`actions`.
+            ValueError: If the action index is not a valid key in :attr:`actions`.
         """
-        if action not in self.actions:
+        action_index = int(action[0])
+        if action_index not in self.actions:
             raise ValueError(
-                f"Invalid action {action}. Must be one of {list(self.actions)}."
+                f"Invalid action {action_index}. Must be one of {list(self.actions)}."
             )
 
-        velocity_motor_0 = self.motors[0].getVelocity()
-        velocity_motor_1 = self.motors[1].getVelocity()
+        left_delta, right_delta = self.actions[action_index]
 
-        if abs(velocity_motor_0 + self.actions[action][0]) < MAX_VELOCITY:
-            self.motors[0].setVelocity(velocity_motor_0 + self.actions[action][0])
+        new_left = np.clip(
+            self.motors[0].getVelocity() + left_delta, -MAX_VELOCITY, MAX_VELOCITY
+        )
+        new_right = np.clip(
+            self.motors[1].getVelocity() + right_delta, -MAX_VELOCITY, MAX_VELOCITY
+        )
 
-        if abs(velocity_motor_1 + self.actions[action][1]) < MAX_VELOCITY:
-            self.motors[1].setVelocity(velocity_motor_1 + self.actions[action][1])
+        self.motors[0].setVelocity(new_left)
+        self.motors[1].setVelocity(new_right)
 
         logger.debug(
-            f"Epuck action {action} executed: left velocity {self.motors[0].getVelocity()}, right velocity {self.motors[1].getVelocity()}"
+            f"Epuck action {action_index} executed: left velocity {self.motors[0].getVelocity()}, right velocity {self.motors[1].getVelocity()}"
         )

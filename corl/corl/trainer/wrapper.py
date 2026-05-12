@@ -617,11 +617,7 @@ class Wrapper:
             episode_id,
             step,
         )
-        return (
-            Action(action=int(action["action"]), executed=action["executed"])
-            if action is not None
-            else None
-        )
+        return Action(action=action["action"]) if action is not None else None
 
     def send_action(
         self, train_id: str, worker_id: int, episode_id: int, step: int, action: Action

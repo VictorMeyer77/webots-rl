@@ -208,6 +208,9 @@ class TrainerDeepQLearning(Trainer):
         observations, actions, rewards, next_observations, terminals, idxs, weights = (
             self.experience_replay.sample(self.batch_size, self.per_beta)
         )
+        actions = actions.squeeze(
+            -1
+        )  # (batch_size, 1) -> (batch_size,) for discrete indexing
 
         logger.debug(
             f"observations shape: {observations.shape} next_observations shape: {next_observations.shape} "
