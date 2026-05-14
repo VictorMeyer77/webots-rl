@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 from controller import Robot
 
-from corl.agent.epuck.discrete import EpuckDiscrete
+from corl.agent.epuck.continuous import EpuckContinuous
 from corl.model.actor_critic_lite import ModelActorCriticLite
 from corl.model.model import Model
 from corl.trainer.agent import TrainerAgent
@@ -15,17 +15,19 @@ ACTION_REPEAT = 25  # Number of simulation timesteps to repeat each action
 MAX_TIMESTEP = (
     1875  # Maximum number of simulation timesteps before reset (1875 * 32 ms = 60s)
 )
+ACTION_DIM = 2  # [left_velocity, right_velocity]
 GRAYSCALE = True
 NORMALIZE = True
 IMAGE_SHAPE = (42, 42)
 
 
-class EpuckPPOController(EpuckDiscrete):
+class EpuckSACController(EpuckContinuous):
     """
-    E-puck controller driven by a Proximal Policy Optimisation (PPO) policy.
+    E-puck controller driven by a Soft Actor-Critic (SAC) policy.
 
     Captures grayscale camera frames and passes them to a pre-trained
-    TFLite actor network to sample an action from the policy distribution.
+    TFLite actor network to produce continuous wheel velocities
+    ``[left_velocity, right_velocity]`` in the normalised range ``[-1, 1]``.
     """
 
     def __init__(
@@ -43,8 +45,9 @@ class EpuckPPOController(EpuckDiscrete):
             timestep (int): Simulation timestep in milliseconds.
             action_repeat (int): Number of simulation steps each chosen action
                 is held for.
-            model (Model | None): Pre-trained PPO actor TFLite model. Pass
-                ``None`` during training; the trainer will supply actions externally.
+            model (Model | None): Pre-trained SAC actor TFLite model. Pass
+                ``None`` during training; the trainer will supply actions
+                externally.
         """
         super().__init__(
             robot=robot,
@@ -58,24 +61,24 @@ class EpuckPPOController(EpuckDiscrete):
 
     def policy(self, observation: dict[str, Any]) -> list[float]:
         """
-        Sample an action from the actor's policy distribution for the current observation.
+        Predict continuous wheel velocities for the current observation.
 
         The camera frame is flattened and expanded to a batch of one before
-        being passed to the TFLite actor network, which returns a sampled
-        action index.
+        being passed to the TFLite actor network, which returns the mean
+        action ``[left_velocity, right_velocity]`` in ``[-1, 1]``.
 
         Args:
-            observation (dict[str, Any]): Must contain a ``"camera"`` key with
-                the current frame as a float32 array of shape ``IMAGE_SHAPE``.
+            observation: Must contain a ``"camera"`` key with the current
+                frame as a float32 array of shape ``IMAGE_SHAPE``.
 
         Returns:
-            list[float]: Single-element list with the sampled action index as
-                a float (e.g. ``[3.0]``).
+            list[float]: Two-element list ``[left_velocity, right_velocity]``
+                in the normalised range ``[-1, 1]``.
         """
         observation_array = np.expand_dims(
             np.array(observation["camera"], dtype=np.float32).flatten(), axis=0
         )
-        return [float(self.model.predict(observation_array))]
+        return self.model.predict(observation_array).flatten().tolist()
 
 
 if __name__ == "__main__":
@@ -85,7 +88,7 @@ if __name__ == "__main__":
     robot = Robot()
 
     if config.get("train_id") is not None:
-        epuck = EpuckPPOController(
+        epuck = EpuckSACController(
             robot=robot,
             timestep=TIME_STEP,
             action_repeat=ACTION_REPEAT,
@@ -96,10 +99,10 @@ if __name__ == "__main__":
     else:
         model = ModelActorCriticLite()
         model.load(
-            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/ppo"
+            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/simple_arena/sac"
         )
 
-        epuck = EpuckPPOController(
+        epuck = EpuckSACController(
             robot=robot,
             timestep=TIME_STEP,
             action_repeat=ACTION_REPEAT,

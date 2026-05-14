@@ -2,7 +2,7 @@ import logging
 
 import numpy as np
 
-from corl.agent.epuck import EpuckBase, MAX_VELOCITY
+from corl.agent.epuck import MAX_VELOCITY, EpuckBase
 
 logger = logging.getLogger(__name__)
 

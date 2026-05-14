@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.typing import NDArray
 
-from corl.trainer.algorithm.genetic import TrainerGenetic
+from corl.trainer.algorithm.discrete.genetic import TrainerGenetic
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 

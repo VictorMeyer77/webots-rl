@@ -8,7 +8,7 @@ from tensorflow.keras.models import Sequential
 from corl.model.actor_critic import ModelActorCritic
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.ppo import TrainerPPO
+from corl.trainer.algorithm.discrete.ppo import TrainerPPO
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 

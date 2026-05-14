@@ -6,7 +6,7 @@ from numpy.typing import NDArray
 from corl.model.value_table import ModelValueTable
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.monte_carlo import TrainerMonteCarlo
+from corl.trainer.algorithm.discrete.monte_carlo import TrainerMonteCarlo
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 

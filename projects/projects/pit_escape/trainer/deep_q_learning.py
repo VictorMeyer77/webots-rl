@@ -10,7 +10,7 @@ from tensorflow.keras.optimizers import Adam
 from corl.model.deep_value_table import ModelDeepValueTable
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.deep_q_learning import TrainerDeepQLearning
+from corl.trainer.algorithm.discrete.deep_q_learning import TrainerDeepQLearning
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 

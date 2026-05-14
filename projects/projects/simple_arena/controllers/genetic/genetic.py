@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 from controller import Robot
 
-from corl.agent.epuck import Epuck
+from corl.agent.epuck.discrete import EpuckDiscrete
 from corl.model.genetic import ModelGenetic
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
@@ -14,7 +14,7 @@ ACTION_REPEAT = 25  # Number of simulation timesteps to repeat each action
 MAX_TIMESTEP = 1875  # Maximum steps per episode (1875 * 32 ms = 60 seconds)
 
 
-class EpuckGeneticController(Epuck):
+class EpuckGeneticController(EpuckDiscrete):
     """
     E-puck controller driven by a pre-evolved genetic genome.
 
@@ -23,7 +23,7 @@ class EpuckGeneticController(Epuck):
     is a fixed sequence of actions evolved offline and replayed during inference.
     """
 
-    def policy(self, _observation: dict[str, Any]) -> int:
+    def policy(self, _observation: dict[str, Any]) -> list[float]:
         """
         Return the genome action for the current step index.
 
@@ -34,12 +34,19 @@ class EpuckGeneticController(Epuck):
             _observation: Sensor data from the environment (unused).
 
         Returns:
-            int: Action index read from the genome at position
-            ``timestep_index // action_repeat``.
+            list[float]: Single-element list with the action index read from
+                the genome at position ``timestep_index // action_repeat`` as a
+                float (e.g. ``[3.0]``).
         """
-        return self.model.predict(
-            np.array([self.timestep_index // self.action_repeat], dtype=np.float32)
-        )
+        return [
+            float(
+                self.model.predict(
+                    np.array(
+                        [self.timestep_index // self.action_repeat], dtype=np.float32
+                    )
+                )
+            )
+        ]
 
 
 if __name__ == "__main__":

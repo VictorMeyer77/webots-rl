@@ -2,7 +2,7 @@ import logging
 
 import numpy as np
 
-from corl.agent.bb8 import BB8Base, MAX_VELOCITY
+from corl.agent.bb8 import MAX_VELOCITY, BB8Base
 
 logger = logging.getLogger(__name__)
 

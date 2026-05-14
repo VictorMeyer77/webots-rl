@@ -36,8 +36,8 @@ class BB8DeepQLearningController(BB8):
                 the current frame as a float32 array.
 
         Returns:
-            list[float]: Single-element list containing the greedy action index
-                (e.g. ``[3.0]``).
+            list[float]: Single-element list containing the greedy action
+                index as a float (e.g. ``[3.0]``).
         """
         observation_array = np.expand_dims(
             np.array(observation["base"], dtype=np.float32), axis=0

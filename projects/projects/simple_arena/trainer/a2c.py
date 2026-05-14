@@ -8,7 +8,7 @@ from tensorflow.keras.models import Sequential
 from corl.model.actor_critic import ModelActorCritic
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.a2c import TrainerA2C
+from corl.trainer.algorithm.discrete.a2c import TrainerA2C
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
