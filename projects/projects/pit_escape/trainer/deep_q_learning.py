@@ -22,9 +22,9 @@ EPSILON = 1.0  # Epsilon-greedy initial value
 EPSILON_MIN = 0.01  # Epsilon-greedy minimum value
 EPSILON_DECAY = 0.999995  # Epsilon-greedy decay rate per transition (reaches EPSILON_MIN at ~920k steps)
 BATCH_SIZE = 64  # Number of transitions sampled per gradient update
-FIT_FREQUENCY = 5  # Train the online network every N steps
-UPDATE_TARGET_WEIGHTS_FREQUENCY = 7500  # Sync target network weights every N steps
-PER_SIZE = 100_000  # Prioritised replay buffer capacity
+FIT_FREQUENCY = 1  # Train the online network every N steps
+UPDATE_TARGET_WEIGHTS_FREQUENCY = 2500  # Sync target network weights every N steps
+PER_SIZE = 300_000  # Prioritised replay buffer capacity
 PER_ALPHA = 0.6  # Prioritisation exponent (0 = uniform, 1 = full priority)
 PER_BETA_START = 0.4  # Initial importance-sampling correction exponent
 LEARNING_RATE = 0.0001  # Adam optimizer learning rate
@@ -42,7 +42,8 @@ def build_tf_model() -> Sequential:
         Compiled Keras ``Sequential`` model ready for training.
     """
     model = Sequential()
-    model.add(Dense(128, activation="relu", input_shape=(INPUT_SHAPE,)))
+    model.add(Dense(256, activation="relu", input_shape=(INPUT_SHAPE,)))
+    model.add(Dense(256, activation="relu"))
     model.add(Dense(128, activation="relu"))
     model.add(Dense(ACTION_SIZE, activation="linear"))
     model.compile(loss=Huber(), optimizer=Adam(learning_rate=LEARNING_RATE))

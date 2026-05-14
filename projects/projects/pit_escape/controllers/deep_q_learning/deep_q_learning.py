@@ -24,7 +24,7 @@ class BB8DeepQLearningController(BB8):
     convolutional Q-network to select the greedy action.
     """
 
-    def policy(self, observation: dict[str, Any]) -> int:
+    def policy(self, observation: dict[str, Any]) -> list[float]:
         """
         Return the greedy action for the current observation.
 
@@ -36,12 +36,13 @@ class BB8DeepQLearningController(BB8):
                 the current frame as a float32 array.
 
         Returns:
-            int: Greedy action index predicted by the Q-network.
+            list[float]: Single-element list containing the greedy action index
+                (e.g. ``[3.0]``).
         """
         observation_array = np.expand_dims(
             np.array(observation["base"], dtype=np.float32), axis=0
         )
-        return int(self.model.predict(observation_array))
+        return [float(self.model.predict(observation_array))]
 
 
 if __name__ == "__main__":
