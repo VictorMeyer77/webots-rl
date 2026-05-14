@@ -86,9 +86,10 @@ class ModelActorCritic(Model):
         """
         Sample actions from the actor's policy distribution.
 
-        Runs a forward pass through the actor network, applies softmax to
-        obtain action probabilities, and samples one action per observation
-        from the resulting categorical distribution.
+        Runs a forward pass through the actor network in inference mode
+        (``training=False``), applies softmax to obtain action probabilities,
+        and samples one action per observation from the resulting categorical
+        distribution.
 
         Args:
             observation: Batch of observations, shape ``(batch_size, obs_dim)``.

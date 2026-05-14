@@ -285,7 +285,8 @@ class TrainerAgent:
 
         Calls :meth:`act` and advances the Webots simulation for each repeat.
         Exits early if the simulator signals termination (``robot.step`` returns
-        ``-1``).
+        ``-1``). Increments ``agent.timestep_index`` by one for every completed
+        repeat.
 
         Args:
             training_step: Current step index, used only for debug logging.

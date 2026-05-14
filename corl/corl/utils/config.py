@@ -246,7 +246,9 @@ class Config:
             3. Look up the environment variable ``{prefix}_{KEY}``.
             4. If the variable is absent, cache and return the default value.
             5. Cast the raw string to the declared type (``bool`` uses a
-               truthy-string check; all others call ``cast(value)`` directly).
+               truthy-string check — ``"true"``, ``"1"``, ``"yes"``, and
+               ``"on"`` (case-insensitive) evaluate to ``True``, everything
+               else to ``False``; all others call ``cast(value)`` directly).
             6. Cache the cast result and return it.
 
         Args:

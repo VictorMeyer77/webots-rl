@@ -605,7 +605,9 @@ class Wrapper:
             step: Step number within the episode
 
         Returns:
-            Action object if found and successfully parsed, None otherwise
+            :class:`Action` object with the ``action`` field populated if the
+            step was found; ``None`` if the step is not yet available or on
+            any request failure.
 
         Raises:
             Does not raise exceptions. Returns None on failure.

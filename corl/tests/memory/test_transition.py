@@ -17,7 +17,7 @@ from corl.schemas.tracker import StepResult
 def _step(done: bool = False, reward: float = 1.0) -> StepResult:
     return StepResult(
         observation=np.zeros(4, dtype=np.float32),
-        action=0,
+        action=[0.0],
         reward=reward,
         done=done,
     )

@@ -71,7 +71,7 @@ class Model(ABC):
         ``checkpoint_index``, and returns those whose value is a plain
         ``int``, ``float``, ``bool``, or ``str``. This is used by
         :meth:`save_metadata` and passed directly to MLflow via
-        :meth:`~corl.trainer.algorithm.monte_carlo.TrainerMonteCarlo.params`.
+        :meth:`~corl.trainer.algorithm.discrete.monte_carlo.TrainerMonteCarlo.params`.
 
         Returns:
             dict mapping attribute name → scalar value for every qualifying

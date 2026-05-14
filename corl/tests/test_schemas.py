@@ -207,18 +207,18 @@ class TestStepResult:
     def test_initialization_with_values(self):
         """Test initialization with all fields provided."""
         obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        result = StepResult(observation=obs, action=2, reward=1.5, done=False)
+        result = StepResult(observation=obs, action=[2.0], reward=1.5, done=False)
 
         assert np.array_equal(result.observation, obs)
-        assert result.action == 2
+        assert result.action == [2.0]
         assert result.reward == 1.5
         assert result.done is False
 
     def test_initialization_partial(self):
         """Test initialization with some fields provided."""
-        result = StepResult(action=1, reward=0.5)
+        result = StepResult(action=[1.0], reward=0.5)
         assert result.observation is None
-        assert result.action == 1
+        assert result.action == [1.0]
         assert result.reward == 0.5
         assert result.done is None
 
@@ -249,14 +249,14 @@ class TestStepResult:
 
     def test_action_integer(self):
         """Test action field with integer value."""
-        result = StepResult(action=5)
-        assert result.action == 5
-        assert isinstance(result.action, int)
+        result = StepResult(action=[5.0])
+        assert result.action == [5.0]
+        assert isinstance(result.action, list)
 
     def test_action_zero(self):
         """Test action field with zero value."""
-        result = StepResult(action=0)
-        assert result.action == 0
+        result = StepResult(action=[0.0])
+        assert result.action == [0.0]
 
     def test_reward_positive(self):
         """Test reward field with positive value."""
@@ -297,12 +297,12 @@ class TestStepResult:
     def test_is_complete_all_filled(self):
         """Test is_complete() returns True when all fields are filled."""
         obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        result = StepResult(observation=obs, action=2, reward=1.5, done=False)
+        result = StepResult(observation=obs, action=[2.0], reward=1.5, done=False)
         assert result.is_complete() is True
 
     def test_is_complete_missing_observation(self):
         """Test is_complete() returns False when observation is missing."""
-        result = StepResult(action=2, reward=1.5, done=False)
+        result = StepResult(action=[2.0], reward=1.5, done=False)
         assert result.is_complete() is False
 
     def test_is_complete_missing_action(self):
@@ -314,24 +314,24 @@ class TestStepResult:
     def test_is_complete_missing_reward(self):
         """Test is_complete() returns False when reward is missing."""
         obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        result = StepResult(observation=obs, action=2, done=False)
+        result = StepResult(observation=obs, action=[2.0], done=False)
         assert result.is_complete() is False
 
     def test_is_complete_missing_done(self):
         """Test is_complete() returns False when done is missing."""
         obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        result = StepResult(observation=obs, action=2, reward=1.5)
+        result = StepResult(observation=obs, action=[2.0], reward=1.5)
         assert result.is_complete() is False
 
     def test_is_complete_partial_filled(self):
         """Test is_complete() returns False when only some fields are filled."""
-        result = StepResult(action=2, reward=1.5)
+        result = StepResult(action=[2.0], reward=1.5)
         assert result.is_complete() is False
 
     def test_is_complete_done_true(self):
         """Test is_complete() with terminal state (done=True)."""
         obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
-        result = StepResult(observation=obs, action=2, reward=1.5, done=True)
+        result = StepResult(observation=obs, action=[2.0], reward=1.5, done=True)
         assert result.is_complete() is True
         assert result.done is True
 
@@ -342,12 +342,12 @@ class TestStepResult:
         # Should be able to set fields after initialization
         obs = np.array([1.0, 2.0, 3.0], dtype=np.float32)
         result.observation = obs
-        result.action = 2
+        result.action = [2.0]
         result.reward = 1.5
         result.done = False
 
         assert np.array_equal(result.observation, obs)
-        assert result.action == 2
+        assert result.action == [2.0]
         assert result.reward == 1.5
         assert result.done is False
 
@@ -360,7 +360,7 @@ class TestStepResult:
 
     def test_action_none_explicit(self):
         """Test explicitly setting action to None."""
-        result = StepResult(action=5)
+        result = StepResult(action=[5.0])
         result.action = None
         assert result.action is None
 
@@ -382,14 +382,14 @@ class TestStepResult:
         for i in range(5):
             obs = np.array([float(i)], dtype=np.float32)
             result = StepResult(
-                observation=obs, action=i, reward=float(i) * 0.1, done=(i == 4)
+                observation=obs, action=[float(i)], reward=float(i) * 0.1, done=(i == 4)
             )
             results.append(result)
 
         assert len(results) == 5
         for i, result in enumerate(results):
             assert result.observation[0] == float(i)
-            assert result.action == i
+            assert result.action == [float(i)]
             assert result.reward == float(i) * 0.1
             assert result.done == (i == 4)
 

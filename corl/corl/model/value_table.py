@@ -199,7 +199,8 @@ class ModelValueTable(Model):
             epsilon: Exploration rate in ``[0, 1]``.
 
         Returns:
-            Discrete action index.
+            int: Selected action index (Python ``int`` wrapping an
+            ``np.int32`` value).
         """
         if np.random.random() < epsilon:
             action = np.random.randint(self.action_size)
