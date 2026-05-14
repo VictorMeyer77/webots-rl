@@ -12,7 +12,7 @@ from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
 ACTION_DIM = 2  # Continuous action space: [pitch_velocity, yaw_velocity]
-TRANSITIONS = 1_000_000  # Total number of training transitions
+TRANSITIONS = 2_000_000  # Total number of training transitions
 MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor
 TAU = 0.005  # Soft target update coefficient
