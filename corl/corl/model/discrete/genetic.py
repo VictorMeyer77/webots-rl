@@ -86,7 +86,9 @@ class ModelGenetic(Model):
         np.save(model_path, self.actions)
         logger.info(f"Model saved: {model_path}.")
 
-    def predict(self, observation: NDArray[np.float32]) -> NDArray[np.int32]:
+    def predict(
+        self, observation: NDArray[np.float32]
+    ) -> NDArray[np.int32] | NDArray[np.float32]:
         """
         Look up and return the action for a given observation.
 

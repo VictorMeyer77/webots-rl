@@ -7,9 +7,9 @@ from numpy.typing import NDArray
 
 from corl.memory.prioritized_experience_replay import PrioritizedExperienceReplayBuffer
 from corl.memory.transition import Transition as TransitionMemory
+from corl.model.discrete.actor_critic import ModelActorCritic
 from corl.trainer.trainer import Trainer
 from corl.utils.config import Config
-from corl.model.discrete.actor_critic import ModelActorCritic
 
 logger = logging.getLogger(__name__)
 

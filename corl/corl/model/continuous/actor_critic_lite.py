@@ -18,6 +18,8 @@ class ModelActorCriticLite(Model):
     Loads an ``actor.tflite`` file produced by
     :meth:`~corl.model.discrete.actor_critic.ModelActorCritic.save_weights_lite`
     and runs forward passes using the LiteRT runtime.
+    Note: :class:`~corl.model.discrete.actor_critic.ModelActorCritic` is the
+    shared training class used by both discrete and continuous algorithms.
 
     Supports SAC and TD3 actor architectures:
 
@@ -29,9 +31,10 @@ class ModelActorCriticLite(Model):
 
     Intended for deployment where the full TensorFlow training stack is
     not required. Only the actor is needed at inference time; the critic
-    is used exclusively during training. Saving is not supported — use
-    :class:`~corl.model.discrete.actor_critic.ModelActorCritic` to train
-    and export the model, then load the resulting ``.tflite`` file here.
+    is used exclusively during training. Saving is not supported — train
+    and export the model with
+    :class:`~corl.model.discrete.actor_critic.ModelActorCritic`, then load
+    the resulting ``.tflite`` file here.
 
     Attributes:
         action_size: Number of action dimensions.
@@ -127,7 +130,9 @@ class ModelActorCriticLite(Model):
             "LiteRT models should be saved with ModelActorCritic.save()."
         )
 
-    def predict(self, observation: NDArray[np.float32]) -> NDArray[np.float32]:
+    def predict(
+        self, observation: NDArray[np.float32]
+    ) -> NDArray[np.int32] | NDArray[np.float32]:
         """
         Run a forward pass and return a continuous action.
 

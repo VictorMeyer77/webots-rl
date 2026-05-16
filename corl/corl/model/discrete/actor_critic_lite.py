@@ -120,7 +120,9 @@ class ModelActorCriticLite(Model):
             "LiteRT models should be saved with ModelActorCritic.save()."
         )
 
-    def predict(self, observation: NDArray[np.float32]) -> NDArray[np.int32]:
+    def predict(
+        self, observation: NDArray[np.float32]
+    ) -> NDArray[np.int32] | NDArray[np.float32]:
         """
         Sample an action from the actor's policy distribution.
 

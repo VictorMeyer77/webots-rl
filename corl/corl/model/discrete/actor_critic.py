@@ -82,7 +82,9 @@ class ModelActorCritic(Model):
             self.critic = critic
             self.action_size = action_size
 
-    def predict(self, observation: NDArray[np.float32]) -> NDArray[np.int32]:
+    def predict(
+        self, observation: NDArray[np.float32]
+    ) -> NDArray[np.int32] | NDArray[np.float32]:
         """
         Sample actions from the actor's policy distribution.
 
