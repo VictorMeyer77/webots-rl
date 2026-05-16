@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
-    memory_capacity: int = 1000
+    memory_capacity: int = 500
 
     log_console_level: str = "WARNING"
     log_console_handler: bool = True

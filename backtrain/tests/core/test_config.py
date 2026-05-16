@@ -211,7 +211,7 @@ def test_settings_env_file_config():
 def test_global_settings_instance():
     """Test that global settings instance is correctly initialized."""
     assert isinstance(settings, Settings)
-    assert settings.memory_capacity == 1000
+    assert settings.memory_capacity == 500
 
 
 def test_settings_immutability():
