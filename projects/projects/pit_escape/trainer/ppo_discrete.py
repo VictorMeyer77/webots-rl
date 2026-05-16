@@ -69,7 +69,7 @@ def build_critic() -> Sequential:
     return model
 
 
-class PitEscapePPO(TrainerPPO):
+class PitEscapePPODiscrete(TrainerPPO):
     """
     PPO trainer for the pit escape task.
 
@@ -123,7 +123,7 @@ if __name__ == "__main__":
         action_size=ACTION_SIZE,
     )
 
-    PitEscapePPO(
+    PitEscapePPODiscrete(
         config=config,
         model=model,
         model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
