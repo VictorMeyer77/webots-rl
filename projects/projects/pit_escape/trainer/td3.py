@@ -7,7 +7,7 @@ from tensorflow.keras.models import Model, Sequential
 
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.continuous.sac import TrainerSAC
+from corl.trainer.algorithm.continuous.td3 import TrainerTD3
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
@@ -20,35 +20,33 @@ BATCH_SIZE = 256  # Transitions sampled per gradient step
 FIT_FREQUENCY = 1  # Steps between gradient updates
 ACTOR_LR = 0.0003  # Actor Adam learning rate
 CRITIC_LR = 0.0001  # Critic Adam learning rate
-ALPHA = 0.2  # Initial entropy temperature
-AUTO_ALPHA = True  # Automatically tune entropy temperature
-TARGET_ENTROPY = -6.0  # Desired policy entropy; more negative stabilises alpha higher
+POLICY_DELAY = 2  # Critic updates per actor update
+EXPLORATION_NOISE = 0.1  # Std of Gaussian noise added to actions during rollout
+TARGET_NOISE = 0.2  # Std of smoothing noise added to target actions
+TARGET_NOISE_CLIP = 0.5  # Absolute clip bound for target smoothing noise
 MAX_GRAD_NORM = 1.0  # L2 gradient clipping threshold
 PER_SIZE = 300_000  # Replay buffer capacity
 PER_ALPHA = 0.6  # PER priority exponent
 PER_BETA_START = 0.4  # Initial IS correction exponent
-INPUT_SHAPE = 18  # Flat sensor vector size (3 accelerometers + 3 gyros) × 3 axes
+INPUT_SHAPE = 18  # Flat sensor vector size (3 accelerometers + 3 gyros)  3 axes
 
 
 def build_actor() -> Sequential:
     """
-    Build the Gaussian actor network.
+    Build the deterministic actor network.
 
-    Maps flat sensor observations to a vector of size ``ACTION_DIM * 2``:
-    the first half is the action mean and the second half is the log-std.
-    The SAC trainer applies the reparameterisation trick and ``tanh``
-    squashing at training time; the exported TFLite model outputs the
-    mean directly for inference.
+    Maps flat sensor observations to a vector of size ``ACTION_DIM`` with
+    ``tanh`` output activation, producing actions directly in ``[-1, 1]``.
 
     Returns:
-        Keras ``Sequential`` model outputting ``ACTION_DIM * 2`` values.
+        Keras ``Sequential`` model outputting ``ACTION_DIM`` values.
     """
     model = Sequential(
         [
             Dense(256, activation="relu", input_shape=(INPUT_SHAPE,)),
             Dense(256, activation="relu"),
             Dense(128, activation="relu"),
-            Dense(ACTION_DIM * 2, activation="linear"),
+            Dense(ACTION_DIM, activation="tanh"),
         ]
     )
     model.summary()
@@ -61,7 +59,7 @@ def build_critic() -> Model:
 
     Accepts a concatenated ``(observation, action)`` input and outputs a
     scalar Q-value. Two independent instances are created for the twin-
-    critic architecture used by SAC.
+    critic architecture used by TD3.
 
     Returns:
         Keras functional ``Model`` with input shape
@@ -77,13 +75,14 @@ def build_critic() -> Model:
     return model
 
 
-class PitEscapeSAC(TrainerSAC):
+class PitEscapeTD3(TrainerTD3):
     """
-    SAC trainer for the pit escape task.
+    TD3 trainer for the pit escape task.
 
-    Continuous-action policy outputting ``[pitch_velocity, yaw_velocity]``
-    in the normalised range ``[-1, 1]``. Observations are the flat sensor
-    vector from the BB-8 accelerometers and gyroscopes.
+    Deterministic continuous-action policy outputting
+    ``[pitch_velocity, yaw_velocity]`` in the normalised range ``[-1, 1]``.
+    Observations are the flat sensor vector from the BB-8 accelerometers
+    and gyroscopes. Gaussian exploration noise is added during rollout.
     """
 
     def parse_observations(
@@ -124,7 +123,7 @@ if __name__ == "__main__":
     setup_logging(config)
     logger = logging.getLogger(__name__)
 
-    PitEscapeSAC(
+    PitEscapeTD3(
         config=config,
         actor=build_actor(),
         critic1=build_critic(),
@@ -137,9 +136,10 @@ if __name__ == "__main__":
         fit_frequency=FIT_FREQUENCY,
         actor_lr=ACTOR_LR,
         critic_lr=CRITIC_LR,
-        alpha=ALPHA,
-        auto_alpha=AUTO_ALPHA,
-        target_entropy=TARGET_ENTROPY,
+        policy_delay=POLICY_DELAY,
+        exploration_noise=EXPLORATION_NOISE,
+        target_noise=TARGET_NOISE,
+        target_noise_clip=TARGET_NOISE_CLIP,
         max_grad_norm=MAX_GRAD_NORM,
         per_size=PER_SIZE,
         per_alpha=PER_ALPHA,

@@ -6,7 +6,7 @@ import tensorflow as tf
 from numpy.typing import NDArray
 
 from corl.memory.transition import Transition as TransitionMemory
-from corl.model.actor_critic import ModelActorCritic
+from corl.model.discrete.actor_critic import ModelActorCritic
 from corl.schemas.tracker import Transition as TransitionSchema
 from corl.trainer.trainer import Trainer
 from corl.utils.config import Config
@@ -126,7 +126,7 @@ class TrainerA2C(Trainer):
         Sample actions from the actor's stochastic policy.
 
         Delegates to
-        :meth:`~corl.model.actor_critic.ModelActorCritic.predict` which
+        :meth:`~corl.model.discrete.actor_critic.ModelActorCritic.predict` which
         samples from the categorical distribution defined by the actor's
         softmax output.
 
@@ -256,7 +256,7 @@ class TrainerA2C(Trainer):
         is saved every ``model_checkpoint_frequency`` transitions.
 
         On completion, the final model is saved via
-        :meth:`~corl.model.actor_critic.ModelActorCritic.save` and the
+        :meth:`~corl.model.discrete.actor_critic.ModelActorCritic.save` and the
         trainer is closed.
 
         Args:

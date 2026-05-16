@@ -16,18 +16,25 @@ class ModelActorCriticLite(Model):
     Inference-only actor model backed by an ai-edge-litert interpreter.
 
     Loads an ``actor.tflite`` file produced by
-    :meth:`~corl.model.actor_critic.ModelActorCritic.save_weights_lite`
-    and runs forward passes using the LiteRT runtime. The interpreter
-    outputs action logits from which actions are sampled via softmax.
+    :meth:`~corl.model.discrete.actor_critic.ModelActorCritic.save_weights_lite`
+    and runs forward passes using the LiteRT runtime.
+
+    Supports SAC and TD3 actor architectures:
+
+    - **SAC**: the actor outputs ``action_size * 2`` values encoding
+      ``[mean, log_std]`` of a Gaussian policy; ``predict`` returns
+      ``tanh(mean)`` as a deterministic float32 action.
+    - **TD3**: the actor outputs ``action_size`` values with ``tanh``
+      already applied; ``predict`` returns the raw output directly.
 
     Intended for deployment where the full TensorFlow training stack is
     not required. Only the actor is needed at inference time; the critic
     is used exclusively during training. Saving is not supported — use
-    :class:`~corl.model.actor_critic.ModelActorCritic` to train and
-    export the model, then load the resulting ``.tflite`` file here.
+    :class:`~corl.model.discrete.actor_critic.ModelActorCritic` to train
+    and export the model, then load the resulting ``.tflite`` file here.
 
     Attributes:
-        action_size: Number of discrete actions in the actor output layer.
+        action_size: Number of action dimensions.
         _actor_interpreter: LiteRT ``Interpreter`` for the actor network,
             or ``None`` until :meth:`load_weights` is called.
         _actor_input_index: Index of the actor's first input tensor.
@@ -110,7 +117,7 @@ class ModelActorCriticLite(Model):
 
         LiteRT models are read-only at inference time. To produce
         ``.tflite`` files, call
-        :meth:`~corl.model.actor_critic.ModelActorCritic.save` on the
+        :meth:`~corl.model.discrete.actor_critic.ModelActorCritic.save` on the
         full Keras model.
 
         Raises:
@@ -120,20 +127,27 @@ class ModelActorCriticLite(Model):
             "LiteRT models should be saved with ModelActorCritic.save()."
         )
 
-    def predict(self, observation: NDArray[np.float32]) -> NDArray[np.int32]:
+    def predict(self, observation: NDArray[np.float32]) -> NDArray[np.float32]:
         """
-        Sample an action from the actor's policy distribution.
+        Run a forward pass and return a continuous action.
 
-        Sets the actor's input tensor, invokes the interpreter, applies
-        softmax to the output logits, and samples one action from the
-        resulting categorical distribution.
+        Behaviour depends on the actor output shape:
+
+        - **SAC** (output size == ``action_size * 2``): the output encodes
+          ``[mean, log_std]`` from a Gaussian policy. The deterministic mean
+          is extracted and squashed through ``tanh`` to return a float32
+          array of shape ``(action_size,)``.
+        - **TD3** (output size == ``action_size``): the actor already applies
+          ``tanh`` as its output activation; the raw output is returned
+          directly as a float32 array of shape ``(action_size,)``.
 
         Args:
             observation: Observation array. Shape must match the actor
                 model's expected input (typically ``(1, obs_dim)``).
 
         Returns:
-            NDArray[np.int32]: Sampled action index (scalar array).
+            ``NDArray[np.float32]`` of shape ``(action_size,)`` with values
+            in ``[-1, 1]``.
 
         Raises:
             RuntimeError: If :meth:`load_weights` has not been called.
@@ -145,13 +159,15 @@ class ModelActorCriticLite(Model):
 
         self._actor_interpreter.set_tensor(self._actor_input_index, observation)
         self._actor_interpreter.invoke()
-        logits = self._actor_interpreter.get_tensor(self._actor_output_index)
+        output = self._actor_interpreter.get_tensor(self._actor_output_index)
 
-        # Numerically stable softmax
-        exp_logits = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
-        probs = exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)
-        action = np.random.choice(self.action_size, p=probs.flatten())
-        return np.array(action, dtype=np.int32)
+        if output.shape[-1] == self.action_size * 2:
+            # SAC Gaussian policy: output is [mean, log_std]; use tanh(mean)
+            mean = output[..., : self.action_size]
+            return np.tanh(mean).astype(np.float32).flatten()
+
+        # TD3 deterministic policy: tanh already applied by the model
+        return output.astype(np.float32).flatten()
 
     def load_metadata(self, model_dir: str) -> None:
         """

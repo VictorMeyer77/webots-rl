@@ -1,5 +1,5 @@
 """
-Unit tests for corl.model.genetic.ModelGenetic
+Unit tests for corl.model.discrete.genetic.ModelGenetic
 
 File I/O is patched throughout — no real files are written or read.
 """
@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from corl.model.genetic import ModelGenetic
+from corl.model.discrete.genetic import ModelGenetic
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,7 +74,9 @@ class TestInstantiation:
 class TestLoadWeights:
     def test_loads_array_from_npy(self, model):
         actions = make_actions()
-        with patch("corl.model.genetic.np.load", return_value=actions) as mock_load:
+        with patch(
+            "corl.model.discrete.genetic.np.load", return_value=actions
+        ) as mock_load:
             model.load_weights("/some/dir")
 
         mock_load.assert_called_once_with(
@@ -84,7 +86,7 @@ class TestLoadWeights:
 
     def test_uses_correct_path(self, model):
         with patch(
-            "corl.model.genetic.np.load", return_value=make_actions()
+            "corl.model.discrete.genetic.np.load", return_value=make_actions()
         ) as mock_load:
             model.load_weights("/my/model/dir")
 
@@ -93,15 +95,16 @@ class TestLoadWeights:
         )
 
     def test_logs_info_on_success(self, model, caplog):
-        with patch("corl.model.genetic.np.load", return_value=make_actions()):
-            with caplog.at_level(logging.INFO, logger="corl.model.genetic"):
+        with patch("corl.model.discrete.genetic.np.load", return_value=make_actions()):
+            with caplog.at_level(logging.INFO, logger="corl.model.discrete.genetic"):
                 model.load_weights("/some/dir")
 
         assert any("Model loaded from" in r.message for r in caplog.records)
 
     def test_raises_file_not_found_when_missing(self, model):
         with patch(
-            "corl.model.genetic.np.load", side_effect=FileNotFoundError("no file")
+            "corl.model.discrete.genetic.np.load",
+            side_effect=FileNotFoundError("no file"),
         ):
             with pytest.raises(FileNotFoundError):
                 model.load_weights("/missing/dir")
@@ -114,7 +117,7 @@ class TestLoadWeights:
 
 class TestSaveWeights:
     def test_saves_to_model_npy_by_default(self, loaded_model):
-        with patch("corl.model.genetic.np.save") as mock_save:
+        with patch("corl.model.discrete.genetic.np.save") as mock_save:
             loaded_model.save_weights("/out/dir")
 
         mock_save.assert_called_once_with(
@@ -122,7 +125,7 @@ class TestSaveWeights:
         )
 
     def test_checkpoint_uses_index_in_filename(self, loaded_model):
-        with patch("corl.model.genetic.np.save") as mock_save:
+        with patch("corl.model.discrete.genetic.np.save") as mock_save:
             loaded_model.save_weights("/out/dir", checkpoint=True)
 
         mock_save.assert_called_once_with(
@@ -130,7 +133,7 @@ class TestSaveWeights:
         )
 
     def test_checkpoint_increments_index(self, loaded_model):
-        with patch("corl.model.genetic.np.save"):
+        with patch("corl.model.discrete.genetic.np.save"):
             loaded_model.save_weights("/out/dir", checkpoint=True)
             loaded_model.save_weights("/out/dir", checkpoint=True)
 
@@ -139,7 +142,8 @@ class TestSaveWeights:
     def test_successive_checkpoints_use_unique_filenames(self, loaded_model):
         saved_paths = []
         with patch(
-            "corl.model.genetic.np.save", side_effect=lambda p, _: saved_paths.append(p)
+            "corl.model.discrete.genetic.np.save",
+            side_effect=lambda p, _: saved_paths.append(p),
         ):
             loaded_model.save_weights("/out/dir", checkpoint=True)
             loaded_model.save_weights("/out/dir", checkpoint=True)
@@ -148,7 +152,7 @@ class TestSaveWeights:
         assert len(set(saved_paths)) == 3
 
     def test_non_checkpoint_does_not_increment_index(self, loaded_model):
-        with patch("corl.model.genetic.np.save"):
+        with patch("corl.model.discrete.genetic.np.save"):
             loaded_model.save_weights("/out/dir")
             loaded_model.save_weights("/out/dir")
 
@@ -159,15 +163,15 @@ class TestSaveWeights:
             model.save_weights("/out/dir")
 
     def test_logs_info_on_checkpoint(self, loaded_model, caplog):
-        with patch("corl.model.genetic.np.save"):
-            with caplog.at_level(logging.INFO, logger="corl.model.genetic"):
+        with patch("corl.model.discrete.genetic.np.save"):
+            with caplog.at_level(logging.INFO, logger="corl.model.discrete.genetic"):
                 loaded_model.save_weights("/out/dir", checkpoint=True)
 
         assert any("Model saved" in r.message for r in caplog.records)
 
     def test_logs_info_on_final_save(self, loaded_model, caplog):
-        with patch("corl.model.genetic.np.save"):
-            with caplog.at_level(logging.INFO, logger="corl.model.genetic"):
+        with patch("corl.model.discrete.genetic.np.save"):
+            with caplog.at_level(logging.INFO, logger="corl.model.discrete.genetic"):
                 loaded_model.save_weights("/out/dir")
 
         assert any("Model saved" in r.message for r in caplog.records)
@@ -222,7 +226,7 @@ class TestPredict:
 
     def test_logs_debug_on_prediction(self, loaded_model, caplog):
         obs = np.array([0.0], dtype=np.float32)
-        with caplog.at_level(logging.DEBUG, logger="corl.model.genetic"):
+        with caplog.at_level(logging.DEBUG, logger="corl.model.discrete.genetic"):
             loaded_model.predict(obs)
 
         assert any("Predicted action" in r.message for r in caplog.records)

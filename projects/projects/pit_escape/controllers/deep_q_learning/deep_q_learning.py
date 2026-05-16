@@ -4,7 +4,7 @@ import numpy as np
 from controller import Robot
 
 from corl.agent.bb8 import BB8
-from corl.model.deep_value_table_lite import ModelDeepValueTableLite
+from corl.model.discrete.deep_value_table_lite import ModelDeepValueTableLite
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging

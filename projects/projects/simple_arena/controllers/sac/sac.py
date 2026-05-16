@@ -4,7 +4,7 @@ import numpy as np
 from controller import Robot
 
 from corl.agent.epuck.continuous import EpuckContinuous
-from corl.model.actor_critic_lite import ModelActorCriticLite
+from corl.model.discrete.actor_critic_lite import ModelActorCriticLite
 from corl.model.model import Model
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config

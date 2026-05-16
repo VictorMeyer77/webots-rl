@@ -1,5 +1,5 @@
 """
-Unit tests for corl.model.actor_critic.ModelActorCritic.
+Unit tests for corl.model.discrete.actor_critic.ModelActorCritic.
 
 TensorFlow is mocked at import time (pyarrow crash on macOS M2).
 All Keras I/O calls are mocked — no real models are loaded, saved, or run.
@@ -15,12 +15,11 @@ import pytest
 from numpy.typing import NDArray
 
 # Mock TF before any corl imports that pull it in
-_tf_mock = MagicMock()
-sys.modules.setdefault("tensorflow", _tf_mock)
+_tf_mock = sys.modules.setdefault("tensorflow", MagicMock())
 sys.modules.setdefault("tensorflow.lite", _tf_mock.lite)
 sys.modules.setdefault("tensorflow.keras", _tf_mock.keras)
 
-from corl.model.actor_critic import ModelActorCritic  # noqa: E402
+from corl.model.discrete.actor_critic import ModelActorCritic  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -122,7 +121,9 @@ class TestInstantiation:
         actor = make_keras_model()
         critic = make_keras_model()
         with patch.object(ModelActorCritic, "load"):
-            with caplog.at_level(logging.WARNING, logger="corl.model.actor_critic"):
+            with caplog.at_level(
+                logging.WARNING, logger="corl.model.discrete.actor_critic"
+            ):
                 ModelActorCritic(
                     model_dir="/some/dir",
                     actor=actor,
@@ -139,7 +140,6 @@ class TestInstantiation:
 
 class TestPredict:
     def test_returns_ndarray_of_int32(self, model, obs_batch):
-        # softmax mock returns numpy probs
         probs = np.array(
             [[0.25, 0.25, 0.25, 0.25], [0.25, 0.25, 0.25, 0.25]],
             dtype=np.float32,
@@ -241,7 +241,7 @@ class TestSaveWeightsLite:
         mock_converter.convert.return_value = b"tflite_bytes"
 
         with patch(
-            "corl.model.actor_critic.tf.lite.TFLiteConverter.from_keras_model",
+            "corl.model.discrete.actor_critic.tf.lite.TFLiteConverter.from_keras_model",
             return_value=mock_converter,
         ):
             mock_open = MagicMock()
@@ -256,7 +256,7 @@ class TestSaveWeightsLite:
         mock_converter.convert.return_value = b"tflite_bytes"
 
         with patch(
-            "corl.model.actor_critic.tf.lite.TFLiteConverter.from_keras_model",
+            "corl.model.discrete.actor_critic.tf.lite.TFLiteConverter.from_keras_model",
             return_value=mock_converter,
         ) as mock_from_keras:
             with patch("builtins.open", MagicMock()):
@@ -304,7 +304,7 @@ class TestLoadWeights:
             return critic_mock
 
         with patch(
-            "corl.model.actor_critic.tf.keras.models.load_model",
+            "corl.model.discrete.actor_critic.tf.keras.models.load_model",
             side_effect=side_effect,
         ) as mock_load:
             model.load_weights("/some/dir")
@@ -323,7 +323,7 @@ class TestLoadWeights:
             return critic_mock
 
         with patch(
-            "corl.model.actor_critic.tf.keras.models.load_model",
+            "corl.model.discrete.actor_critic.tf.keras.models.load_model",
             side_effect=side_effect,
         ):
             model.load_weights("/some/dir")
@@ -333,10 +333,12 @@ class TestLoadWeights:
 
     def test_logs_info_on_success(self, model, caplog):
         with patch(
-            "corl.model.actor_critic.tf.keras.models.load_model",
+            "corl.model.discrete.actor_critic.tf.keras.models.load_model",
             return_value=make_keras_model(),
         ):
-            with caplog.at_level(logging.INFO, logger="corl.model.actor_critic"):
+            with caplog.at_level(
+                logging.INFO, logger="corl.model.discrete.actor_critic"
+            ):
                 model.load_weights("/some/dir")
 
         assert any("Loaded" in r.message for r in caplog.records)
@@ -373,7 +375,9 @@ class TestLoadMetadata:
     def test_logs_info_on_success(self, model, caplog):
         with patch("builtins.open", MagicMock()):
             with patch("json.load", return_value={"action_size": 4}):
-                with caplog.at_level(logging.INFO, logger="corl.model.actor_critic"):
+                with caplog.at_level(
+                    logging.INFO, logger="corl.model.discrete.actor_critic"
+                ):
                     model.load_metadata("/some/dir")
 
         assert any("action_size" in r.message for r in caplog.records)

@@ -7,7 +7,7 @@ import mlflow
 import numpy as np
 from numpy.typing import NDArray
 
-from corl.model.genetic import ModelGenetic
+from corl.model.discrete.genetic import ModelGenetic
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey, StepResult
 from corl.trainer.trainer import Trainer

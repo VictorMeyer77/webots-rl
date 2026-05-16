@@ -4,8 +4,8 @@ import numpy as np
 from controller import Robot
 
 from corl.agent.epuck.discrete import EpuckDiscrete
+from corl.model.discrete.value_table import ModelValueTable
 from corl.model.model import Model
-from corl.model.value_table import ModelValueTable
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging

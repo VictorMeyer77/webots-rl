@@ -4,7 +4,7 @@ import numpy as np
 from controller import Robot
 
 from corl.agent.epuck.discrete import EpuckDiscrete
-from corl.model.genetic import ModelGenetic
+from corl.model.discrete.genetic import ModelGenetic
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging

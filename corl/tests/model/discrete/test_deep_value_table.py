@@ -1,5 +1,5 @@
 """
-Unit tests for corl.model.deep_value_table.ModelDeepValueTable.
+Unit tests for corl.model.discrete.deep_value_table.ModelDeepValueTable.
 
 TensorFlow is mocked at import time (pyarrow crash on macOS M2).
 All Keras I/O calls are mocked — no real models are loaded, saved, or run.
@@ -21,7 +21,7 @@ sys.modules.setdefault("tensorflow", _tf_mock)
 sys.modules.setdefault("tensorflow.lite", _tf_mock.lite)
 sys.modules.setdefault("tensorflow.keras", _tf_mock.keras)
 
-from corl.model.deep_value_table import ModelDeepValueTable  # noqa: E402
+from corl.model.discrete.deep_value_table import ModelDeepValueTable  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -102,7 +102,9 @@ class TestInstantiation:
     def test_model_dir_warns_when_weights_also_provided(self, caplog):
         keras_mock = make_keras_model()
         with patch.object(ModelDeepValueTable, "load"):
-            with caplog.at_level(logging.WARNING, logger="corl.model.deep_value_table"):
+            with caplog.at_level(
+                logging.WARNING, logger="corl.model.discrete.deep_value_table"
+            ):
                 ModelDeepValueTable(
                     model_dir="/some/dir", weights=keras_mock, action_size=4
                 )
@@ -118,7 +120,7 @@ class TestLoadWeights:
     def test_loads_from_correct_path(self, model):
         keras_mock = make_keras_model()
         with patch(
-            "corl.model.deep_value_table.tf.keras.models.load_model",
+            "corl.model.discrete.deep_value_table.tf.keras.models.load_model",
             return_value=keras_mock,
         ) as mock_load:
             model.load_weights("/some/dir")
@@ -128,7 +130,7 @@ class TestLoadWeights:
     def test_weights_attribute_set_after_load(self, model):
         keras_mock = make_keras_model()
         with patch(
-            "corl.model.deep_value_table.tf.keras.models.load_model",
+            "corl.model.discrete.deep_value_table.tf.keras.models.load_model",
             return_value=keras_mock,
         ):
             model.load_weights("/some/dir")
@@ -137,10 +139,12 @@ class TestLoadWeights:
 
     def test_logs_info_on_success(self, model, caplog):
         with patch(
-            "corl.model.deep_value_table.tf.keras.models.load_model",
+            "corl.model.discrete.deep_value_table.tf.keras.models.load_model",
             return_value=make_keras_model(),
         ):
-            with caplog.at_level(logging.INFO, logger="corl.model.deep_value_table"):
+            with caplog.at_level(
+                logging.INFO, logger="corl.model.discrete.deep_value_table"
+            ):
                 model.load_weights("/some/dir")
 
         assert any("Loaded" in r.message for r in caplog.records)
@@ -190,7 +194,7 @@ class TestSaveWeightsLite:
         mock_converter.convert.return_value = b"tflite_bytes"
 
         with patch(
-            "corl.model.deep_value_table.tf.lite.TFLiteConverter.from_keras_model",
+            "corl.model.discrete.deep_value_table.tf.lite.TFLiteConverter.from_keras_model",
             return_value=mock_converter,
         ):
             mock_open = MagicMock()

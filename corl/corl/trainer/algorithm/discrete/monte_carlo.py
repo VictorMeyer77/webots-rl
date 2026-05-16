@@ -5,7 +5,7 @@ import mlflow
 import numpy as np
 from numpy.typing import NDArray
 
-from corl.model.value_table import ModelValueTable
+from corl.model.discrete.value_table import ModelValueTable
 from corl.schemas.tracker import StepResult
 from corl.trainer.trainer import Trainer
 from corl.utils.config import Config

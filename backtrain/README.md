@@ -4,7 +4,7 @@ A FastAPI-based API server designed to facilitate communication and coordination
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - [uv](https://github.com/astral-sh/uv) package manager
 
 ## Installation

@@ -1,5 +1,5 @@
 """
-Unit tests for corl.model.value_table.ModelValueTable.
+Unit tests for corl.model.discrete.value_table.ModelValueTable.
 
 File I/O is patched throughout — no real files are written or read.
 """
@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from corl.model.value_table import ModelValueTable
+from corl.model.discrete.value_table import ModelValueTable
 
 # ---------------------------------------------------------------------------
 # Helpers / Fixtures
@@ -94,7 +94,9 @@ class TestInstantiation:
 
     def test_model_dir_warns_when_dims_also_provided(self, caplog):
         with patch.object(ModelValueTable, "load"):
-            with caplog.at_level(logging.WARNING, logger="corl.model.value_table"):
+            with caplog.at_level(
+                logging.WARNING, logger="corl.model.discrete.value_table"
+            ):
                 ModelValueTable(
                     model_dir="/some/dir",
                     observation_cardinality=3,
@@ -112,7 +114,9 @@ class TestInstantiation:
 class TestLoadWeights:
     def test_loads_array_from_npy(self, model):
         table = np.ones((9, 4), dtype=np.float32)
-        with patch("corl.model.value_table.np.load", return_value=table) as mock_load:
+        with patch(
+            "corl.model.discrete.value_table.np.load", return_value=table
+        ) as mock_load:
             model.load_weights("/some/dir")
 
         mock_load.assert_called_once_with(
@@ -122,7 +126,7 @@ class TestLoadWeights:
 
     def test_uses_correct_path(self, model):
         with patch(
-            "corl.model.value_table.np.load", return_value=np.zeros((9, 4))
+            "corl.model.discrete.value_table.np.load", return_value=np.zeros((9, 4))
         ) as mock_load:
             model.load_weights("/my/model/dir")
 
@@ -131,15 +135,19 @@ class TestLoadWeights:
         )
 
     def test_logs_info_on_success(self, model, caplog):
-        with patch("corl.model.value_table.np.load", return_value=np.zeros((9, 4))):
-            with caplog.at_level(logging.INFO, logger="corl.model.value_table"):
+        with patch(
+            "corl.model.discrete.value_table.np.load", return_value=np.zeros((9, 4))
+        ):
+            with caplog.at_level(
+                logging.INFO, logger="corl.model.discrete.value_table"
+            ):
                 model.load_weights("/some/dir")
 
         assert any("Model loaded from" in r.message for r in caplog.records)
 
     def test_raises_file_not_found(self, model):
         with patch(
-            "corl.model.value_table.np.load",
+            "corl.model.discrete.value_table.np.load",
             side_effect=FileNotFoundError("no file"),
         ):
             with pytest.raises(FileNotFoundError):
@@ -153,7 +161,7 @@ class TestLoadWeights:
 
 class TestSaveWeights:
     def test_saves_to_model_npy_by_default(self, model):
-        with patch("corl.model.value_table.np.save") as mock_save:
+        with patch("corl.model.discrete.value_table.np.save") as mock_save:
             model.save_weights("/out/dir")
 
         mock_save.assert_called_once_with(
@@ -161,7 +169,7 @@ class TestSaveWeights:
         )
 
     def test_checkpoint_uses_index_in_filename(self, model):
-        with patch("corl.model.value_table.np.save") as mock_save:
+        with patch("corl.model.discrete.value_table.np.save") as mock_save:
             model.save_weights("/out/dir", checkpoint=True)
 
         mock_save.assert_called_once_with(
@@ -169,7 +177,7 @@ class TestSaveWeights:
         )
 
     def test_checkpoint_increments_index(self, model):
-        with patch("corl.model.value_table.np.save"):
+        with patch("corl.model.discrete.value_table.np.save"):
             model.save_weights("/out/dir", checkpoint=True)
             model.save_weights("/out/dir", checkpoint=True)
 
@@ -178,7 +186,7 @@ class TestSaveWeights:
     def test_successive_checkpoints_use_unique_filenames(self, model):
         saved_paths = []
         with patch(
-            "corl.model.value_table.np.save",
+            "corl.model.discrete.value_table.np.save",
             side_effect=lambda p, _: saved_paths.append(p),
         ):
             model.save_weights("/out/dir", checkpoint=True)
@@ -188,7 +196,7 @@ class TestSaveWeights:
         assert len(set(saved_paths)) == 3
 
     def test_non_checkpoint_does_not_increment_index(self, model):
-        with patch("corl.model.value_table.np.save"):
+        with patch("corl.model.discrete.value_table.np.save"):
             model.save_weights("/out/dir")
             model.save_weights("/out/dir")
 

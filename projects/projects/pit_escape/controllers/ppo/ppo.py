@@ -4,7 +4,7 @@ import numpy as np
 from controller import Robot
 
 from corl.agent.bb8.discrete import BB8Discrete
-from corl.model.actor_critic_lite import ModelActorCriticLite
+from corl.model.discrete.actor_critic_lite import ModelActorCriticLite
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging

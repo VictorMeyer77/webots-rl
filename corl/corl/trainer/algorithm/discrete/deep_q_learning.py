@@ -7,7 +7,7 @@ from numpy.typing import NDArray
 
 from corl.memory.prioritized_experience_replay import PrioritizedExperienceReplayBuffer
 from corl.memory.transition import Transition as TransitionMemory
-from corl.model.deep_value_table import ModelDeepValueTable
+from corl.model.discrete.deep_value_table import ModelDeepValueTable
 from corl.trainer.trainer import Trainer
 from corl.utils.config import Config
 

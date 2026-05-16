@@ -107,4 +107,5 @@ class ModelDeepValueTableLite(Model):
         return np.array(np.argmax(q_values), dtype=np.int32)
 
     def load_metadata(self, model_dir: str) -> None:
+        """No metadata is required for this model; does nothing."""
         return

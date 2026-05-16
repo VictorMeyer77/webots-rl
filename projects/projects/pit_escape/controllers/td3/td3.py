@@ -17,9 +17,9 @@ MAX_TIMESTEP = (
 ACTION_DIM = 2  # [pitch_velocity, yaw_velocity]
 
 
-class BB8SACController(BB8Continuous):
+class BB8TD3Controller(BB8Continuous):
     """
-    BB-8 controller driven by a Soft Actor-Critic (SAC) policy.
+    BB-8 controller driven by a Twin Delayed DDPG (TD3) policy.
 
     Reads the flat sensor observation vector (accelerometers + gyroscopes)
     and passes it to a pre-trained TFLite actor network to produce continuous
@@ -32,13 +32,13 @@ class BB8SACController(BB8Continuous):
         Predict continuous motor velocities for the current observation.
 
         The sensor vector is expanded to a batch of one before being passed
-        to the TFLite actor network, which returns the mean action
+        to the TFLite actor network, which returns the deterministic action
         ``[pitch_velocity, yaw_velocity]`` in ``[-1, 1]``.
 
         Args:
             observation (dict[str, Any]): Must contain a ``"base"`` key with
                 the current sensor vector as a flat float32 array (18 values:
-                3 accelerometers × 3 axes + 3 gyroscopes × 3 axes).
+                3 accelerometers  3 axes + 3 gyroscopes  3 axes).
 
         Returns:
             list[float]: Two-element list ``[pitch_velocity, yaw_velocity]``
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     robot = Robot()
 
     if config.get("train_id") is not None:
-        bb8 = BB8SACController(
+        bb8 = BB8TD3Controller(
             robot=robot,
             timestep=TIME_STEP,
             action_repeat=ACTION_REPEAT,
@@ -68,10 +68,10 @@ if __name__ == "__main__":
     else:
         model = ModelActorCriticLite()
         model.load(
-            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/pit_escape/sac"
+            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/pit_escape/td3"
         )
 
-        bb8 = BB8SACController(
+        bb8 = BB8TD3Controller(
             robot=robot,
             timestep=TIME_STEP,
             action_repeat=ACTION_REPEAT,

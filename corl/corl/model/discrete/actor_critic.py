@@ -134,7 +134,7 @@ class ModelActorCritic(Model):
         to a TFLite flatbuffer. Only the actor is exported because the
         critic is not needed at inference time. The resulting file can be
         loaded by
-        :class:`~corl.model.actor_critic_lite.ModelActorCriticLite` for
+        :class:`~corl.model.discrete.actor_critic_lite.ModelActorCriticLite` for
         lightweight inference.
 
         Args:

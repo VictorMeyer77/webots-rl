@@ -7,7 +7,7 @@ from tensorflow.keras.losses import Huber
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 
-from corl.model.deep_value_table import ModelDeepValueTable
+from corl.model.discrete.deep_value_table import ModelDeepValueTable
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
 from corl.trainer.algorithm.discrete.deep_q_learning import TrainerDeepQLearning

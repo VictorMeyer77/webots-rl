@@ -3,7 +3,7 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 
-from corl.model.value_table import ModelValueTable
+from corl.model.discrete.value_table import ModelValueTable
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
 from corl.trainer.algorithm.discrete.sarsa import TrainerSarsa

@@ -1,5 +1,5 @@
 """
-Unit tests for corl.model.actor_critic_lite.ModelActorCriticLite.
+Unit tests for corl.model.discrete.actor_critic_lite.ModelActorCriticLite.
 
 All TFLite interpreter calls are mocked — no real .tflite files are used.
 """
@@ -18,7 +18,7 @@ _litert_mock = MagicMock()
 sys.modules.setdefault("ai_edge_litert", _litert_mock)
 sys.modules.setdefault("ai_edge_litert.interpreter", _litert_mock.interpreter)
 
-from corl.model.actor_critic_lite import ModelActorCriticLite  # noqa: E402
+from corl.model.discrete.actor_critic_lite import ModelActorCriticLite  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,7 +117,7 @@ class TestLoadInterpreter:
     def test_creates_interpreter_with_string_path(self):
         interp = make_interpreter()
         with patch(
-            "corl.model.actor_critic_lite.Interpreter",
+            "corl.model.discrete.actor_critic_lite.Interpreter",
             return_value=interp,
         ) as mock_cls:
             ModelActorCriticLite._load_interpreter(Path("/some/dir/actor.tflite"))
@@ -126,7 +126,7 @@ class TestLoadInterpreter:
     def test_allocates_tensors(self):
         interp = make_interpreter()
         with patch(
-            "corl.model.actor_critic_lite.Interpreter",
+            "corl.model.discrete.actor_critic_lite.Interpreter",
             return_value=interp,
         ):
             ModelActorCriticLite._load_interpreter(Path("/f.tflite"))
@@ -135,7 +135,7 @@ class TestLoadInterpreter:
     def test_returns_interpreter_and_indices(self):
         interp = make_interpreter(input_index=3, output_index=7)
         with patch(
-            "corl.model.actor_critic_lite.Interpreter",
+            "corl.model.discrete.actor_critic_lite.Interpreter",
             return_value=interp,
         ):
             result = ModelActorCriticLite._load_interpreter(Path("/f.tflite"))
@@ -177,7 +177,9 @@ class TestLoadWeights:
             "_load_interpreter",
             return_value=(MagicMock(), 0, 1),
         ):
-            with caplog.at_level(logging.INFO, logger="corl.model.actor_critic_lite"):
+            with caplog.at_level(
+                logging.INFO, logger="corl.model.discrete.actor_critic_lite"
+            ):
                 model.load_weights("/some/dir")
 
         assert any("Loaded" in r.message for r in caplog.records)
@@ -271,7 +273,7 @@ class TestLoadMetadata:
     def test_sets_action_size_from_json(self, model):
         with patch("builtins.open", MagicMock()):
             with patch(
-                "corl.model.actor_critic_lite.json.load",
+                "corl.model.discrete.actor_critic_lite.json.load",
                 return_value={"action_size": 8},
             ):
                 model.load_metadata("/some/dir")
@@ -283,7 +285,7 @@ class TestLoadMetadata:
         m.__exit__ = MagicMock(return_value=False)
         with patch("builtins.open", return_value=m) as mock_open:
             with patch(
-                "corl.model.actor_critic_lite.json.load",
+                "corl.model.discrete.actor_critic_lite.json.load",
                 return_value={"action_size": 4},
             ):
                 model.load_metadata("/some/dir")
@@ -298,11 +300,11 @@ class TestLoadMetadata:
     def test_logs_info_on_success(self, model, caplog):
         with patch("builtins.open", MagicMock()):
             with patch(
-                "corl.model.actor_critic_lite.json.load",
+                "corl.model.discrete.actor_critic_lite.json.load",
                 return_value={"action_size": 4},
             ):
                 with caplog.at_level(
-                    logging.INFO, logger="corl.model.actor_critic_lite"
+                    logging.INFO, logger="corl.model.discrete.actor_critic_lite"
                 ):
                     model.load_metadata("/some/dir")
 

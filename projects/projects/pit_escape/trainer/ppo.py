@@ -5,7 +5,7 @@ from numpy.typing import NDArray
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
 
-from corl.model.actor_critic import ModelActorCritic
+from corl.model.discrete.actor_critic import ModelActorCritic
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
 from corl.trainer.algorithm.discrete.ppo import TrainerPPO

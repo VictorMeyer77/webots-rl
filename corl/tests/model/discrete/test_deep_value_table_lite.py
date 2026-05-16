@@ -1,5 +1,5 @@
 """
-Unit tests for corl.model.deep_value_table_lite.ModelDeepValueTableLite.
+Unit tests for corl.model.discrete.deep_value_table_lite.ModelDeepValueTableLite.
 
 All TFLite interpreter calls are mocked — no real .tflite files are used.
 """
@@ -17,7 +17,9 @@ _litert_mock = MagicMock()
 sys.modules.setdefault("ai_edge_litert", _litert_mock)
 sys.modules.setdefault("ai_edge_litert.interpreter", _litert_mock.interpreter)
 
-from corl.model.deep_value_table_lite import ModelDeepValueTableLite  # noqa: E402
+from corl.model.discrete.deep_value_table_lite import (  # noqa: E402
+    ModelDeepValueTableLite,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -98,7 +100,7 @@ class TestLoadWeights:
     def test_creates_interpreter_with_correct_path(self, model):
         interp = self._make_interp_mock()
         with patch(
-            "corl.model.deep_value_table_lite.Interpreter",
+            "corl.model.discrete.deep_value_table_lite.Interpreter",
             return_value=interp,
         ) as mock_cls:
             model.load_weights("/some/dir")
@@ -110,7 +112,7 @@ class TestLoadWeights:
     def test_allocates_tensors(self, model):
         interp = self._make_interp_mock()
         with patch(
-            "corl.model.deep_value_table_lite.Interpreter",
+            "corl.model.discrete.deep_value_table_lite.Interpreter",
             return_value=interp,
         ):
             model.load_weights("/some/dir")
@@ -120,7 +122,7 @@ class TestLoadWeights:
     def test_stores_interpreter(self, model):
         interp = self._make_interp_mock()
         with patch(
-            "corl.model.deep_value_table_lite.Interpreter",
+            "corl.model.discrete.deep_value_table_lite.Interpreter",
             return_value=interp,
         ):
             model.load_weights("/some/dir")
@@ -130,7 +132,7 @@ class TestLoadWeights:
     def test_stores_input_index(self, model):
         interp = self._make_interp_mock()
         with patch(
-            "corl.model.deep_value_table_lite.Interpreter",
+            "corl.model.discrete.deep_value_table_lite.Interpreter",
             return_value=interp,
         ):
             model.load_weights("/some/dir")
@@ -140,7 +142,7 @@ class TestLoadWeights:
     def test_stores_output_index(self, model):
         interp = self._make_interp_mock()
         with patch(
-            "corl.model.deep_value_table_lite.Interpreter",
+            "corl.model.discrete.deep_value_table_lite.Interpreter",
             return_value=interp,
         ):
             model.load_weights("/some/dir")
@@ -152,7 +154,7 @@ class TestLoadWeights:
         interp.get_input_details.return_value = [{"index": 7}]
         interp.get_output_details.return_value = [{"index": 42}]
         with patch(
-            "corl.model.deep_value_table_lite.Interpreter",
+            "corl.model.discrete.deep_value_table_lite.Interpreter",
             return_value=interp,
         ):
             model.load_weights("/some/dir")
