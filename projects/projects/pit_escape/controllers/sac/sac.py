@@ -15,6 +15,7 @@ MAX_TIMESTEP = (
     1875  # Maximum number of simulation timesteps before reset (1875 * 32 ms = 60s)
 )
 ACTION_DIM = 2  # [pitch_velocity, yaw_velocity]
+WARMUP_STEPS = 40  # Simulation timesteps to run before RL loop starts
 
 
 class BB8SACController(BB8Continuous):
@@ -63,7 +64,7 @@ if __name__ == "__main__":
             action_repeat=ACTION_REPEAT,
             model=None,
         )
-        TrainerAgent(bb8, config).run(MAX_TIMESTEP)
+        TrainerAgent(bb8, config).run(MAX_TIMESTEP, warmup_steps=WARMUP_STEPS)
 
     else:
         model = ModelActorCriticLite()

@@ -14,6 +14,7 @@ ACTION_REPEAT = 25  # Number of simulation timesteps to repeat each action
 MAX_TIMESTEP = (
     1875  # Maximum number of simulation timesteps before reset (1875 * 32 ms = 60s)
 )
+WARMUP_STEPS = 40  # Simulation timesteps to run before RL loop starts
 
 
 class BB8DeepQLearningController(BB8):
@@ -59,7 +60,7 @@ if __name__ == "__main__":
             model=None,
         )
 
-        TrainerAgent(bb8, config).run(MAX_TIMESTEP)
+        TrainerAgent(bb8, config).run(MAX_TIMESTEP, warmup_steps=WARMUP_STEPS)
 
     else:
         model = ModelDeepValueTableLite()
