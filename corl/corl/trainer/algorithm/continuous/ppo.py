@@ -200,11 +200,13 @@ class TrainerPPOContinuous(Trainer):
         """
         output = self.model.actor(observations, training=True)
         mean, log_std = tf.split(output, 2, axis=-1)
+        mean = tf.clip_by_value(mean, -4.0, 4.0)
         log_std = tf.clip_by_value(log_std, LOG_STD_MIN, LOG_STD_MAX)
 
         eps = tf.random.normal(tf.shape(mean))
         raw = mean + tf.exp(log_std) * eps
         actions = tf.tanh(raw)
+        actions = tf.where(tf.math.is_finite(actions), actions, tf.zeros_like(actions))
         log_probs = self._gaussian_log_prob(raw, mean, log_std)
         return actions, log_probs
 
@@ -342,6 +344,7 @@ class TrainerPPOContinuous(Trainer):
         # Old log-probabilities under the current policy (fixed for all epochs)
         old_output = self.model.actor(obs_t, training=False)
         old_mean, old_log_std = tf.split(old_output, 2, axis=-1)
+        old_mean = tf.clip_by_value(old_mean, -4.0, 4.0)
         old_log_std = tf.clip_by_value(old_log_std, LOG_STD_MIN, LOG_STD_MAX)
         old_log_probs = self._gaussian_log_prob(
             raw_actions, old_mean, old_log_std
@@ -380,6 +383,7 @@ class TrainerPPOContinuous(Trainer):
                 with tf.GradientTape() as actor_tape:
                     new_output = self.model.actor(mb_obs, training=True)
                     new_mean, new_log_std = tf.split(new_output, 2, axis=-1)
+                    new_mean = tf.clip_by_value(new_mean, -4.0, 4.0)
                     new_log_std = tf.clip_by_value(
                         new_log_std, LOG_STD_MIN, LOG_STD_MAX
                     )
@@ -387,7 +391,10 @@ class TrainerPPOContinuous(Trainer):
                         mb_raw, new_mean, new_log_std
                     )
 
-                    ratio = tf.exp(new_log_probs - mb_old_log_probs)
+                    log_ratio = tf.clip_by_value(
+                        new_log_probs - mb_old_log_probs, -10.0, 10.0
+                    )
+                    ratio = tf.exp(log_ratio)
                     clipped_ratio = tf.clip_by_value(
                         ratio,
                         1.0 - self.clip_range,

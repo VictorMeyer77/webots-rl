@@ -373,9 +373,9 @@ class Wrapper:
                 if e.response
                 else str(e)
             )
-            logger.debug(f"POST {url} failed with error: {content}")
+            logger.warning(f"POST {url} failed with error: {content}")
         except Exception as e:
-            logger.debug(f"POST {url} failed with unexpected error: {e}")
+            logger.warning(f"POST {url} failed with unexpected error: {e}")
         return False
 
     # Supervisor endpoints
