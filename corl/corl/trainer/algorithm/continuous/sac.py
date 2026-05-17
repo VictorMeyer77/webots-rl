@@ -206,6 +206,7 @@ class TrainerSAC(Trainer):
         """
         output = self.model.actor(observations, training=True)
         mean, log_std = tf.split(output, 2, axis=-1)
+        mean = tf.clip_by_value(mean, -4.0, 4.0)
         log_std = tf.clip_by_value(log_std, LOG_STD_MIN, LOG_STD_MAX)
         std = tf.exp(log_std)
 
@@ -213,6 +214,7 @@ class TrainerSAC(Trainer):
         raw = mean + std * eps  # reparameterisation
 
         actions = tf.tanh(raw)
+        actions = tf.where(tf.math.is_finite(actions), actions, tf.zeros_like(actions))
 
         # Log-prob with tanh squashing correction
         log_probs = (
