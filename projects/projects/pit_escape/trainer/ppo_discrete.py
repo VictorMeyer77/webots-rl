@@ -13,7 +13,7 @@ from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
-TRANSITIONS = 2_000_000  # Total number of training transitions
+TRANSITIONS = 1_000_000  # Total number of training transitions
 MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor: how much future rewards are valued
 ENTROPY_COEFF = 0.02  # Entropy bonus weight
