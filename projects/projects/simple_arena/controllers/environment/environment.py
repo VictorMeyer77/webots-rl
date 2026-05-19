@@ -118,6 +118,9 @@ class EnvironmentSimpleArena(Environment):
             },
         )
 
+    def randomize(self) -> None:
+        """Not used for this environment."""
+
     def reset(self) -> None:
         """
         Reset episode bookkeeping and restart robot controller.
