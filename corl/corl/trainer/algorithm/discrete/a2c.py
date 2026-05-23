@@ -322,7 +322,7 @@ class TrainerA2C(Trainer):
             max_transitions: Total number of transitions to collect.
 
         Raises:
-            ValueError: If ``epochs`` is less than ``1``.
+            ValueError: If ``max_transitions`` is less than ``1``.
         """
         if max_transitions < 1:
             raise ValueError(
