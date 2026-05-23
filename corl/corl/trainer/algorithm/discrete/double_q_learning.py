@@ -1,4 +1,7 @@
+import json
 import logging
+from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 from numpy.typing import NDArray
@@ -76,6 +79,45 @@ class TrainerDoubleQLearning(TrainerTDTabular):
                 obs_index = self.model.observation_to_index(observation)
                 actions.append(int(np.argmax(combined[obs_index])))
         return np.array(actions, dtype=np.int32)
+
+    def checkpoint(self) -> None:
+        """
+        Persist all training state, including both Q-tables, to prevent data loss.
+
+        Extends the parent implementation by additionally saving ``value_table_b``
+        as ``model_b.npy`` inside the same ``model/`` subdirectory created for
+        ``Q_A``.
+        """
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
+
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+        np.save(model_path / "model_b.npy", self.value_table_b)
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint, including ``value_table_b``.
+
+        Delegates to the parent :meth:`~corl.trainer.algorithm.discrete.td_tabular.TrainerTDTabular.recovery`
+        to reload model weights (``Q_A``) and all serialisable hyperparameters,
+        then loads ``value_table_b`` from ``model_b.npy`` in the same ``model/``
+        subdirectory.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+        """
+        super().recovery(checkpoint_id)
+        model_path = Path(self.checkpoint_dir) / checkpoint_id / "model"
+        self.value_table_b = np.load(model_path / "model_b.npy", allow_pickle=False)
+        logger.info(f"Loaded value_table_b from {model_path}")
 
     def update_value_table(self, transition: TransitionSchema) -> dict[str, float]:
         """
