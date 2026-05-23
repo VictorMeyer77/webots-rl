@@ -1,5 +1,8 @@
 import collections
+from datetime import datetime
+import json
 import logging
+from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -32,6 +35,7 @@ class TrainerMonteCarlo(Trainer):
             transition. Clipped to a minimum of ``epsilon_min``.
         current_batch_done: Number of episodes completed in the current batch.
         current_batch_running: Number of episodes currently in progress.
+        batch_count: Total number of batches completed since training started.
         batch_worker_results: Maps worker ID → list of step results for the
             episode currently being collected by that worker.
         returns: Maps ``(observation_index, action)`` → sliding window of the
@@ -50,6 +54,7 @@ class TrainerMonteCarlo(Trainer):
 
     current_batch_done: int
     current_batch_running: int
+    batch_count: int
     batch_worker_results: dict[int, list[StepResult]]
     returns: dict[tuple[int, int], collections.deque]
     returns_window: int
@@ -58,13 +63,14 @@ class TrainerMonteCarlo(Trainer):
         self,
         config: Config,
         model: ModelValueTable,
-        model_checkpoint_frequency: int,
+        checkpoint_frequency: int,
         batch_size: int,
         gamma: float,
         epsilon: float,
         epsilon_min: float,
         epsilon_decay: float,
         returns_window: int,
+        checkpoint_id: str | None = None,
     ):
         """
         Initialise the Monte Carlo trainer.
@@ -73,7 +79,7 @@ class TrainerMonteCarlo(Trainer):
             config: Application configuration forwarded to the base
                 :class:`~corl.trainer.trainer.Trainer`.
             model: Tabular Q-value model to train.
-            model_checkpoint_frequency: Minimum number of transitions between
+            checkpoint_frequency: Minimum number of transitions between
                 automatic weight checkpoints.
             batch_size: Number of complete episodes to collect per batch.
             gamma: Discount factor ``γ ∈ (0, 1]``.
@@ -89,11 +95,6 @@ class TrainerMonteCarlo(Trainer):
         Raises:
             ValueError: If ``batch_size < 1``.
         """
-        super().__init__(
-            model=model,
-            config=config,
-            model_checkpoint_frequency=model_checkpoint_frequency,
-        )
 
         if batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {batch_size}")
@@ -107,28 +108,29 @@ class TrainerMonteCarlo(Trainer):
 
         self.current_batch_running = 0
         self.current_batch_done = 0
+        self.batch_count = 0
         self.batch_worker_results = {}
         self.returns = {}
 
-    def params(self) -> dict[str, str | int | float]:
-        """
-        Return hyperparameters for MLflow logging.
+        super().__init__(
+            model=model,
+            config=config,
+            checkpoint_frequency=checkpoint_frequency,
+            checkpoint_id=checkpoint_id,
+        )
 
-        Merges Monte Carlo-specific hyperparameters with the model's own
-        metadata (e.g. table dimensions).
+    def params(self) -> dict[str, str | int | float | bool]:
+        """
+        Return hyperparameters logged to MLflow at the start of training.
+
+        Combines Monte Carlo-specific hyperparameters with model metadata so that every
+        run is fully reproducible from the logged params alone.
 
         Returns:
-            Dict of parameter name → value, suitable for
-            ``mlflow.log_params``.
+            dict[str, str | int | float | bool]: Flat mapping of parameter names to
+                their values, ready to pass to ``mlflow.log_params()``.
         """
-        return {
-            "gamma": self.gamma,
-            "batch_size": self.batch_size,
-            "epsilon_initial": self.epsilon,
-            "epsilon_min": self.epsilon_min,
-            "epsilon_decay": self.epsilon_decay,
-            "returns_window": self.returns_window,
-        } | self.model.metadata()
+        return super().params() | self.model.metadata()
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
         """
@@ -189,11 +191,62 @@ class TrainerMonteCarlo(Trainer):
                 )
         return g, reward_total
 
-    def run(self, epochs: int) -> None:
+    def checkpoint(self) -> None:
+        """
+        Persist all training state to prevent data loss on failure.
+
+        Saves the model weights under ``<checkpoint_dir>/<timestamp>/model/``
+        and all serialisable hyperparameters to ``<checkpoint_dir>/<timestamp>/params.json``.
+        The timestamp-based subdirectory ensures successive checkpoints do not
+        overwrite each other.
+        """
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
+
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint.
+
+        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model`` and
+        restores declared class attributes from ``<checkpoint_dir>/<checkpoint_id>/params.json``.
+        Only keys present in the class-level annotations across the full MRO are
+        restored; any extra keys in the JSON (e.g. model metadata) are ignored.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+        """
+        allowed = {
+            key
+            for cls in type(self).__mro__
+            for key in getattr(cls, "__annotations__", {})
+        }
+
+        path = Path(self.checkpoint_dir) / checkpoint_id
+        self.model.load(str(path / "model"))
+
+        with open(path / "params.json", "r") as f:
+            params = json.load(f)
+            for key, value in params.items():
+                if key in allowed:
+                    setattr(self, key, value)
+
+        logger.info(f"Recovered training state from {path}")
+
+    def run(self, max_transitions: int) -> None:
         """
         Run the full Monte Carlo training loop.
 
-        Iterates until ``epochs`` total transitions have been collected.
+        Iterates until ``max_transitions`` total transitions have been collected.
         Each iteration:
 
         1. Collects a batch of ``batch_size`` complete episodes via
@@ -204,7 +257,7 @@ class TrainerMonteCarlo(Trainer):
            ``episode_return_avg``, ``episode_return_std``,
            ``episode_reward_avg``, ``episode``, ``batch_count``,
            ``transition_per_episode``, ``value_table_nonzero``, ``epsilon``.
-        4. Saves a weight checkpoint every ``model_checkpoint_frequency``
+        4. Saves a weight checkpoint every ``checkpoint_frequency``
            transitions.
         5. Decays ``epsilon`` by ``epsilon_decay`` once per transition in
            the batch (floored at ``epsilon_min``).
@@ -213,32 +266,33 @@ class TrainerMonteCarlo(Trainer):
         closed.
 
         Args:
-            epochs: Total number of environment transitions to collect before
+            max_transitions: Total number of environment transitions to collect before
                 stopping. Must be >= 1.
 
         Raises:
-            ValueError: If ``epochs < 1``.
+            ValueError: If ``max_transitions < 1``.
         """
-        if epochs < 1:
-            raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
+        if max_transitions < 1:
+            raise ValueError(
+                f"Number of max_transitions must be >= 1, got {max_transitions}"
+            )
 
-        mlflow.log_params(self.params())
+        if self.last_checkpoint_transition == 0:
+            self._mlflow_log_train_params()
+            training_step_count = 0
+        else:
+            training_step_count = self.last_checkpoint_transition
 
-        training_step_count = 0
-        episode_count = 0
-        batch_count = 0
-        last_checkpoint = 0
-
-        while training_step_count < epochs:
+        while training_step_count < max_transitions:
             logger.info(
-                f"Starting batch {batch_count + 1} with epsilon {self.epsilon:.4f}. Transitions {training_step_count} / {epochs}"
+                f"Starting batch {self.batch_count + 1} with epsilon {self.epsilon:.4f}. Transitions {training_step_count} / {max_transitions}"
             )
             batch_results = self.run_batch()
 
             batch_transition_count = sum([len(episode) for episode in batch_results])
             training_step_count += batch_transition_count
-            episode_count += len(batch_results)
-            batch_count += 1
+            self.episode_count += len(batch_results)
+            self.batch_count += 1
 
             episode_metrics = []
             for episode in batch_results:
@@ -255,8 +309,8 @@ class TrainerMonteCarlo(Trainer):
                     "episode_reward_avg": float(
                         np.mean([metric[1] for metric in episode_metrics])
                     ),
-                    "episode": episode_count,
-                    "batch_count": batch_count,
+                    "episode": self.episode_count,
+                    "batch_count": self.batch_count,
                     "transition_per_episode": float(
                         np.mean([len(episode) for episode in batch_results])
                     ),
@@ -268,9 +322,12 @@ class TrainerMonteCarlo(Trainer):
                 step=training_step_count,
             )
 
-            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
-                self.model.save_weights(self.model_dir, checkpoint=True)
-                last_checkpoint = training_step_count
+            if (
+                training_step_count - self.last_checkpoint_transition
+                >= self.checkpoint_frequency
+            ):
+                self.last_checkpoint_transition = training_step_count
+                self.checkpoint()
 
             for _ in range(batch_transition_count):
                 self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)

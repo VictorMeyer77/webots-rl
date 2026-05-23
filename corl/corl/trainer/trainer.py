@@ -218,16 +218,18 @@ class Trainer(ABC):
 
         Args:
             config: Application configuration forwarded to ``Wrapper``.
-            recover: If ``True``, skip session creation (session already exists
-                on the server). Defaults to ``False``.
+            recover: If ``True``, the existing session is deleted before a new
+                one is created, so the server starts with a clean state for the
+                resumed run. Defaults to ``False``.
 
         Raises:
             requests.RequestException: If the HTTP request to create the session fails.
             RuntimeError: If the server returns a non-success response.
         """
         self.api = Wrapper(config)
-        if not recover:
-            self.api.create_training_session(self.train_id)
+        if recover:
+            self.api.delete_training_session(self.train_id)
+        self.api.create_training_session(self.train_id)
         logger.debug(f"Initialized API for training session {self.train_id}")
 
     # MLflow
