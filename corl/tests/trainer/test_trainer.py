@@ -34,21 +34,27 @@ def _make_trainer_class():
     from corl.trainer.trainer import Trainer
 
     class ConcreteTrainer(Trainer):
-        def params(self) -> dict[str, str | int | float]:
+        def params(self) -> dict[str, str | int | float | bool]:
             pass
 
-        def run(self, epochs: int) -> None:
+        def run(self, max_transitions: int) -> None:
             pass
 
-        def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
+        def policy(self, observations: NDArray[np.float32]) -> NDArray[np.float32]:
             # Always returns action 0 for every observation
-            return np.zeros(observations.shape[0], dtype=np.int32)
+            return np.zeros(observations.shape[0], dtype=np.float32)
 
         def parse_observations(self, observations):
             return [
                 (key, obs.data.get("array", np.zeros(3, dtype=np.float32)))
                 for key, obs in observations
             ]
+
+        def checkpoint(self) -> None:
+            pass
+
+        def recovery(self, checkpoint_id: str) -> None:
+            pass
 
     return ConcreteTrainer
 
@@ -133,6 +139,15 @@ class TestInit:
     def test_model_dir_contains_train_id(self, trainer):
         assert TRAIN_ID in trainer.model_dir
 
+    def test_checkpoint_dir_contains_train_id(self, trainer):
+        assert TRAIN_ID in trainer.checkpoint_dir
+
+    def test_checkpoint_frequency_default(self, trainer):
+        assert trainer.checkpoint_frequency == 100_000
+
+    def test_last_checkpoint_transition_starts_at_zero(self, trainer):
+        assert trainer.last_checkpoint_transition == 0
+
     def test_api_is_set(self, trainer):
         assert trainer.api is not None
 
@@ -166,6 +181,7 @@ class TestClose:
             patch.object(trainer, "_generate_video"),
             patch.object(trainer, "_close_mlflow"),
             patch.object(trainer, "_close_model"),
+            patch.object(trainer, "_close_checkpoints"),
         ):
             trainer.close()
 
@@ -182,6 +198,7 @@ class TestClose:
             patch.object(trainer, "_generate_video"),
             patch.object(trainer, "_close_mlflow") as mock_mlflow,
             patch.object(trainer, "_close_model"),
+            patch.object(trainer, "_close_checkpoints"),
         ):
             trainer.close()
         mock_mlflow.assert_called_once()
@@ -482,12 +499,7 @@ class TestAbstractInterface:
         from corl.trainer.trainer import Trainer
 
         with pytest.raises(TypeError):
-            Trainer("train_id", _make_model(), "experiment", _make_config())  # noqa
-
-    def test_save_model_is_abstract(self):
-        from corl.trainer.trainer import Trainer
-
-        assert "params" in Trainer.__abstractmethods__
+            Trainer(_make_model(), _make_config())  # noqa
 
     def test_run_is_abstract(self):
         from corl.trainer.trainer import Trainer
@@ -503,6 +515,16 @@ class TestAbstractInterface:
         from corl.trainer.trainer import Trainer
 
         assert "parse_observations" in Trainer.__abstractmethods__
+
+    def test_checkpoint_is_abstract(self):
+        from corl.trainer.trainer import Trainer
+
+        assert "checkpoint" in Trainer.__abstractmethods__
+
+    def test_recovery_is_abstract(self):
+        from corl.trainer.trainer import Trainer
+
+        assert "recovery" in Trainer.__abstractmethods__
 
 
 # ===========================================================================
@@ -540,15 +562,12 @@ class TestCloseModel:
         mock_mlflow, _ = self._run(
             trainer, ["weights.h5", "weights_ckt_001.h5", "_ckt_backup.h5"]
         )
-        assert mock_mlflow.log_artifact.call_count == 1
-        assert mock_mlflow.log_artifact.call_args.args[0] == str(
-            Path("/model/dir") / "weights.h5"
-        )
+        assert mock_mlflow.log_artifact.call_count == 3
 
-    def test_all_checkpoint_files_skipped(self, trainer):
+    def test_all_checkpoint_files_logged(self, trainer):
         trainer.model_dir = "/model/dir"
         mock_mlflow, _ = self._run(trainer, ["_ckt_1.h5", "epoch_ckt_2.h5"])
-        mock_mlflow.log_artifact.assert_not_called()
+        assert mock_mlflow.log_artifact.call_count == 2
 
     def test_empty_model_dir_does_not_log_or_raise(self, trainer):
         trainer.model_dir = "/model/dir"
@@ -566,15 +585,191 @@ class TestCloseModel:
         _, mock_rmtree = self._run(trainer, ["weights.h5"])
         mock_rmtree.assert_called_once_with("/model/dir")
 
-    def test_deletes_dir_even_when_no_files_logged(self, trainer):
+    def test_deletes_dir_after_all_files_logged(self, trainer):
         trainer.model_dir = "/model/dir"
         _, mock_rmtree = self._run(trainer, ["_ckt_only.h5"])
         mock_rmtree.assert_called_once_with("/model/dir")
 
 
 # ===========================================================================
-# _generate_video
+# _close_checkpoints
 # ===========================================================================
+
+
+class TestCloseCheckpoints:
+    def _run(self, trainer, checkpoint_dir, files=(), raises=False):
+        """
+        Helper that mocks the filesystem and mlflow for _close_checkpoints.
+
+        ``files`` is a list of relative file names present under checkpoint_dir.
+        """
+        trainer.checkpoint_dir = checkpoint_dir
+        checkpoint_path = Path(checkpoint_dir)
+
+        def _rglob(pattern):
+            if not files:
+                return iter([])
+            return iter([checkpoint_path / f for f in files])
+
+        def _exists():
+            return bool(files) or files == ()
+
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.__truediv__ = lambda self, other: Path(checkpoint_dir) / other
+        mock_path.parent = Path(checkpoint_dir).parent
+        mock_path.rglob.side_effect = _rglob
+
+        def _any_rglob(*a, **kw):
+            return bool(files)
+
+        with (
+            patch(
+                "corl.trainer.trainer.Path",
+                side_effect=lambda p: (
+                    mock_path if str(p) == checkpoint_dir else Path(p)
+                ),
+            ),
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+            patch("corl.trainer.trainer.zipfile.ZipFile") as mock_zip,
+            patch("pathlib.Path.unlink"),
+        ):
+            if raises:
+                mock_zip.side_effect = OSError("disk full")
+            trainer._close_checkpoints()
+            return mock_mlflow, mock_rmtree, mock_zip
+
+    def test_empty_dir_does_not_log_to_mlflow(self, trainer):
+        trainer.checkpoint_dir = "/ckpt/dir"
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.rglob.return_value = iter([])
+        with (
+            patch("corl.trainer.trainer.Path", return_value=mock_path),
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree"),
+        ):
+            trainer._close_checkpoints()
+        mock_mlflow.log_artifact.assert_not_called()
+
+    def test_empty_dir_removes_checkpoint_dir(self, trainer):
+        trainer.checkpoint_dir = "/ckpt/dir"
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.rglob.return_value = iter([])
+        with (
+            patch("corl.trainer.trainer.Path", return_value=mock_path),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+        ):
+            trainer._close_checkpoints()
+        mock_rmtree.assert_called_once_with("/ckpt/dir", ignore_errors=True)
+
+    def test_nonexistent_dir_does_not_log_to_mlflow(self, trainer):
+        trainer.checkpoint_dir = "/ckpt/dir"
+        mock_path = MagicMock()
+        mock_path.exists.return_value = False
+        with (
+            patch("corl.trainer.trainer.Path", return_value=mock_path),
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree"),
+        ):
+            trainer._close_checkpoints()
+        mock_mlflow.log_artifact.assert_not_called()
+
+    def test_files_logged_to_mlflow_under_checkpoints_path(self, trainer):
+        trainer.checkpoint_dir = "/ckpt/dir"
+        ckpt_path = Path("/ckpt/dir")
+        file_path = ckpt_path / "epoch_1.npy"
+
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.rglob.return_value = iter([file_path])
+        mock_path.parent = ckpt_path.parent
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+        mock_path.rglob.return_value = iter([mock_file])
+
+        with (
+            patch("corl.trainer.trainer.Path", return_value=mock_path),
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree"),
+            patch("corl.trainer.trainer.zipfile.ZipFile"),
+            patch("pathlib.Path.unlink"),
+        ):
+            trainer._close_checkpoints()
+        mock_mlflow.log_artifact.assert_called_once()
+        assert (
+            mock_mlflow.log_artifact.call_args.kwargs["artifact_path"] == "checkpoints"
+        )
+
+    def test_always_removes_checkpoint_dir_after_upload(self, trainer):
+        trainer.checkpoint_dir = "/ckpt/dir"
+        ckpt_path = Path("/ckpt/dir")
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.rglob.return_value = iter([mock_file])
+        mock_path.parent = ckpt_path.parent
+
+        with (
+            patch("corl.trainer.trainer.Path", return_value=mock_path),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+            patch("corl.trainer.trainer.zipfile.ZipFile"),
+            patch("pathlib.Path.unlink"),
+        ):
+            trainer._close_checkpoints()
+        mock_rmtree.assert_called_with("/ckpt/dir", ignore_errors=True)
+
+    def test_removes_checkpoint_dir_even_on_zip_exception(self, trainer):
+        trainer.checkpoint_dir = "/ckpt/dir"
+        ckpt_path = Path("/ckpt/dir")
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.rglob.return_value = iter([mock_file])
+        mock_path.parent = ckpt_path.parent
+
+        with (
+            patch("corl.trainer.trainer.Path", return_value=mock_path),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("corl.trainer.trainer.shutil.rmtree") as mock_rmtree,
+            patch(
+                "corl.trainer.trainer.zipfile.ZipFile", side_effect=OSError("disk full")
+            ),
+            patch("pathlib.Path.unlink"),
+        ):
+            trainer._close_checkpoints()  # must not raise
+        mock_rmtree.assert_called_with("/ckpt/dir", ignore_errors=True)
+
+    def test_does_not_log_artifact_on_zip_exception(self, trainer):
+        trainer.checkpoint_dir = "/ckpt/dir"
+        ckpt_path = Path("/ckpt/dir")
+        mock_file = MagicMock()
+        mock_file.is_file.return_value = True
+
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.rglob.return_value = iter([mock_file])
+        mock_path.parent = ckpt_path.parent
+
+        with (
+            patch("corl.trainer.trainer.Path", return_value=mock_path),
+            patch("corl.trainer.trainer.mlflow") as mock_mlflow,
+            patch("corl.trainer.trainer.shutil.rmtree"),
+            patch(
+                "corl.trainer.trainer.zipfile.ZipFile", side_effect=OSError("disk full")
+            ),
+            patch("pathlib.Path.unlink"),
+        ):
+            trainer._close_checkpoints()
+        mock_mlflow.log_artifact.assert_not_called()
 
 
 class TestGenerateVideo:

@@ -1,7 +1,9 @@
 import logging
 import shutil
 import time
+import zipfile
 from abc import ABC, abstractmethod
+from datetime import datetime
 from pathlib import Path
 
 import mlflow
@@ -32,10 +34,12 @@ class Trainer(ABC):
     Attributes:
         train_id: Unique identifier of the training session.
         model: The neural network or array-based model used to select actions.
-        model_dir: File-system path where model checkpoints are persisted.
+        model_dir: File-system path where final model artefacts are persisted.
         video_dir: Directory where per-episode video frames are written.
-        model_checkpoint_frequency: Number of transitions between automatic checkpoints.
+        checkpoint_dir: Directory where periodic training checkpoints are saved.
+        checkpoint_frequency: Number of transitions between automatic checkpoints.
         log_metric_frequency: Minimum number of transitions between MLflow metric log calls.
+        mlflow_run_id: ID of the active MLflow run; persisted across recoveries.
         api: API wrapper used to exchange data with the training server.
         tracker: Tracks worker state, step keys, and per-step result buffers.
     """
@@ -44,20 +48,24 @@ class Trainer(ABC):
 
     model_dir: str
     video_dir: str
+    checkpoint_dir: str
 
     model: Model
-    model_checkpoint_frequency: int
+    checkpoint_frequency: int
+    last_checkpoint_transition: int
     log_metric_frequency: int
 
     api: Wrapper
     mlflow: ActiveRun
+    mlflow_run_id: str | None
     tracker: Tracker
 
     def __init__(
         self,
         model: Model,
         config: Config,
-        model_checkpoint_frequency: int = 10,
+        checkpoint_frequency: int = 100_000,
+        checkpoint_id: str | None = None,
     ):
         """
         Initialise the trainer, API connection, and tracker.
@@ -72,19 +80,28 @@ class Trainer(ABC):
                 ``trainer_output_dir``, ``trainer_worker_timeout``,
                 ``trainer_mlflow_url``, ``trainer_log_metric_frequency``,
                 and ``world_name``.
-            model_checkpoint_frequency: Number of transitions between automatic
-                model checkpoints. Defaults to 10.
+            checkpoint_frequency: Number of transitions between automatic
+                model checkpoints. Defaults to 100_000.
+            checkpoint_id: If provided, resume training from this checkpoint
+                via :meth:`recovery`. When ``None``, a fresh training
+                session is started. Defaults to ``None``.
         """
-        self.train_id = config.get("train_id")
         self.model = model
-        self.model_checkpoint_frequency = model_checkpoint_frequency
+        self.train_id = config.get("train_id")
+        self.checkpoint_frequency = checkpoint_frequency
+        self.last_checkpoint_transition = 0
         self.log_metric_frequency = config.get("trainer_log_metric_frequency")
+        self.mlflow_run_id = None
         self._init_output_dir(config.get("trainer_output_dir"))
-        self._init_api(config)
+
+        if checkpoint_id:
+            self.recovery(checkpoint_id)
+
+        self._init_mlflow(config.get("world_name"), config.get("trainer_mlflow_url"))
+        self._init_api(config, checkpoint_id is not None)
         self.tracker = Tracker(
             self.train_id, config.get("trainer_worker_timeout"), self.api
         )
-        self._init_mlflow(config.get("world_name"), config.get("trainer_mlflow_url"))
 
     def close(self) -> None:
         """
@@ -106,6 +123,7 @@ class Trainer(ABC):
         """
         self._generate_video()
         self._close_model()
+        self._close_checkpoints()
         self._close_mlflow()
         self.tracker.close_workers()
         self.api.close()
@@ -117,24 +135,48 @@ class Trainer(ABC):
         """
         Upload final model artefacts to MLflow and delete the local model directory.
 
-        Iterates over files in ``model_dir`` and logs any file whose name does
-        **not** contain ``"_ckt_"`` to MLflow under the ``model`` artefact path.
-        Checkpoint files (names containing ``"_ckt_"``) are deliberately skipped
-        and will be deleted along with the directory.
-
-        Note:
-            If the most recent weights were saved as a checkpoint (i.e. the
-            filename contains ``"_ckt_"``), they will **not** be uploaded to
-            MLflow. Ensure a non-checkpoint save is performed before calling
-            ``close()``.
+        Iterates over all files in ``model_dir`` and logs each one to MLflow
+        under the ``model`` artefact path. Then removes ``model_dir``.
         """
         model_path = Path(self.model_dir)
         for file in model_path.iterdir():
-            if "_ckt_" not in file.name:
-                mlflow.log_artifact(str(file), artifact_path="model")
-                logger.debug(f"Model file {file.name} logged to MLflow")
+            mlflow.log_artifact(str(file), artifact_path="model")
+            logger.debug(f"Model file {file.name} logged to MLflow")
         shutil.rmtree(self.model_dir)
         logger.debug(f"Model directory {self.model_dir} deleted")
+
+    def _close_checkpoints(self) -> None:
+        """
+        Zip all checkpoints, upload the archive to MLflow, then delete the directory.
+
+        Creates a zip archive named ``checkpoints_<timestamp>.zip`` containing
+        the entire ``checkpoint_dir`` tree, logs it to MLflow under the
+        ``checkpoints`` artefact path, then removes ``checkpoint_dir`` and
+        the zip file.
+
+        If the checkpoint directory is empty or does not exist, this is a no-op.
+        """
+        checkpoint_path = Path(self.checkpoint_dir)
+        if not checkpoint_path.exists() or not any(checkpoint_path.rglob("*")):
+            shutil.rmtree(self.checkpoint_dir, ignore_errors=True)
+            return
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_path = checkpoint_path.parent / f"checkpoints_{timestamp}.zip"
+
+        try:
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for file in checkpoint_path.rglob("*"):
+                    if file.is_file():
+                        zf.write(file, file.relative_to(checkpoint_path))
+            mlflow.log_artifact(str(zip_path), artifact_path="checkpoints")
+            logger.debug(f"Checkpoints archived and logged to MLflow: {zip_path.name}")
+        except Exception:
+            logger.warning("Checkpoint archiving failed; skipping.", exc_info=True)
+        finally:
+            zip_path.unlink(missing_ok=True)
+            shutil.rmtree(self.checkpoint_dir, ignore_errors=True)
+            logger.debug(f"Checkpoint directory {self.checkpoint_dir} deleted")
 
     # Working directory setup
 
@@ -145,8 +187,9 @@ class Trainer(ABC):
         Sets the following instance attributes and creates the corresponding
         directories (including any missing parents):
 
-        - ``model_dir``  → ``<output_dir>/models/<train_id>``
-        - ``video_dir``  → ``<output_dir>/videos/<train_id>``
+        - ``model_dir``       → ``<output_dir>/models/<train_id>``
+        - ``video_dir``       → ``<output_dir>/videos/<train_id>``
+        - ``checkpoint_dir``  → ``<output_dir>/checkpoints/<train_id>``
 
         Args:
             output_dir: Root output directory, typically from
@@ -155,25 +198,30 @@ class Trainer(ABC):
         base = Path(output_dir)
         self.model_dir = str(base / "models" / self.train_id)
         self.video_dir = str(base / "videos" / self.train_id)
+        self.checkpoint_dir = str(base / "checkpoints" / self.train_id)
         Path(self.model_dir).mkdir(parents=True, exist_ok=True)
         Path(self.video_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
         logger.debug(f"Output directory {output_dir} initialized")
 
     # Backtrain api
 
-    def _init_api(self, config: Config) -> None:
+    def _init_api(self, config: Config, recover: bool = False) -> None:
         """
         Create the API wrapper and register the training session on the server.
 
         Args:
             config: Application configuration forwarded to ``Wrapper``.
+            recover: If ``True``, skip session creation (session already exists
+                on the server). Defaults to ``False``.
 
         Raises:
             requests.RequestException: If the HTTP request to create the session fails.
             RuntimeError: If the server returns a non-success response.
         """
         self.api = Wrapper(config)
-        self.api.create_training_session(self.train_id)
+        if not recover:
+            self.api.create_training_session(self.train_id)
         logger.debug(f"Initialized API for training session {self.train_id}")
 
     # MLflow
@@ -203,9 +251,14 @@ class Trainer(ABC):
             experiment_id = experiment.experiment_id
         mlflow.set_experiment(experiment_id=experiment_id)
 
-        run = mlflow.start_run(run_name=self.train_id)
+        if self.mlflow_run_id is not None:
+            run = mlflow.start_run(run_id=self.mlflow_run_id)
+        else:
+            run = mlflow.start_run(run_name=self.train_id)
+            self.mlflow_run_id = run.info.run_id
+
         logger.debug(
-            f"MLflow run started with ID {run.info.run_id} for training session {self.train_id}"
+            f"MLflow run started with ID {self.mlflow_run_id} for training session {self.train_id}"
         )
 
     @staticmethod
@@ -217,6 +270,17 @@ class Trainer(ABC):
         """
         mlflow.end_run()
         logger.debug("MLflow run ended")
+
+    def _mlflow_log_train_params(self) -> None:
+        """
+        Log training hyperparameters to the active MLflow run.
+
+        Filters out string values from :meth:`params` before logging, keeping
+        only numeric and boolean parameters. Intended to be called by subclasses
+        at the start of training (e.g. on the first transition of a fresh run).
+        """
+        params = {k: v for k, v in self.params().items() if not isinstance(v, str)}
+        mlflow.log_params(params)
 
     # Video generation
 
@@ -245,8 +309,7 @@ class Trainer(ABC):
 
     # Abstract methods to implement in subclasses
 
-    @abstractmethod
-    def params(self) -> dict[str, str | int | float]:
+    def params(self) -> dict[str, str | int | float | bool]:
         """
         Return a dictionary of hyperparameters for logging.
 
@@ -257,19 +320,21 @@ class Trainer(ABC):
 
         Returns:
             A dictionary where keys are hyperparameter names and values are their
-            corresponding values (string, integer, or float).
+            corresponding values (string, integer, float, or bool).
         """
+        return {
+            k: v
+            for k, v in (vars(self)).items()
+            if isinstance(v, (int, float, str, bool))
+        }
 
     @abstractmethod
-    def run(self, epochs: int) -> None:
+    def run(self, max_transitions: int) -> None:
         """
-        Run the full training process for a given number of epochs.
+        Run the full training process for a given number of transitions.
 
         Args:
-            epochs: Number of training epochs to execute.
-
-        Returns:
-            None
+            max_transitions: Total number of transitions to process before stopping.
         """
 
     @abstractmethod
@@ -302,6 +367,30 @@ class Trainer(ABC):
         Returns:
             List of ``(StepKey, NDArray[np.float32])`` pairs where each array is the
             numerical representation of the corresponding observation.
+        """
+
+    @abstractmethod
+    def checkpoint(self) -> None:
+        """
+        Persist all training state to prevent data loss on failure.
+
+        Implementations must save model weights, optimizer states, and all
+        serialisable instance attributes needed to resume training, including
+        ``last_checkpoint_transition``.
+        """
+
+    @abstractmethod
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint.
+
+        Implementations must reload model weights, optimizer states, and all
+        serialisable instance attributes (including ``last_checkpoint_transition``) so
+        that training can resume seamlessly from the saved point.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint to restore from,
+                as produced by :meth:`checkpoint`.
         """
 
     # Training step implementations
