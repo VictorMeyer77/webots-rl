@@ -87,7 +87,7 @@ if __name__ == "__main__":
         config=config,
         model=model,
         checkpoint_frequency=CHECKPOINT_FREQUENCY,
-        #checkpoint_id="20260523_190936",
+        # checkpoint_id="20260523_190936",
         batch_size=BATCH_SIZE,
         gamma=GAMMA,
         epsilon=EPSILON,

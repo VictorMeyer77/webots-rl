@@ -65,8 +65,6 @@ class ModelDeepValueTable(Model):
                 or ``action_size`` is not provided.
         """
 
-        super().__init__()
-
         if model_dir is not None:
             if any(p is not None for p in (action_size, weights)):
                 logger.warning(
@@ -97,16 +95,12 @@ class ModelDeepValueTable(Model):
         self.weights = tf.keras.models.load_model(model_path)
         logger.info(f"Loaded TensorFlow model from {model_path}")
 
-    def save_weights(self, model_dir: str, checkpoint: bool = False) -> None:
+    def save_weights(self, model_dir: str) -> None:
         """
-        Persist the Keras model to ``model_dir``.
+        Persist the Keras model to ``<model_dir>/model.keras``.
 
         Args:
             model_dir: Target directory for the ``.keras`` file.
-            checkpoint: When ``True``, saves as a versioned checkpoint named
-                ``model_ckt_<checkpoint_index>.keras`` and increments
-                :attr:`~corl.model.model.Model.checkpoint_index`. When
-                ``False``, overwrites ``model.keras`` in place.
 
         Raises:
             ValueError: If :attr:`weights` has not been initialised.
@@ -114,15 +108,9 @@ class ModelDeepValueTable(Model):
         if self.weights is None:
             raise ValueError("model is not initialized.")
 
-        if checkpoint:
-            model_path = Path(model_dir) / f"model_ckt_{self.checkpoint_index}.keras"
-            self.checkpoint_index += 1
-            logger.debug(f"Checkpoint saved: {model_path}")
-        else:
-            model_path = Path(model_dir) / "model.keras"
-            logger.info(f"Final model saved: {model_path} and logged to MLflow.")
-
+        model_path = Path(model_dir) / "model.keras"
         self.weights.save(model_path)
+        logger.info(f"Model saved: {model_path}.")
 
     def save_weights_lite(self, model_dir: str) -> None:
         """

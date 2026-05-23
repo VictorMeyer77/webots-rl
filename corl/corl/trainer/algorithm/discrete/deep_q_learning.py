@@ -1,4 +1,7 @@
+import json
 import logging
+from datetime import datetime
+from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -35,7 +38,7 @@ class TrainerDeepQLearning(Trainer):
     - **ε-greedy exploration**: epsilon decays multiplicatively per
       transition down to ``epsilon_min``.
     - **β annealing**: the PER importance-sampling exponent is linearly
-      annealed from ``per_beta_start`` to ``1.0`` over ``epochs`` steps.
+      annealed from ``per_beta_start`` to ``1.0`` over ``max_transitions`` steps.
 
     Attributes:
         gamma: Discount factor for future rewards.
@@ -74,7 +77,7 @@ class TrainerDeepQLearning(Trainer):
         self,
         config: Config,
         model: ModelDeepValueTable,
-        model_checkpoint_frequency: int,
+        checkpoint_frequency: int,
         gamma: float,
         epsilon: float,
         epsilon_min: float,
@@ -85,6 +88,7 @@ class TrainerDeepQLearning(Trainer):
         per_size: int,
         per_alpha: float,
         per_beta_start: float,
+        checkpoint_id: str | None = None,
     ):
         """
         Initialise the DDQN trainer and create the target network.
@@ -92,7 +96,7 @@ class TrainerDeepQLearning(Trainer):
         Args:
             config: Application configuration (experiment paths, env vars).
             model: Online Q-network to train.
-            model_checkpoint_frequency: Steps between checkpoint saves.
+            checkpoint_frequency: Steps between checkpoint saves.
             gamma: Discount factor in ``[0, 1]``.
             epsilon: Initial exploration rate.
             epsilon_min: Minimum value ``epsilon`` can decay to.
@@ -107,12 +111,10 @@ class TrainerDeepQLearning(Trainer):
                 full prioritisation.
             per_beta_start: Initial IS correction exponent, annealed to
                 ``1.0`` over the course of training.
+            checkpoint_id: If provided, resume training from this checkpoint
+                via :meth:`recovery`. When ``None``, a fresh training
+                session is started. Defaults to ``None``.
         """
-        super().__init__(
-            model=model,
-            config=config,
-            model_checkpoint_frequency=model_checkpoint_frequency,
-        )
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
@@ -128,28 +130,25 @@ class TrainerDeepQLearning(Trainer):
         self.target_weights = tf.keras.models.clone_model(model.weights)
         self.target_weights.set_weights(model.weights.get_weights())
 
-    def params(self) -> dict[str, str | int | float]:
-        """
-        Return hyperparameters for MLflow logging.
+        super().__init__(
+            model=model,
+            config=config,
+            checkpoint_frequency=checkpoint_frequency,
+            checkpoint_id=checkpoint_id,
+        )
 
-        Merges DDQN-specific hyperparameters with the model's own metadata
-        (from :meth:`~corl.model.model.Model.metadata`).
+    def params(self) -> dict[str, str | int | float | bool]:
+        """
+        Return hyperparameters logged to MLflow at the start of training.
+
+        Combines DDQN-specific hyperparameters with model metadata so that every
+        run is fully reproducible from the logged params alone.
 
         Returns:
-            dict mapping parameter name → scalar value, suitable for
-            ``mlflow.log_params()``.
+            dict[str, str | int | float | bool]: Flat mapping of parameter names to
+                their values, ready to pass to ``mlflow.log_params()``.
         """
-        return {
-            "gamma": self.gamma,
-            "epsilon_initial": self.epsilon,
-            "epsilon_min": self.epsilon_min,
-            "epsilon_decay": self.epsilon_decay,
-            "batch_size": self.batch_size,
-            "fit_frequency": self.fit_frequency,
-            "update_target_weights_frequency": self.update_target_weights_frequency,
-            "per_alpha": self.experience_replay.alpha,
-            "per_beta": self.per_beta,
-        } | self.model.metadata()
+        return super().params() | self.model.metadata()
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
         """
@@ -177,6 +176,65 @@ class TrainerDeepQLearning(Trainer):
         """
         self.target_weights.set_weights(self.model.weights.get_weights())
         logger.debug("Target model weights updated from training model")
+
+    def checkpoint(self) -> None:
+        """
+        Persist all training state to prevent data loss on failure.
+
+        Saves the model weights under ``<checkpoint_dir>/<timestamp>/model/``,
+        the target network to ``<checkpoint_dir>/<timestamp>/target_weights.keras``,
+        and all serialisable hyperparameters to ``<checkpoint_dir>/<timestamp>/params.json``.
+        The timestamp-based subdirectory ensures successive checkpoints do not
+        overwrite each other.
+        """
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
+
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+
+        target_path = path / "target_weights.keras"
+        self.target_weights.save(target_path)
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint.
+
+        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model``,
+        the target network from ``<checkpoint_dir>/<checkpoint_id>/target_weights.keras``,
+        and restores declared class attributes from ``<checkpoint_dir>/<checkpoint_id>/params.json``.
+        Only keys present in the class-level annotations across the full MRO are
+        restored; any extra keys in the JSON (e.g. model metadata) are ignored.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+        """
+        allowed = {
+            key
+            for cls in type(self).__mro__
+            for key in getattr(cls, "__annotations__", {})
+        }
+
+        path = Path(self.checkpoint_dir) / checkpoint_id
+        self.model.load(str(path / "model"))
+
+        target_path = path / "target_weights.keras"
+        self.target_weights = tf.keras.models.load_model(target_path)
+
+        with open(path / "params.json", "r") as f:
+            params = json.load(f)
+            for key, value in params.items():
+                if key in allowed:
+                    setattr(self, key, value)
+
+        logger.info(f"Recovered training state from {path}")
 
     def fit_model(self) -> dict[str, float] | None:
         """
@@ -246,11 +304,12 @@ class TrainerDeepQLearning(Trainer):
             "mean_max_next_q": float(np.mean(max_next_q)),
         }
 
-    def run(self, epochs: int) -> None:
+    def run(self, max_transitions: int) -> None:
         """
-        Execute the full DDQN training loop for ``epochs`` steps.
+        Execute the full DDQN training loop for ``max_transitions`` steps.
 
-        Logs hyperparameters to MLflow, then repeatedly calls
+        Logs hyperparameters to MLflow on a fresh run (skipped when resuming
+        from a checkpoint). Repeatedly calls
         :meth:`~corl.trainer.trainer.Trainer.training_step` to collect
         environment interactions. After each step batch:
 
@@ -259,8 +318,8 @@ class TrainerDeepQLearning(Trainer):
           metrics are logged to MLflow when a fit occurs.
         - :meth:`update_target_weights` is called every
           ``update_target_weights_frequency`` steps.
-        - A model checkpoint is saved every
-          ``model_checkpoint_frequency`` steps.
+        - A checkpoint is saved via :meth:`checkpoint` every
+          ``checkpoint_frequency`` steps.
         - ``epsilon`` and ``per_beta`` are updated once per transition.
 
         On completion, the final model is saved via
@@ -268,28 +327,33 @@ class TrainerDeepQLearning(Trainer):
         and the trainer is closed.
 
         Args:
-            epochs: Total number of simulation steps to run.
+            max_transitions: Total number of simulation steps to run.
 
         Raises:
-            ValueError: If ``epochs`` is less than ``1``.
+            ValueError: If ``max_transitions`` is less than ``1``.
         """
-        if epochs < 1:
-            raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
+        if max_transitions < 1:
+            raise ValueError(f"max_transitions must be >= 1, got {max_transitions}")
 
-        mlflow.log_params(self.params())
+        if self.last_checkpoint_transition == 0:
+            self._mlflow_log_train_params()
+            training_step_count = 0
+            last_fit = 0
+            last_target_update = 0
+        else:
+            training_step_count = self.last_checkpoint_transition
+            last_fit = self.last_checkpoint_transition
+            last_target_update = self.last_checkpoint_transition
 
-        training_step_count = 0
-        episode_count = 0
-        last_fit = 0
-        last_target_update = 0
-        last_checkpoint = 0
-        self.per_beta_increment = (1.0 - self.per_beta) / epochs
-
-        logger.info(
-            f"Starting training for {epochs} transitions, beta increment: {self.per_beta_increment}"
+        self.per_beta_increment = (1.0 - self.per_beta) / (
+            max_transitions - training_step_count
         )
 
-        while training_step_count < epochs:
+        logger.info(
+            f"Starting training at transition {training_step_count}/{max_transitions}, beta increment: {self.per_beta_increment}"
+        )
+
+        while training_step_count < max_transitions:
             steps = self.training_step()
 
             transitions = [
@@ -302,7 +366,7 @@ class TrainerDeepQLearning(Trainer):
                 training_step_count += 1
 
                 if transition.current_step.done:
-                    episode_count += 1
+                    self.episode_count += 1
 
                 self.experience_replay.add(
                     transition.current_step.observation,
@@ -320,11 +384,11 @@ class TrainerDeepQLearning(Trainer):
                     mlflow.log_metrics(
                         fit_metrics
                         | {
-                            "episode": episode_count,
+                            "episode": self.episode_count,
                             "transition_per_episode": round(
-                                training_step_count / episode_count, 2
+                                training_step_count / self.episode_count, 2
                             )
-                            if episode_count > 100
+                            if self.episode_count > 0
                             else 0.0,
                             "epsilon": self.epsilon,
                             "per_size": len(self.experience_replay),
@@ -341,16 +405,19 @@ class TrainerDeepQLearning(Trainer):
                 self.update_target_weights()
                 last_target_update = training_step_count
 
-            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
-                self.model.save_weights(self.model_dir, checkpoint=True)
-                last_checkpoint = training_step_count
+            if (
+                training_step_count - self.last_checkpoint_transition
+                >= self.checkpoint_frequency
+            ):
+                self.last_checkpoint_transition = training_step_count
+                self.checkpoint()
 
             for _ in transitions:
                 self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
                 self.per_beta = min(1.0, self.per_beta + self.per_beta_increment)
 
             logger.debug(
-                f"Processed {len(steps)} steps with {len(transitions)}. {training_step_count}/{epochs}."
+                f"Processed {len(steps)} steps with {len(transitions)}. {training_step_count}/{max_transitions}."
             )
 
         self.model.save(self.model_dir)
