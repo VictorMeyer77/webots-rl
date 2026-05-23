@@ -11,7 +11,7 @@ from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
 TRANSITIONS = 1_000_000  # Total number of training epochs
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N epochs
+CHECKPOINT_FREQUENCY = 200_000  # Save a checkpoint every N epochs
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 OBSERVATION_CARDINALITY = (
     3  # Number of discrete bins per sensor (must equal len(bins) + 1)
@@ -81,10 +81,11 @@ if __name__ == "__main__":
     SimpleArenaQLearning(
         config=config,
         model=model,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
+        # checkpoint_id="20260523_183310",
         alpha=ALPHA,
         gamma=GAMMA,
         epsilon=EPSILON,
         epsilon_min=EPSILON_MIN,
         epsilon_decay=EPSILON_DECAY,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)
