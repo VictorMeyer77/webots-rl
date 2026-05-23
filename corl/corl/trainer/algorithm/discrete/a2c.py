@@ -1,4 +1,7 @@
+import json
 import logging
+from datetime import datetime
+from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -62,13 +65,14 @@ class TrainerA2C(Trainer):
         self,
         config: Config,
         model: ModelActorCritic,
-        model_checkpoint_frequency: int,
+        checkpoint_frequency: int,
         gamma: float,
         entropy_coeff: float = 0.01,
         value_loss_coeff: float = 0.5,
         actor_lr: float = 1e-3,
         critic_lr: float = 1e-3,
         update_frequency: int = 64,
+        checkpoint_id: str | None = None,
     ):
         """
         Initialise the A2C trainer and create optimisers.
@@ -76,7 +80,7 @@ class TrainerA2C(Trainer):
         Args:
             config: Application configuration (experiment paths, env vars).
             model: Actor-critic model to train.
-            model_checkpoint_frequency: Transitions between checkpoint saves.
+            checkpoint_frequency: Transitions between checkpoint saves.
             gamma: Discount factor in ``[0, 1]``.
             entropy_coeff: Weight of the entropy bonus term. Higher values
                 encourage more exploration.
@@ -85,12 +89,11 @@ class TrainerA2C(Trainer):
             critic_lr: Learning rate for the critic's Adam optimiser.
             update_frequency: Number of transitions to collect before each
                 parameter update.
+            checkpoint_id: If provided, resume training from this checkpoint
+                via :meth:`recovery`. When ``None``, a fresh training session
+                is started. Defaults to ``None``.
         """
-        super().__init__(
-            model=model,
-            config=config,
-            model_checkpoint_frequency=model_checkpoint_frequency,
-        )
+
         self.gamma = gamma
         self.entropy_coeff = entropy_coeff
         self.value_loss_coeff = value_loss_coeff
@@ -101,25 +104,80 @@ class TrainerA2C(Trainer):
         self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=critic_lr)
         self.transition = TransitionMemory()
 
-    def params(self) -> dict[str, str | int | float]:
+        super().__init__(
+            model=model,
+            config=config,
+            checkpoint_frequency=checkpoint_frequency,
+            checkpoint_id=checkpoint_id,
+        )
+
+    def params(self) -> dict[str, str | int | float | bool]:
         """
         Return hyperparameters for MLflow logging.
 
-        Merges A2C-specific hyperparameters with the model's own metadata
-        (from :meth:`~corl.model.model.Model.metadata`).
+        Merges A2C-specific hyperparameters with the base trainer's scalar
+        attributes (from :meth:`~corl.trainer.trainer.Trainer.params`) and
+        the model's own metadata (from
+        :meth:`~corl.model.model.Model.metadata`).
 
         Returns:
             dict mapping parameter name → scalar value, suitable for
             ``mlflow.log_params()``.
         """
-        return {
-            "gamma": self.gamma,
-            "entropy_coeff": self.entropy_coeff,
-            "value_loss_coeff": self.value_loss_coeff,
-            "actor_lr": self.actor_lr,
-            "critic_lr": self.critic_lr,
-            "update_frequency": self.update_frequency,
-        } | self.model.metadata()
+        return super().params() | self.model.metadata()
+
+    def checkpoint(self) -> None:
+        """
+        Persist all training state to prevent data loss on failure.
+
+        Saves the model weights under ``<checkpoint_dir>/<timestamp>/model/``
+        and all serialisable hyperparameters to
+        ``<checkpoint_dir>/<timestamp>/params.json``. The timestamp-based
+        subdirectory ensures successive checkpoints do not overwrite each other.
+        """
+
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
+
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint.
+
+        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model`` and
+        restores declared class attributes from
+        ``<checkpoint_dir>/<checkpoint_id>/params.json``. Only keys present in
+        the class-level annotations across the full MRO are restored; any extra
+        keys in the JSON (e.g. model metadata) are ignored.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+        """
+        allowed = {
+            key
+            for cls in type(self).__mro__
+            for key in getattr(cls, "__annotations__", {})
+        }
+
+        path = Path(self.checkpoint_dir) / checkpoint_id
+        self.model.load(str(path / "model"))
+
+        with open(path / "params.json", "r") as f:
+            params = json.load(f)
+            for key, value in params.items():
+                if key in allowed:
+                    setattr(self, key, value)
+
+        logger.info(f"Recovered training state from {path}")
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
         """
@@ -242,45 +300,50 @@ class TrainerA2C(Trainer):
             "mean_reward": float(tf.reduce_mean(rewards_t).numpy()),
         }
 
-    def run(self, epochs: int) -> None:
+    def run(self, max_transitions: int) -> None:
         """
-        Execute the A2C training loop for ``epochs`` transitions.
+        Execute the A2C training loop for ``max_transitions`` transitions.
 
-        Logs hyperparameters to MLflow, then repeatedly calls
-        :meth:`~corl.trainer.trainer.Trainer.training_step` to collect
-        environment interactions. After every ``update_frequency``
-        transitions, performs a single A2C update on the collected batch
-        and discards the data (on-policy).
+        Logs hyperparameters to MLflow on the first (or resumed) run, then
+        repeatedly calls :meth:`~corl.trainer.trainer.Trainer.training_step`
+        to collect environment interactions. After every ``update_frequency``
+        transitions, performs a single A2C update on the collected batch and
+        discards the data (on-policy).
 
         Metrics are logged to MLflow after each update. A model checkpoint
-        is saved every ``model_checkpoint_frequency`` transitions.
+        is saved every ``checkpoint_frequency`` transitions via
+        :meth:`checkpoint`.
 
         On completion, the final model is saved via
         :meth:`~corl.model.discrete.actor_critic.ModelActorCritic.save` and the
         trainer is closed.
 
         Args:
-            epochs: Total number of transitions to collect.
+            max_transitions: Total number of transitions to collect.
 
         Raises:
             ValueError: If ``epochs`` is less than ``1``.
         """
-        if epochs < 1:
-            raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
+        if max_transitions < 1:
+            raise ValueError(
+                f"Number of transitions must be >= 1, got {max_transitions}"
+            )
 
-        mlflow.log_params(self.params())
+        if self.last_checkpoint_transition == 0:
+            self._mlflow_log_train_params()
+            training_step_count = 0
+            last_update = 0
+        else:
+            training_step_count = self.last_checkpoint_transition
+            last_update = self.last_checkpoint_transition
 
-        training_step_count = 0
-        episode_count = 0
-        last_update = 0
-        last_checkpoint = 0
-
-        # On-policy buffer: filled, used once per update, then cleared
         buffer: list[TransitionSchema] = []
 
-        logger.info(f"Starting A2C training for {epochs} transitions")
+        logger.info(
+            f"Starting A2C training at transition {training_step_count}/{max_transitions}."
+        )
 
-        while training_step_count < epochs:
+        while training_step_count < max_transitions:
             steps = self.training_step()
 
             transitions = [
@@ -293,7 +356,7 @@ class TrainerA2C(Trainer):
                 training_step_count += 1
 
                 if transition.current_step.done:
-                    episode_count += 1
+                    self.episode_count += 1
 
                 buffer.append(transition)
 
@@ -310,23 +373,26 @@ class TrainerA2C(Trainer):
                 mlflow.log_metrics(
                     update_metrics
                     | {
-                        "episode": episode_count,
+                        "episode": self.episode_count,
                         "transition_per_episode": round(
-                            training_step_count / episode_count, 2
+                            training_step_count / self.episode_count, 2
                         )
-                        if episode_count > 100
+                        if self.episode_count > 0
                         else 0.0,
                     },
                     step=training_step_count,
                 )
 
-            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
-                self.model.save_weights(self.model_dir, checkpoint=True)
-                last_checkpoint = training_step_count
+            if (
+                training_step_count - self.last_checkpoint_transition
+                >= self.checkpoint_frequency
+            ):
+                self.last_checkpoint_transition = training_step_count
+                self.checkpoint()
 
             logger.debug(
                 f"Processed {len(steps)} steps with {len(transitions)} "
-                f"transitions. {training_step_count}/{epochs}."
+                f"transitions. {training_step_count}/{max_transitions}."
             )
 
         self.model.save(self.model_dir)
