@@ -1,5 +1,8 @@
+import json
 import logging
 from abc import abstractmethod
+from datetime import datetime
+from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -51,36 +54,33 @@ class TrainerTDTabular(Trainer):
         self,
         config: Config,
         model: ModelValueTable,
-        model_checkpoint_frequency: int,
+        checkpoint_frequency: int,
         alpha: float,
         gamma: float,
         epsilon: float,
         epsilon_min: float,
         epsilon_decay: float,
+        checkpoint_id: str | None = None,
     ):
         """
         Initialise the TD tabular trainer.
 
         Args:
-            config (Config): Application configuration used by the parent
+            config: Application configuration used by the parent
                 :class:`~corl.trainer.trainer.Trainer`.
-            model (ModelValueTable): Discrete value-table model that stores and
-                updates Q-values.
-            model_checkpoint_frequency (int): Minimum number of transitions
-                between automatic model checkpoints.
-            alpha (float): Learning rate for TD updates.
-            gamma (float): Discount factor for future rewards.
-            epsilon (float): Initial exploration probability for ε-greedy
-                action selection.
-            epsilon_min (float): Minimum value epsilon can decay to.
-            epsilon_decay (float): Multiplicative factor applied to epsilon
-                once per transition.
+            model: Discrete value-table model that stores and updates Q-values.
+            checkpoint_frequency: Minimum number of transitions between automatic
+                model checkpoints.
+            alpha: Learning rate for TD updates.
+            gamma: Discount factor for future rewards.
+            epsilon: Initial exploration probability for ε-greedy action selection.
+            epsilon_min: Minimum value epsilon can decay to.
+            epsilon_decay: Multiplicative factor applied to epsilon once per transition.
+            checkpoint_id: If provided, resume training from this checkpoint
+                via :meth:`recovery`. When ``None``, a fresh training
+                session is started. Defaults to ``None``.
         """
-        super().__init__(
-            model=model,
-            config=config,
-            model_checkpoint_frequency=model_checkpoint_frequency,
-        )
+
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
@@ -88,7 +88,14 @@ class TrainerTDTabular(Trainer):
         self.epsilon_decay = epsilon_decay
         self.transition = TransitionMemory()
 
-    def params(self) -> dict[str, str | int | float]:
+        super().__init__(
+            model=model,
+            config=config,
+            checkpoint_frequency=checkpoint_frequency,
+            checkpoint_id=checkpoint_id,
+        )
+
+    def params(self) -> dict[str, str | int | float | bool]:
         """
         Return hyperparameters logged to MLflow at the start of training.
 
@@ -96,16 +103,10 @@ class TrainerTDTabular(Trainer):
         run is fully reproducible from the logged params alone.
 
         Returns:
-            dict[str, str | int | float]: Flat mapping of parameter names to
+            dict[str, str | int | float | bool]: Flat mapping of parameter names to
                 their values, ready to pass to ``mlflow.log_params()``.
         """
-        return {
-            "alpha": self.alpha,
-            "gamma": self.gamma,
-            "epsilon_initial": self.epsilon,
-            "epsilon_min": self.epsilon_min,
-            "epsilon_decay": self.epsilon_decay,
-        } | self.model.metadata()
+        return super().params() | self.model.metadata()
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.int32]:
         """
@@ -148,11 +149,62 @@ class TrainerTDTabular(Trainer):
                 to MLflow.
         """
 
-    def run(self, epochs: int) -> None:
+    def checkpoint(self) -> None:
+        """
+        Persist all training state to prevent data loss on failure.
+
+        Saves the model weights under ``<checkpoint_dir>/<timestamp>/model/``
+        and all serialisable hyperparameters to ``<checkpoint_dir>/<timestamp>/params.json``.
+        The timestamp-based subdirectory ensures successive checkpoints do not
+        overwrite each other.
+        """
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
+
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint.
+
+        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model`` and
+        restores declared class attributes from ``<checkpoint_dir>/<checkpoint_id>/params.json``.
+        Only keys present in the class-level annotations across the full MRO are
+        restored; any extra keys in the JSON (e.g. model metadata) are ignored.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+        """
+        allowed = {
+            key
+            for cls in type(self).__mro__
+            for key in getattr(cls, "__annotations__", {})
+        }
+
+        path = Path(self.checkpoint_dir) / checkpoint_id
+        self.model.load(str(path / "model"))
+
+        with open(path / "params.json", "r") as f:
+            params = json.load(f)
+            for key, value in params.items():
+                if key in allowed:
+                    setattr(self, key, value)
+
+        logger.info(f"Recovered training state from {path}")
+
+    def run(self, max_transitions: int) -> None:
         """
         Run the full TD training loop.
 
-        Iterates until ``epochs`` total transitions have been processed.
+        Iterates until ``max_transitions`` total transitions have been processed.
         Each outer iteration calls :meth:`~corl.trainer.trainer.Trainer.training_step`
         to collect a batch of steps, then for every transition in the batch:
 
@@ -161,7 +213,7 @@ class TrainerTDTabular(Trainer):
            (only when ``update_value_table`` returns a non-empty dict):
            subclass metrics merged with ``episode``,
            ``transition_per_episode``, ``value_table_nonzero``, ``epsilon``.
-        3. Saves a weight checkpoint every ``model_checkpoint_frequency``
+        3. Saves a weight checkpoint every ``checkpoint_frequency``
            transitions.
         4. Decays ``epsilon`` by ``epsilon_decay`` once per transition
            (floored at ``epsilon_min``).
@@ -169,25 +221,30 @@ class TrainerTDTabular(Trainer):
         After all transitions, saves the final model and closes the trainer.
 
         Args:
-            epochs: Total number of transitions to process before stopping.
+            max_transitions: Total number of transitions to process before stopping.
                 Must be >= 1.
 
         Raises:
-            ValueError: If ``epochs < 1``.
+            ValueError: If ``max_transitions < 1``.
         """
-        if epochs < 1:
-            raise ValueError(f"Number of transitions must be >= 1, got {epochs}")
+        if max_transitions < 1:
+            raise ValueError(
+                f"Number of transitions must be >= 1, got {max_transitions}"
+            )
 
-        mlflow.log_params(self.params())
+        if self.last_checkpoint_transition == 0:
+            self._mlflow_log_train_params()
+            training_step_count = 0
+            last_metric_log = 0
+        else:
+            training_step_count = self.last_checkpoint_transition
+            last_metric_log = self.last_checkpoint_transition
 
-        training_step_count = 0
-        episode_count = 0
-        last_checkpoint = 0
-        last_metric_log = 0
+        logger.info(
+            f"Starting training at transition {training_step_count}/{max_transitions}"
+        )
 
-        logger.info(f"Starting training for {epochs} transitions")
-
-        while training_step_count < epochs:
+        while training_step_count < max_transitions:
             steps = self.training_step()
 
             transitions = [
@@ -200,7 +257,7 @@ class TrainerTDTabular(Trainer):
                 training_step_count += 1
 
                 if transition.current_step.done:
-                    episode_count += 1
+                    self.episode_count += 1
 
                 fit_metrics = self.update_value_table(transition)
 
@@ -212,11 +269,11 @@ class TrainerTDTabular(Trainer):
                     mlflow.log_metrics(
                         fit_metrics
                         | {
-                            "episode": episode_count,
+                            "episode": self.episode_count,
                             "transition_per_episode": round(
-                                training_step_count / episode_count, 2
+                                training_step_count / self.episode_count, 2
                             )
-                            if episode_count > 100
+                            if self.episode_count > 0
                             else 0.0,
                             "value_table_nonzero": int(
                                 np.count_nonzero(self.model.value_table)
@@ -227,15 +284,18 @@ class TrainerTDTabular(Trainer):
                     )
                     last_metric_log = training_step_count
 
-            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
-                self.model.save_weights(self.model_dir, checkpoint=True)
-                last_checkpoint = training_step_count
+            if (
+                training_step_count - self.last_checkpoint_transition
+                >= self.checkpoint_frequency
+            ):
+                self.last_checkpoint_transition = training_step_count
+                self.checkpoint()
 
             for _ in transitions:
                 self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
             logger.debug(
-                f"Processed {len(steps)} steps with {len(transitions)}. {training_step_count}/{epochs}."
+                f"Processed {len(steps)} steps with {len(transitions)}. {training_step_count}/{max_transitions} transitions."
             )
 
         self.model.save(self.model_dir)

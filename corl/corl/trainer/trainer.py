@@ -39,6 +39,8 @@ class Trainer(ABC):
         checkpoint_dir: Directory where periodic training checkpoints are saved.
         checkpoint_frequency: Number of transitions between automatic checkpoints.
         log_metric_frequency: Minimum number of transitions between MLflow metric log calls.
+        episode_count: Total number of episodes completed across all workers since training started.
+        mlflow: The active MLflow run context manager.
         mlflow_run_id: ID of the active MLflow run; persisted across recoveries.
         api: API wrapper used to exchange data with the training server.
         tracker: Tracks worker state, step keys, and per-step result buffers.
@@ -54,6 +56,7 @@ class Trainer(ABC):
     checkpoint_frequency: int
     last_checkpoint_transition: int
     log_metric_frequency: int
+    episode_count: int
 
     api: Wrapper
     mlflow: ActiveRun
@@ -91,6 +94,7 @@ class Trainer(ABC):
         self.checkpoint_frequency = checkpoint_frequency
         self.last_checkpoint_transition = 0
         self.log_metric_frequency = config.get("trainer_log_metric_frequency")
+        self.episode_count = 0
         self.mlflow_run_id = None
         self._init_output_dir(config.get("trainer_output_dir"))
 
@@ -112,9 +116,11 @@ class Trainer(ABC):
         1. Generate and upload the full training video (``_generate_video``).
         2. Upload model artefacts and delete the local model directory
            (``_close_model``).
-        3. End the MLflow run (``_close_mlflow``).
-        4. Mark all workers as inactive via the tracker.
-        5. Close the underlying HTTP session.
+        3. Zip and upload all checkpoints, then delete the checkpoint directory
+           (``_close_checkpoints``).
+        4. End the MLflow run (``_close_mlflow``).
+        5. Mark all workers as inactive via the tracker.
+        6. Close the underlying HTTP session.
 
         Note:
             Each step is called unconditionally. If an earlier step raises,
@@ -231,8 +237,9 @@ class Trainer(ABC):
         Initialize MLflow tracking for the training session.
 
         Sets the tracking URI to ``mlflow_url``, creates the experiment if it
-        does not already exist, and starts a new MLflow run named after
-        ``train_id``.
+        does not already exist, then either resumes an existing MLflow run
+        (when ``mlflow_run_id`` is already set, e.g. after :meth:`recovery`)
+        or starts a new run named after ``train_id``.
 
         Args:
             experiment_name: Name of the MLflow experiment to log runs under.
@@ -275,9 +282,10 @@ class Trainer(ABC):
         """
         Log training hyperparameters to the active MLflow run.
 
-        Filters out string values from :meth:`params` before logging, keeping
-        only numeric and boolean parameters. Intended to be called by subclasses
-        at the start of training (e.g. on the first transition of a fresh run).
+        Calls :meth:`params` to retrieve the hyperparameter dictionary, then
+        filters out string values before passing the remainder to
+        ``mlflow.log_params``. Intended to be called by subclasses at the
+        start of training (e.g. on the first transition of a fresh run).
         """
         params = {k: v for k, v in self.params().items() if not isinstance(v, str)}
         mlflow.log_params(params)
@@ -313,10 +321,14 @@ class Trainer(ABC):
         """
         Return a dictionary of hyperparameters for logging.
 
-        The returned dictionary should contain key-value pairs representing the
-        hyperparameters of the training session, such as learning rate, batch
-        size, or algorithm-specific parameters. This information is used for
-        logging and experiment tracking purposes.
+        The default implementation collects all instance attributes whose
+        values are ``int``, ``float``, ``str``, or ``bool`` via ``vars(self)``.
+        Subclasses may override this to expose only the relevant parameters
+        or to add algorithm-specific entries.
+
+        Note:
+            :meth:`_mlflow_log_train_params` will further filter out string
+            values before uploading to MLflow.
 
         Returns:
             A dictionary where keys are hyperparameter names and values are their
@@ -436,6 +448,8 @@ class Trainer(ABC):
                 by ``_training_step_observation``. If empty, this method is a no-op.
 
         Raises:
+            RuntimeError: If the number of actions returned by ``policy`` does
+                not match the number of input observations.
             RuntimeError: If ``api.send_action_batch`` returns ``False``, indicating
                 that the server did not acknowledge the actions.
         """

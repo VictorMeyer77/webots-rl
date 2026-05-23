@@ -148,6 +148,9 @@ class TestInit:
     def test_last_checkpoint_transition_starts_at_zero(self, trainer):
         assert trainer.last_checkpoint_transition == 0
 
+    def test_episode_count_starts_at_zero(self, trainer):
+        assert trainer.episode_count == 0
+
     def test_api_is_set(self, trainer):
         assert trainer.api is not None
 
