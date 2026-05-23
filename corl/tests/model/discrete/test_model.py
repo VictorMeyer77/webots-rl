@@ -67,9 +67,6 @@ class TestInstantiation:
         with pytest.raises(TypeError):
             Model()  # type: ignore
 
-    def test_default_checkpoint_index(self, model):
-        assert model.checkpoint_index == 0
-
 
 # ---------------------------------------------------------------------------
 # predict()
@@ -99,10 +96,6 @@ class TestMetadata:
         model.batch_size = 32
         result = model.metadata()
         assert result == {"gamma": 0.99, "batch_size": 32}
-
-    def test_excludes_checkpoint_index(self, model):
-        result = model.metadata()
-        assert "checkpoint_index" not in result
 
     def test_excludes_non_scalar_attributes(self, model):
         model.array_attr = np.array([1.0, 2.0])

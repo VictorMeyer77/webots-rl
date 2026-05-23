@@ -14,18 +14,7 @@ class Model(ABC):
     that every concrete model must implement. Subclasses are expected to
     override :meth:`predict`, :meth:`save_weights`, :meth:`load_weights` and
     :meth:`load_metadata`.
-
-    Attributes:
-        checkpoint_index: Per-instance counter incremented each time a
-            checkpoint is saved. Used to generate unique checkpoint filenames.
-            Initialised to ``0`` in :meth:`__init__`.
     """
-
-    checkpoint_index: int
-
-    def __init__(self):
-        """Initialise per-instance state shared by all model subclasses."""
-        self.checkpoint_index = 0
 
     @abstractmethod
     def predict(
@@ -38,20 +27,17 @@ class Model(ABC):
             observation: Sensor/state vector from the environment.
 
         Returns:
-            NDArray[np.int32] | NDArray[np.float32]: Discrete or continuous
-            action output, depending on the action space of the model.
+            Discrete or continuous action output, depending on the action space
+            of the model.
         """
 
     @abstractmethod
-    def save_weights(self, model_dir: str, checkpoint: bool = False) -> None:
+    def save_weights(self, model_dir: str) -> None:
         """
         Persist model weights to ``model_dir``.
 
         Args:
             model_dir: Target directory for the weight file(s).
-            checkpoint: If ``True``, save as a versioned checkpoint (using
-                :attr:`checkpoint_index`) rather than overwriting the latest
-                weights in place.
         """
 
     @abstractmethod
@@ -67,21 +53,20 @@ class Model(ABC):
         """
         Collect scalar hyperparameters from this instance for logging.
 
-        Inspects all instance attributes, excluding ``model_dir`` and
-        ``checkpoint_index``, and returns those whose value is a plain
-        ``int``, ``float``, ``bool``, or ``str``. This is used by
-        :meth:`save_metadata` and passed directly to MLflow via
+        Inspects all instance attributes and returns those whose value is a
+        plain ``int``, ``float``, ``bool``, or ``str``.
+        This is used by :meth:`save_metadata` and passed directly to MLflow via
         :meth:`~corl.trainer.algorithm.discrete.monte_carlo.TrainerMonteCarlo.params`.
 
         Returns:
-            dict mapping attribute name → scalar value for every qualifying
-            instance attribute.
+            dict[str, int | float | bool | str]: Mapping of attribute name to
+            scalar value for every qualifying instance attribute.
         """
 
         metadata = {}
 
         for name, value in self.__dict__.items():
-            if name not in ("model_dir", "checkpoint_index") and type(value) in (
+            if type(value) in (
                 int,
                 float,
                 bool,
@@ -93,12 +78,13 @@ class Model(ABC):
 
     def save_metadata(self, model_dir: str) -> None:
         """
-        Write :attr:`metadata` to ``<model_dir>/metadata.json``.
+        Write :meth:`metadata` to ``<model_dir>/metadata.json``.
 
         Args:
             model_dir: Target directory for ``metadata.json``.
 
         Raises:
+            FileNotFoundError: If ``model_dir`` does not exist.
             OSError: If the file cannot be written.
         """
         with open(Path(model_dir) / "metadata.json", "w") as f:
@@ -107,7 +93,7 @@ class Model(ABC):
     @abstractmethod
     def load_metadata(self, model_dir: str) -> None:
         """
-        Load :attr:`metadata` from ``<model_dir>/metadata.json``.
+        Load :meth:`metadata` from ``<model_dir>/metadata.json``.
 
         Args:
             model_dir: Source directory containing ``metadata.json``.
@@ -123,9 +109,7 @@ class Model(ABC):
         Save weights and metadata to ``model_dir``.
 
         Convenience method that calls :meth:`save_weights` followed by
-        :meth:`save_metadata`. Equivalent to a non-checkpoint save; to save
-        a versioned checkpoint call :meth:`save_weights` directly with
-        ``checkpoint=True``.
+        :meth:`save_metadata`.
 
         Args:
             model_dir: Target directory for weights and ``metadata.json``.

@@ -113,26 +113,16 @@ class ModelValueTable(Model):
         self.value_table = np.load(model_path, allow_pickle=False)
         logger.info(f"Model loaded from {model_path}.")
 
-    def save_weights(self, model_dir: str, checkpoint: bool = False) -> None:
+    def save_weights(self, model_dir: str) -> None:
         """
         Persist the value table to ``model_dir``.
 
         Args:
             model_dir: Target directory for the ``.npy`` weight file.
-            checkpoint: If ``True``, save as a versioned checkpoint named
-                ``model_ckt_<checkpoint_index>.npy`` and increment
-                :attr:`checkpoint_index`. If ``False``, overwrite
-                ``model.npy`` in place.
         """
-        if checkpoint:
-            model_path = Path(model_dir) / f"model_ckt_{self.checkpoint_index}.npy"
-            self.checkpoint_index += 1
-            logger.debug(f"Checkpoint saved: {model_path}")
-        else:
-            model_path = Path(model_dir) / "model.npy"
-            logger.info(f"Final model saved: {model_path} and logged to MLflow.")
-
+        model_path = Path(model_dir) / "model.npy"
         np.save(model_path, self.value_table)
+        logger.info(f"Model saved: {model_path}.")
 
     def load_metadata(self, model_dir: str) -> None:
         """

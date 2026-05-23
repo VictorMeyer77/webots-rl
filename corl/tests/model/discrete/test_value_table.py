@@ -65,10 +65,6 @@ class TestInstantiation:
         m = make_model()
         assert m.value_table.dtype == np.float32
 
-    def test_checkpoint_index_starts_at_zero(self):
-        m = make_model()
-        assert m.checkpoint_index == 0
-
     def test_dimensions_stored(self):
         m = make_model(observation_cardinality=5, observation_size=3, action_size=6)
         assert m.observation_cardinality == 5
@@ -167,40 +163,6 @@ class TestSaveWeights:
         mock_save.assert_called_once_with(
             Path("/out/dir") / "model.npy", model.value_table
         )
-
-    def test_checkpoint_uses_index_in_filename(self, model):
-        with patch("corl.model.discrete.value_table.np.save") as mock_save:
-            model.save_weights("/out/dir", checkpoint=True)
-
-        mock_save.assert_called_once_with(
-            Path("/out/dir") / "model_ckt_0.npy", model.value_table
-        )
-
-    def test_checkpoint_increments_index(self, model):
-        with patch("corl.model.discrete.value_table.np.save"):
-            model.save_weights("/out/dir", checkpoint=True)
-            model.save_weights("/out/dir", checkpoint=True)
-
-        assert model.checkpoint_index == 2
-
-    def test_successive_checkpoints_use_unique_filenames(self, model):
-        saved_paths = []
-        with patch(
-            "corl.model.discrete.value_table.np.save",
-            side_effect=lambda p, _: saved_paths.append(p),
-        ):
-            model.save_weights("/out/dir", checkpoint=True)
-            model.save_weights("/out/dir", checkpoint=True)
-            model.save_weights("/out/dir", checkpoint=True)
-
-        assert len(set(saved_paths)) == 3
-
-    def test_non_checkpoint_does_not_increment_index(self, model):
-        with patch("corl.model.discrete.value_table.np.save"):
-            model.save_weights("/out/dir")
-            model.save_weights("/out/dir")
-
-        assert model.checkpoint_index == 0
 
 
 # ---------------------------------------------------------------------------
