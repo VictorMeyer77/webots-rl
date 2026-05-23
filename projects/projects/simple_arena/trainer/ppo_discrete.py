@@ -13,8 +13,8 @@ from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
-TRANSITIONS = 1_000_000  # Total number of training transitions
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
+TRANSITIONS = 1_000_0  # Total number of training transitions
+CHECKPOINT_FREQUENCY = 2_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor: how much future rewards are valued
 ENTROPY_COEFF = (
     0.02  # Entropy bonus weight — between A2C's collapsed 0.01 and the failed 0.05
@@ -73,7 +73,7 @@ def build_critic() -> Sequential:
     return model
 
 
-class SimpleArenaPPO(TrainerPPO):
+class SimpleArenaPPODiscrete(TrainerPPO):
     """
     PPO trainer for the simple arena task.
 
@@ -129,10 +129,11 @@ if __name__ == "__main__":
         action_size=ACTION_SIZE,
     )
 
-    SimpleArenaPPO(
+    SimpleArenaPPODiscrete(
         config=config,
         model=model,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
+        checkpoint_id="20260523_214942",
         gamma=GAMMA,
         clip_range=CLIP_RANGE,
         ppo_epochs=PPO_EPOCHS,
@@ -143,4 +144,4 @@ if __name__ == "__main__":
         critic_lr=CRITIC_LR,
         update_frequency=UPDATE_FREQUENCY,
         max_grad_norm=MAX_GRAD_NORM,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)

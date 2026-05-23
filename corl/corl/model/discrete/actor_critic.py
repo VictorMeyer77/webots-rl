@@ -63,7 +63,6 @@ class ModelActorCritic(Model):
             ValueError: If ``model_dir`` is ``None`` and any of ``actor``,
                 ``critic``, or ``action_size`` is not provided.
         """
-        super().__init__()
 
         if model_dir is not None:
             if any(p is not None for p in (actor, critic, action_size)):
@@ -104,29 +103,18 @@ class ModelActorCritic(Model):
         actions = np.array([np.random.choice(self.action_size, p=p) for p in probs])
         return actions.astype(np.int32)
 
-    def save_weights(self, model_dir: str, checkpoint: bool = False) -> None:
+    def save_weights(self, model_dir: str) -> None:
         """
         Persist actor and critic weights to ``model_dir``.
 
         Args:
-            model_dir: Target directory for the weight files.
-            checkpoint: When ``True``, saves as versioned checkpoints
-                (``actor_ckt_<idx>.keras``, ``critic_ckt_<idx>.keras``) and
-                increments :attr:`checkpoint_index`. When ``False``,
-                overwrites ``actor.keras`` and ``critic.keras`` in place.
+            model_dir: Target directory for the weight files. Saves
+                ``actor.keras`` and ``critic.keras`` in place.
         """
         base = Path(model_dir)
-
-        if checkpoint:
-            idx = self.checkpoint_index
-            self.actor.save(base / f"actor_ckt_{idx}.keras")
-            self.critic.save(base / f"critic_ckt_{idx}.keras")
-            self.checkpoint_index += 1
-            logger.debug(f"Checkpoint {idx} saved to {model_dir}")
-        else:
-            self.actor.save(base / "actor.keras")
-            self.critic.save(base / "critic.keras")
-            logger.info(f"Actor-critic model saved to {model_dir}")
+        self.actor.save(base / "actor.keras")
+        self.critic.save(base / "critic.keras")
+        logger.info(f"Actor-critic model saved to {model_dir}")
 
     def save_weights_lite(self, model_dir: str) -> None:
         """
@@ -141,13 +129,7 @@ class ModelActorCritic(Model):
 
         Args:
             model_dir: Target directory for ``actor.tflite``.
-
-        Raises:
-            ValueError: If :attr:`actor` has not been initialised.
         """
-        if self.actor is None:
-            raise ValueError("actor must be initialised.")
-
         base = Path(model_dir)
         converter = tf.lite.TFLiteConverter.from_keras_model(self.actor)
         tflite_model = converter.convert()

@@ -82,9 +82,6 @@ class TestInstantiation:
         m = make_model()
         assert isinstance(m, ModelActorCritic)
 
-    def test_checkpoint_index_starts_at_zero(self, model):
-        assert model.checkpoint_index == 0
-
     def test_action_size_stored(self):
         m = make_model(action_size=6)
         assert m.action_size == 6
@@ -205,29 +202,6 @@ class TestSaveWeights:
         model.save_weights("/out/dir")
         model.actor.save.assert_called_once_with(Path("/out/dir") / "actor.keras")
         model.critic.save.assert_called_once_with(Path("/out/dir") / "critic.keras")
-
-    def test_checkpoint_uses_index_in_filenames(self, model):
-        model.save_weights("/out/dir", checkpoint=True)
-        model.actor.save.assert_called_once_with(Path("/out/dir") / "actor_ckt_0.keras")
-        model.critic.save.assert_called_once_with(
-            Path("/out/dir") / "critic_ckt_0.keras"
-        )
-
-    def test_checkpoint_increments_index(self, model):
-        model.save_weights("/out/dir", checkpoint=True)
-        model.save_weights("/out/dir", checkpoint=True)
-        assert model.checkpoint_index == 2
-
-    def test_successive_checkpoints_use_unique_filenames(self, model):
-        model.save_weights("/out/dir", checkpoint=True)
-        model.save_weights("/out/dir", checkpoint=True)
-        actor_paths = [c.args[0] for c in model.actor.save.call_args_list]
-        assert len(set(actor_paths)) == 2
-
-    def test_non_checkpoint_does_not_increment_index(self, model):
-        model.save_weights("/out/dir")
-        model.save_weights("/out/dir")
-        assert model.checkpoint_index == 0
 
 
 # ---------------------------------------------------------------------------
