@@ -27,13 +27,13 @@ jobs:
         run: uv sync --all-packages --dev
 
       - name: Lint (ruff)
-        run: uv run ruff check .
+        run: uvx ruff check .
 
       - name: Format check (ruff)
-        run: uv run ruff format --check .
+        run: uvx ruff format --check .
 
       - name: Import sort check (isort)
-        run: uv run isort --check-only --profile black .
+        run: uvx isort --check-only --profile black .
 
       - name: Type check (mypy)
         run: uv run mypy --ignore-missing-imports --no-strict-optional --explicit-package-bases corl/corl backtrain/app
