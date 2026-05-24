@@ -1,4 +1,7 @@
+import json
 import logging
+from datetime import datetime
+from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -81,7 +84,7 @@ class TrainerSAC(Trainer):
         critic1: tf.keras.Model,
         critic2: tf.keras.Model,
         action_dim: int,
-        model_checkpoint_frequency: int,
+        checkpoint_frequency: int,
         gamma: float = 0.99,
         tau: float = 0.005,
         batch_size: int = 256,
@@ -95,6 +98,7 @@ class TrainerSAC(Trainer):
         per_alpha: float = 0.6,
         per_beta_start: float = 0.4,
         max_grad_norm: float | None = None,
+        checkpoint_id: str | None = None,
     ):
         """
         Initialise the SAC trainer.
@@ -111,7 +115,7 @@ class TrainerSAC(Trainer):
             critic1: Keras model for Q-network 1.
             critic2: Keras model for Q-network 2.
             action_dim: Dimensionality of the continuous action space.
-            model_checkpoint_frequency: Transitions between checkpoint saves.
+            checkpoint_frequency: Transitions between checkpoint saves.
             gamma: Discount factor in ``[0, 1]``.
             tau: Soft-update coefficient. ``1.0`` = hard copy; ``0.005``
                 is a common default.
@@ -131,17 +135,10 @@ class TrainerSAC(Trainer):
                 ``1.0`` over training.
             max_grad_norm: L2 norm cap for gradient clipping. ``None``
                 disables clipping.
+            checkpoint_id: If provided, resume training from this checkpoint
+                via :meth:`recovery`. When ``None``, a fresh training session
+                is started. Defaults to ``None``.
         """
-
-        model_stub = ModelActorCritic(
-            actor=actor, critic=critic1, action_size=action_dim
-        )
-
-        super().__init__(
-            model=model_stub,
-            config=config,
-            model_checkpoint_frequency=model_checkpoint_frequency,
-        )
 
         self.action_dim = action_dim
         self.gamma = gamma
@@ -184,6 +181,17 @@ class TrainerSAC(Trainer):
         self.transition = TransitionMemory()
         self.experience_replay = PrioritizedExperienceReplayBuffer(
             capacity=per_size, alpha=per_alpha
+        )
+
+        model_stub = ModelActorCritic(
+            actor=actor, critic=critic1, action_size=action_dim
+        )
+
+        super().__init__(
+            model=model_stub,
+            config=config,
+            checkpoint_frequency=checkpoint_frequency,
+            checkpoint_id=checkpoint_id,
         )
 
     # ------------------------------------------------------------------
@@ -248,24 +256,104 @@ class TrainerSAC(Trainer):
     # Trainer interface
     # ------------------------------------------------------------------
 
-    def params(self) -> dict[str, str | int | float]:
-        return {
-            "gamma": self.gamma,
-            "tau": self.tau,
-            "batch_size": self.batch_size,
-            "fit_frequency": self.fit_frequency,
-            "actor_lr": self.actor_lr,
-            "critic_lr": self.critic_lr,
-            "alpha_initial": self.alpha,
-            "auto_alpha": self.auto_alpha,
-            "target_entropy": self.target_entropy,
-            "action_dim": self.action_dim,
-            "per_alpha": self.experience_replay.alpha,
-            "per_beta_start": self.per_beta,
-            "max_grad_norm": self.max_grad_norm
-            if self.max_grad_norm is not None
-            else "disabled",
+    def params(self) -> dict[str, str | int | float | bool]:
+        """
+        Return hyperparameters logged to MLflow at the start of training.
+
+        Combines SAC-specific hyperparameters with base trainer scalar
+        attributes so that every run is fully reproducible from the logged
+        params alone. Also includes the PER priority exponent
+        (``per_alpha``), which is stored on the replay buffer rather than
+        directly on the trainer.
+
+        Returns:
+            dict[str, str | int | float | bool]: Flat mapping of parameter names to
+                their values, ready to pass to ``mlflow.log_params()``.
+        """
+        return (
+            super().params()
+            | self.model.metadata()
+            | {"per_alpha": self.experience_replay.alpha}
+        )
+
+    def checkpoint(self) -> None:
+        """
+        Persist all training state to prevent data loss on failure.
+
+        Saves the following under ``<checkpoint_dir>/<timestamp>/``:
+
+        - ``model/`` — actor and critic1 via the model stub.
+        - ``critic2.keras`` — second online critic.
+        - ``target_critic1.keras`` — soft-updated target of critic1.
+        - ``target_critic2.keras`` — soft-updated target of critic2.
+        - ``log_alpha.npy`` — learnable log-temperature (``auto_alpha=True`` only).
+        - ``params.json`` — all serialisable hyperparameters.
+
+        The timestamp-based subdirectory ensures successive checkpoints do
+        not overwrite each other.
+        """
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
+
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+
+        self.critic2.save(path / "critic2.keras")
+        self.target_critic1.save(path / "target_critic1.keras")
+        self.target_critic2.save(path / "target_critic2.keras")
+
+        if self.auto_alpha and self.log_alpha is not None:
+            np.save(str(path / "log_alpha.npy"), self.log_alpha.numpy())
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint.
+
+        Loads the following from ``<checkpoint_dir>/<checkpoint_id>/``:
+
+        - Model weights (actor + critic1) from ``model/``.
+        - ``critic2.keras``, ``target_critic1.keras``, ``target_critic2.keras``.
+        - ``log_alpha.npy`` when present (``auto_alpha=True`` runs only).
+        - Declared class attributes from ``params.json``; extra keys such as
+          model metadata are ignored.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+        """
+        allowed = {
+            key
+            for cls in type(self).__mro__
+            for key in getattr(cls, "__annotations__", {})
         }
+
+        path = Path(self.checkpoint_dir) / checkpoint_id
+        self.model.load(str(path / "model"))
+
+        self.critic2 = tf.keras.models.load_model(path / "critic2.keras")
+        self.target_critic1 = tf.keras.models.load_model(path / "target_critic1.keras")
+        self.target_critic2 = tf.keras.models.load_model(path / "target_critic2.keras")
+
+        log_alpha_path = path / "log_alpha.npy"
+        if log_alpha_path.exists():
+            log_alpha_value = float(np.load(str(log_alpha_path)))
+            self.log_alpha = tf.Variable(
+                log_alpha_value, trainable=True, dtype=tf.float32
+            )
+
+        with open(path / "params.json", "r") as f:
+            params = json.load(f)
+            for key, value in params.items():
+                if key in allowed:
+                    setattr(self, key, value)
+
+        logger.info(f"Recovered training state from {path}")
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.float32]:
         """
@@ -405,43 +493,52 @@ class TrainerSAC(Trainer):
 
         return metrics
 
-    def run(self, epochs: int) -> None:
+    def run(self, max_transitions: int) -> None:
         """
-        Execute the SAC training loop for ``epochs`` transitions.
+        Execute the SAC training loop for ``max_transitions`` transitions.
 
-        Logs hyperparameters to MLflow, then repeatedly calls
+        Logs hyperparameters to MLflow on a fresh run (skipped when resuming
+        from a checkpoint). Repeatedly calls
         :meth:`~corl.trainer.trainer.Trainer.training_step` to collect
         environment interactions. After each collected batch:
 
         - Transitions are pushed into the PER buffer.
         - :meth:`fit_model` is called every ``fit_frequency`` steps;
           metrics are logged to MLflow when a fit occurs.
-        - A model checkpoint is saved every
-          ``model_checkpoint_frequency`` steps.
+        - A checkpoint is saved via :meth:`checkpoint` every
+          ``checkpoint_frequency`` steps.
         - ``per_beta`` is annealed toward ``1.0`` each transition.
 
         On completion, the final model is saved and the trainer is closed.
 
         Args:
-            epochs: Total number of simulation steps to run.
+            max_transitions: Total number of simulation steps to run.
 
         Raises:
-            ValueError: If ``epochs`` is less than ``1``.
+            ValueError: If ``max_transitions`` is less than ``1``.
         """
-        if epochs < 1:
-            raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
+        if max_transitions < 1:
+            raise ValueError(
+                f"Number of transitions must be >= 1, got {max_transitions}"
+            )
 
-        mlflow.log_params(self.params())
+        if self.last_checkpoint_transition == 0:
+            self._mlflow_log_train_params()
+            training_step_count = 0
+            last_fit = 0
+        else:
+            training_step_count = self.last_checkpoint_transition
+            last_fit = self.last_checkpoint_transition
 
-        training_step_count = 0
-        episode_count = 0
-        last_fit = 0
-        last_checkpoint = 0
-        self.per_beta_increment = (1.0 - self.per_beta) / epochs
+        self.per_beta_increment = (1.0 - self.per_beta) / (
+            max_transitions - training_step_count
+        )
 
-        logger.info(f"Starting SAC training for {epochs} transitions")
+        logger.info(
+            f"Starting SAC training at transition {training_step_count}/{max_transitions}."
+        )
 
-        while training_step_count < epochs:
+        while training_step_count < max_transitions:
             steps = self.training_step()
 
             transitions = [
@@ -454,7 +551,7 @@ class TrainerSAC(Trainer):
                 training_step_count += 1
 
                 if transition.current_step.done:
-                    episode_count += 1
+                    self.episode_count += 1
 
                 # Actions are stored as list[float]; convert to numpy for PER
                 action = np.array(transition.current_step.action, dtype=np.float32)
@@ -476,11 +573,11 @@ class TrainerSAC(Trainer):
                     mlflow.log_metrics(
                         fit_metrics
                         | {
-                            "episode": episode_count,
+                            "episode": self.episode_count,
                             "transition_per_episode": round(
-                                training_step_count / episode_count, 2
+                                training_step_count / self.episode_count, 2
                             )
-                            if episode_count > 0
+                            if self.episode_count > 0
                             else 0.0,
                             "per_size": len(self.experience_replay),
                             "per_beta": self.per_beta,
@@ -489,13 +586,16 @@ class TrainerSAC(Trainer):
                     )
                 last_fit = training_step_count
 
-            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
-                self.model.save_weights(self.model_dir, checkpoint=True)
-                last_checkpoint = training_step_count
+            if (
+                training_step_count - self.last_checkpoint_transition
+                >= self.checkpoint_frequency
+            ):
+                self.last_checkpoint_transition = training_step_count
+                self.checkpoint()
 
             logger.debug(
                 f"Processed {len(steps)} steps with {len(transitions)} "
-                f"transitions. {training_step_count}/{epochs}."
+                f"transitions. {training_step_count}/{max_transitions}."
             )
 
         self.model.save(self.model_dir)
