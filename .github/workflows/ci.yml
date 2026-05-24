@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
     branches: ["**"]
 
@@ -36,7 +34,7 @@ jobs:
         run: uvx isort --check-only --profile black .
 
       - name: Type check (mypy)
-        run: uv run mypy --ignore-missing-imports --no-strict-optional --explicit-package-bases corl/corl backtrain/app
+        run: uvx mypy --ignore-missing-imports --no-strict-optional --explicit-package-bases corl/corl backtrain/app
         continue-on-error: true
 
       - name: Tests
