@@ -13,7 +13,7 @@ from corl.utils.logger import setup_logging
 
 ACTION_DIM = 2  # Continuous action space: [pitch_velocity, yaw_velocity]
 TRANSITIONS = 1_000_000  # Total number of training transitions
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
+CHECKPOINT_FREQUENCY = 400_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor
 TAU = 0.005  # Soft target update coefficient
 BATCH_SIZE = 256  # Transitions sampled per gradient step
@@ -130,7 +130,7 @@ if __name__ == "__main__":
         critic1=build_critic(),
         critic2=build_critic(),
         action_dim=ACTION_DIM,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
         gamma=GAMMA,
         tau=TAU,
         batch_size=BATCH_SIZE,
@@ -144,4 +144,4 @@ if __name__ == "__main__":
         per_size=PER_SIZE,
         per_alpha=PER_ALPHA,
         per_beta_start=PER_BETA_START,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)
