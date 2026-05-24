@@ -1,6 +1,4 @@
-import json
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import mlflow
@@ -276,66 +274,47 @@ class TrainerSAC(Trainer):
             | {"per_alpha": self.experience_replay.alpha}
         )
 
-    def checkpoint(self) -> None:
+    def checkpoint(self) -> Path:
         """
-        Persist all training state to prevent data loss on failure.
+        Persist all training state including SAC-specific networks.
 
-        Saves the following under ``<checkpoint_dir>/<timestamp>/``:
+        Delegates common logic to the base implementation, then additionally
+        saves:
 
-        - ``model/`` — actor and critic1 via the model stub.
         - ``critic2.keras`` — second online critic.
         - ``target_critic1.keras`` — soft-updated target of critic1.
         - ``target_critic2.keras`` — soft-updated target of critic2.
         - ``log_alpha.npy`` — learnable log-temperature (``auto_alpha=True`` only).
-        - ``params.json`` — all serialisable hyperparameters.
 
-        The timestamp-based subdirectory ensures successive checkpoints do
-        not overwrite each other.
+        Returns:
+            Path to the checkpoint subdirectory that was just created.
         """
-        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = Path(self.checkpoint_dir) / checkpoint_id
-
-        model_path = path / "model"
-        model_path.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(model_path))
-
+        path = super().checkpoint()
         self.critic2.save(path / "critic2.keras")
         self.target_critic1.save(path / "target_critic1.keras")
         self.target_critic2.save(path / "target_critic2.keras")
-
         if self.auto_alpha and self.log_alpha is not None:
             np.save(str(path / "log_alpha.npy"), self.log_alpha.numpy())
+        return path
 
-        with open(path / "params.json", "w") as f:
-            json.dump(self.params(), f, indent=2)
-
-        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
-
-    def recovery(self, checkpoint_id: str) -> None:
+    def recovery(self, checkpoint_id: str) -> Path:
         """
-        Restore training state from a checkpoint.
+        Restore training state including SAC-specific networks.
 
-        Loads the following from ``<checkpoint_dir>/<checkpoint_id>/``:
-
-        - Model weights (actor + critic1) from ``model/``.
-        - ``critic2.keras``, ``target_critic1.keras``, ``target_critic2.keras``.
-        - ``log_alpha.npy`` when present (``auto_alpha=True`` runs only).
-        - Declared class attributes from ``params.json``; extra keys such as
-          model metadata are ignored.
+        Delegates common logic to the base implementation, then additionally
+        loads ``critic2.keras``, the two target critics, and ``log_alpha.npy``
+        (when present). Optimizer learning rates are reassigned because
+        ``setattr`` on ``actor_lr`` / ``critic_lr`` does not propagate to
+        already-constructed ``tf.keras.optimizers.Adam`` instances.
 
         Args:
             checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
                 string) produced by :meth:`checkpoint`.
+
+        Returns:
+            Path to the checkpoint subdirectory that was restored from.
         """
-        allowed = {
-            key
-            for cls in type(self).__mro__
-            for key in getattr(cls, "__annotations__", {})
-        }
-
-        path = Path(self.checkpoint_dir) / checkpoint_id
-        self.model.load(str(path / "model"))
-
+        path = super().recovery(checkpoint_id)
         self.critic2 = tf.keras.models.load_model(path / "critic2.keras")
         self.target_critic1 = tf.keras.models.load_model(path / "target_critic1.keras")
         self.target_critic2 = tf.keras.models.load_model(path / "target_critic2.keras")
@@ -347,17 +326,10 @@ class TrainerSAC(Trainer):
                 log_alpha_value, trainable=True, dtype=tf.float32
             )
 
-        with open(path / "params.json", "r") as f:
-            params = json.load(f)
-            for key, value in params.items():
-                if key in allowed:
-                    setattr(self, key, value)
-
         self.actor_optimizer.learning_rate.assign(self.actor_lr)
         self.critic1_optimizer.learning_rate.assign(self.critic_lr)
         self.critic2_optimizer.learning_rate.assign(self.critic_lr)
-
-        logger.info(f"Recovered training state from {path}")
+        return path
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.float32]:
         """

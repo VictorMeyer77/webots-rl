@@ -1,6 +1,4 @@
-import json
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -80,44 +78,39 @@ class TrainerDoubleQLearning(TrainerTDTabular):
                 actions.append(int(np.argmax(combined[obs_index])))
         return np.array(actions, dtype=np.int32)
 
-    def checkpoint(self) -> None:
+    def checkpoint(self) -> Path:
         """
-        Persist all training state, including both Q-tables, to prevent data loss.
+        Persist all training state including the second Q-table.
 
-        Extends the parent implementation by additionally saving ``value_table_b``
-        as ``model_b.npy`` inside the same ``model/`` subdirectory created for
-        ``Q_A``.
+        Delegates common logic to the base implementation, then additionally
+        saves ``value_table_b`` as ``model/model_b.npy`` inside the checkpoint
+        directory.
+
+        Returns:
+            Path to the checkpoint subdirectory that was just created.
         """
-        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = Path(self.checkpoint_dir) / checkpoint_id
+        path = super().checkpoint()
+        np.save(path / "model" / "model_b.npy", self.value_table_b)
+        return path
 
-        model_path = path / "model"
-        model_path.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(model_path))
-        np.save(model_path / "model_b.npy", self.value_table_b)
-
-        with open(path / "params.json", "w") as f:
-            json.dump(self.params(), f, indent=2)
-
-        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
-
-    def recovery(self, checkpoint_id: str) -> None:
+    def recovery(self, checkpoint_id: str) -> Path:
         """
-        Restore training state from a checkpoint, including ``value_table_b``.
+        Restore training state including the second Q-table.
 
-        Delegates to the parent :meth:`~corl.trainer.algorithm.discrete.td_tabular.TrainerTDTabular.recovery`
-        to reload model weights (``Q_A``) and all serialisable hyperparameters,
-        then loads ``value_table_b`` from ``model_b.npy`` in the same ``model/``
-        subdirectory.
+        Delegates common logic to the base implementation, then loads
+        ``value_table_b`` from ``model/model_b.npy`` inside the checkpoint
+        directory.
 
         Args:
             checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
                 string) produced by :meth:`checkpoint`.
+
+        Returns:
+            Path to the checkpoint subdirectory that was restored from.
         """
-        super().recovery(checkpoint_id)
-        model_path = Path(self.checkpoint_dir) / checkpoint_id / "model"
-        self.value_table_b = np.load(model_path / "model_b.npy", allow_pickle=False)
-        logger.info(f"Loaded value_table_b from {model_path}")
+        path = super().recovery(checkpoint_id)
+        self.value_table_b = np.load(path / "model" / "model_b.npy", allow_pickle=False)
+        return path
 
     def update_value_table(self, transition: TransitionSchema) -> dict[str, float]:
         """

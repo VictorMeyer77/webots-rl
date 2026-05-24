@@ -1,6 +1,4 @@
-import json
 import logging
-from datetime import datetime
 from pathlib import Path
 
 import mlflow
@@ -177,64 +175,39 @@ class TrainerDeepQLearning(Trainer):
         self.target_weights.set_weights(self.model.weights.get_weights())
         logger.debug("Target model weights updated from training model")
 
-    def checkpoint(self) -> None:
+    def checkpoint(self) -> Path:
         """
-        Persist all training state to prevent data loss on failure.
+        Persist all training state including the target network.
 
-        Saves the model weights under ``<checkpoint_dir>/<timestamp>/model/``,
-        the target network to ``<checkpoint_dir>/<timestamp>/target_weights.keras``,
-        and all serialisable hyperparameters to ``<checkpoint_dir>/<timestamp>/params.json``.
-        The timestamp-based subdirectory ensures successive checkpoints do not
-        overwrite each other.
+        Delegates common logic to the base implementation, then additionally
+        saves the target network to
+        ``<checkpoint_dir>/<timestamp>/target_weights.keras``.
+
+        Returns:
+            Path to the checkpoint subdirectory that was just created.
         """
-        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = Path(self.checkpoint_dir) / checkpoint_id
+        path = super().checkpoint()
+        self.target_weights.save(path / "target_weights.keras")
+        return path
 
-        model_path = path / "model"
-        model_path.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(model_path))
-
-        target_path = path / "target_weights.keras"
-        self.target_weights.save(target_path)
-
-        with open(path / "params.json", "w") as f:
-            json.dump(self.params(), f, indent=2)
-
-        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
-
-    def recovery(self, checkpoint_id: str) -> None:
+    def recovery(self, checkpoint_id: str) -> Path:
         """
-        Restore training state from a checkpoint.
+        Restore training state including the target network.
 
-        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model``,
-        the target network from ``<checkpoint_dir>/<checkpoint_id>/target_weights.keras``,
-        and restores declared class attributes from ``<checkpoint_dir>/<checkpoint_id>/params.json``.
-        Only keys present in the class-level annotations across the full MRO are
-        restored; any extra keys in the JSON (e.g. model metadata) are ignored.
+        Delegates common logic to the base implementation, then additionally
+        loads the target network from
+        ``<checkpoint_dir>/<checkpoint_id>/target_weights.keras``.
 
         Args:
             checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
                 string) produced by :meth:`checkpoint`.
+
+        Returns:
+            Path to the checkpoint subdirectory that was restored from.
         """
-        allowed = {
-            key
-            for cls in type(self).__mro__
-            for key in getattr(cls, "__annotations__", {})
-        }
-
-        path = Path(self.checkpoint_dir) / checkpoint_id
-        self.model.load(str(path / "model"))
-
-        target_path = path / "target_weights.keras"
-        self.target_weights = tf.keras.models.load_model(target_path)
-
-        with open(path / "params.json", "r") as f:
-            params = json.load(f)
-            for key, value in params.items():
-                if key in allowed:
-                    setattr(self, key, value)
-
-        logger.info(f"Recovered training state from {path}")
+        path = super().recovery(checkpoint_id)
+        self.target_weights = tf.keras.models.load_model(path / "target_weights.keras")
+        return path
 
     def fit_model(self) -> dict[str, float] | None:
         """

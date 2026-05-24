@@ -1,3 +1,4 @@
+import json
 import logging
 import shutil
 import time
@@ -383,29 +384,73 @@ class Trainer(ABC):
             numerical representation of the corresponding observation.
         """
 
-    @abstractmethod
-    def checkpoint(self) -> None:
+    def checkpoint(self) -> Path:
         """
-        Persist all training state to prevent data loss on failure.
+        Persist training state to prevent data loss on failure.
 
-        Implementations must save model weights, optimizer states, and all
-        serialisable instance attributes needed to resume training, including
-        ``last_checkpoint_transition``.
+        Saves the model under ``<checkpoint_dir>/<timestamp>/model/`` and all
+        serialisable hyperparameters to ``<checkpoint_dir>/<timestamp>/params.json``.
+        The timestamp-based subdirectory ensures successive checkpoints do not
+        overwrite each other.
+
+        Subclasses with additional artefacts (e.g. extra networks) should call
+        ``super().checkpoint()`` to obtain the ``Path`` and then save their extras
+        into the same directory.
+
+        Returns:
+            Path to the checkpoint subdirectory that was just created.
         """
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
 
-    @abstractmethod
-    def recovery(self, checkpoint_id: str) -> None:
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+        return path
+
+    def recovery(self, checkpoint_id: str) -> Path:
         """
         Restore training state from a checkpoint.
 
-        Implementations must reload model weights, optimizer states, and all
-        serialisable instance attributes (including ``last_checkpoint_transition``) so
-        that training can resume seamlessly from the saved point.
+        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model`` and
+        restores declared class attributes from
+        ``<checkpoint_dir>/<checkpoint_id>/params.json``. Only keys present in the
+        class-level annotations across the full MRO are restored; extra keys (e.g.
+        model metadata) are ignored.
+
+        Subclasses with additional artefacts should call
+        ``super().recovery(checkpoint_id)`` to obtain the ``Path`` and then load
+        their extras from the same directory.
 
         Args:
-            checkpoint_id: Identifier of the checkpoint to restore from,
-                as produced by :meth:`checkpoint`.
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+
+        Returns:
+            Path to the checkpoint subdirectory that was restored from.
         """
+        allowed = {
+            key
+            for cls in type(self).__mro__
+            for key in getattr(cls, "__annotations__", {})
+        }
+
+        path = Path(self.checkpoint_dir) / checkpoint_id
+        self.model.load(str(path / "model"))
+
+        with open(path / "params.json", "r") as f:
+            params = json.load(f)
+            for key, value in params.items():
+                if key in allowed:
+                    setattr(self, key, value)
+
+        logger.info(f"Recovered training state from {path}")
+        return path
 
     # Training step implementations
 

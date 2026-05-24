@@ -1,8 +1,5 @@
-import json
 import logging
 from abc import abstractmethod
-from datetime import datetime
-from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -148,57 +145,6 @@ class TrainerTDTabular(Trainer):
                 ``value_table_nonzero``, ``epsilon``) before being logged
                 to MLflow.
         """
-
-    def checkpoint(self) -> None:
-        """
-        Persist all training state to prevent data loss on failure.
-
-        Saves the model weights under ``<checkpoint_dir>/<timestamp>/model/``
-        and all serialisable hyperparameters to ``<checkpoint_dir>/<timestamp>/params.json``.
-        The timestamp-based subdirectory ensures successive checkpoints do not
-        overwrite each other.
-        """
-        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = Path(self.checkpoint_dir) / checkpoint_id
-
-        model_path = path / "model"
-        model_path.mkdir(parents=True, exist_ok=True)
-        self.model.save(str(model_path))
-
-        with open(path / "params.json", "w") as f:
-            json.dump(self.params(), f, indent=2)
-
-        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
-
-    def recovery(self, checkpoint_id: str) -> None:
-        """
-        Restore training state from a checkpoint.
-
-        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model`` and
-        restores declared class attributes from ``<checkpoint_dir>/<checkpoint_id>/params.json``.
-        Only keys present in the class-level annotations across the full MRO are
-        restored; any extra keys in the JSON (e.g. model metadata) are ignored.
-
-        Args:
-            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
-                string) produced by :meth:`checkpoint`.
-        """
-        allowed = {
-            key
-            for cls in type(self).__mro__
-            for key in getattr(cls, "__annotations__", {})
-        }
-
-        path = Path(self.checkpoint_dir) / checkpoint_id
-        self.model.load(str(path / "model"))
-
-        with open(path / "params.json", "r") as f:
-            params = json.load(f)
-            for key, value in params.items():
-                if key in allowed:
-                    setattr(self, key, value)
-
-        logger.info(f"Recovered training state from {path}")
 
     def run(self, max_transitions: int) -> None:
         """

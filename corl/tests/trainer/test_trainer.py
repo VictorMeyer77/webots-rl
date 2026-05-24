@@ -50,10 +50,10 @@ def _make_trainer_class():
                 for key, obs in observations
             ]
 
-        def checkpoint(self) -> None:
+        def checkpoint(self) -> Path:
             pass
 
-        def recovery(self, checkpoint_id: str) -> None:
+        def recovery(self, checkpoint_id: str) -> Path:
             pass
 
     return ConcreteTrainer
@@ -519,15 +519,17 @@ class TestAbstractInterface:
 
         assert "parse_observations" in Trainer.__abstractmethods__
 
-    def test_checkpoint_is_abstract(self):
+    def test_checkpoint_is_concrete(self):
         from corl.trainer.trainer import Trainer
 
-        assert "checkpoint" in Trainer.__abstractmethods__
+        assert "checkpoint" not in Trainer.__abstractmethods__
+        assert callable(Trainer.checkpoint)
 
-    def test_recovery_is_abstract(self):
+    def test_recovery_is_concrete(self):
         from corl.trainer.trainer import Trainer
 
-        assert "recovery" in Trainer.__abstractmethods__
+        assert "recovery" not in Trainer.__abstractmethods__
+        assert callable(Trainer.recovery)
 
 
 # ===========================================================================
