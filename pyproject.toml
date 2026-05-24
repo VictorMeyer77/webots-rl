@@ -32,3 +32,19 @@ source = ["backtrain/app", "corl/corl"]
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.mypy]
+ignore_missing_imports = true
+no_strict_optional = true
+explicit_package_bases = true
+exclude = ["build/"]
+
+[[tool.mypy.overrides]]
+# mlflow has no stubs; its absence prevents mypy from fully resolving the
+# Trainer base class, causing cascading [has-type] errors in all subclasses
+# that reference inherited attributes like last_checkpoint_transition.
+module = [
+    "corl.corl.trainer.algorithm.discrete.*",
+    "corl.corl.trainer.algorithm.continuous.*",
+]
+disable_error_code = ["has-type"]

@@ -34,8 +34,7 @@ jobs:
         run: uvx isort --check-only --profile black .
 
       - name: Type check (mypy)
-        run: uvx mypy --ignore-missing-imports --no-strict-optional --explicit-package-bases corl/corl backtrain/app
-        continue-on-error: true
+        run: uvx mypy --config-file pyproject.toml corl/ backtrain/ projects/
 
       - name: Tests
         run: uv run pytest --cov --cov-report=xml
