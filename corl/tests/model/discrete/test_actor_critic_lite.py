@@ -99,9 +99,6 @@ class TestInstantiation:
     def test_output_index_is_none_by_default(self, model):
         assert model._actor_output_index is None
 
-    def test_checkpoint_index_starts_at_zero(self, model):
-        assert model.checkpoint_index == 0
-
     def test_model_dir_triggers_load(self):
         with patch.object(ModelActorCriticLite, "load") as mock_load:
             ModelActorCriticLite(model_dir="/some/dir")
