@@ -13,7 +13,7 @@ from corl.utils.logger import setup_logging
 
 ACTION_DIM = 2  # Continuous action space: [pitch_velocity, yaw_velocity]
 TRANSITIONS = 1_000_000  # Total number of training transitions
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
+CHECKPOINT_FREQUENCY = 400_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor
 CLIP_RANGE = 0.2  # PPO clipping parameter ε
 PPO_EPOCHS = 4  # Optimisation passes over each rollout
@@ -124,7 +124,8 @@ if __name__ == "__main__":
         actor=build_actor(),
         critic=build_critic(),
         action_dim=ACTION_DIM,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
+        # checkpoint_id="20260524_222747",
         gamma=GAMMA,
         clip_range=CLIP_RANGE,
         ppo_epochs=PPO_EPOCHS,
@@ -135,4 +136,4 @@ if __name__ == "__main__":
         critic_lr=CRITIC_LR,
         update_frequency=UPDATE_FREQUENCY,
         max_grad_norm=MAX_GRAD_NORM,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)

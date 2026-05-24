@@ -1,4 +1,7 @@
+import json
 import logging
+from datetime import datetime
+from pathlib import Path
 
 import mlflow
 import numpy as np
@@ -80,7 +83,7 @@ class TrainerPPOContinuous(Trainer):
         actor: tf.keras.Model,
         critic: tf.keras.Model,
         action_dim: int,
-        model_checkpoint_frequency: int,
+        checkpoint_frequency: int,
         gamma: float = 0.99,
         clip_range: float = 0.2,
         ppo_epochs: int = 4,
@@ -91,6 +94,7 @@ class TrainerPPOContinuous(Trainer):
         critic_lr: float = 3e-4,
         update_frequency: int = 2048,
         max_grad_norm: float | None = 0.5,
+        checkpoint_id: str | None = None,
     ):
         """
         Initialise the continuous PPO trainer.
@@ -106,7 +110,7 @@ class TrainerPPOContinuous(Trainer):
             actor: Keras model for the Gaussian actor (outputs mean + log_std).
             critic: Keras model for the state-value function.
             action_dim: Dimensionality of the continuous action space.
-            model_checkpoint_frequency: Transitions between checkpoint saves.
+            checkpoint_frequency: Transitions between checkpoint saves.
             gamma: Discount factor in ``[0, 1]``.
             clip_range: Clipping parameter ε for the surrogate objective.
                 Typical values are ``0.1``–``0.3``.
@@ -123,16 +127,10 @@ class TrainerPPOContinuous(Trainer):
                 parameter update.
             max_grad_norm: Maximum L2 norm for gradient clipping. Set to
                 ``None`` to disable.
+            checkpoint_id: If provided, resume training from this checkpoint
+                via :meth:`recovery`. When ``None``, a fresh training session
+                is started. Defaults to ``None``.
         """
-        model_stub = ModelActorCritic(
-            actor=actor, critic=critic, action_size=action_dim
-        )
-        super().__init__(
-            model=model_stub,
-            config=config,
-            model_checkpoint_frequency=model_checkpoint_frequency,
-        )
-
         self.action_dim = action_dim
         self.gamma = gamma
         self.clip_range = clip_range
@@ -148,6 +146,16 @@ class TrainerPPOContinuous(Trainer):
         self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=actor_lr)
         self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=critic_lr)
         self.transition = TransitionMemory()
+
+        model_stub = ModelActorCritic(
+            actor=actor, critic=critic, action_size=action_dim
+        )
+        super().__init__(
+            model=model_stub,
+            config=config,
+            checkpoint_frequency=checkpoint_frequency,
+            checkpoint_id=checkpoint_id,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -235,29 +243,73 @@ class TrainerPPOContinuous(Trainer):
     # Trainer interface
     # ------------------------------------------------------------------
 
-    def params(self) -> dict[str, str | int | float]:
+    def params(self) -> dict[str, str | int | float | bool]:
         """
-        Return hyperparameters for MLflow logging.
+        Return hyperparameters logged to MLflow at the start of training.
+
+        Combines continuous-PPO-specific hyperparameters with model metadata
+        so that every run is fully reproducible from the logged params alone.
 
         Returns:
-            dict mapping parameter name → scalar value, suitable for
-            ``mlflow.log_params()``.
+            dict[str, str | int | float | bool]: Flat mapping of parameter names to
+                their values, ready to pass to ``mlflow.log_params()``.
         """
-        return {
-            "action_dim": self.action_dim,
-            "gamma": self.gamma,
-            "clip_range": self.clip_range,
-            "ppo_epochs": self.ppo_epochs,
-            "mini_batch_size": self.mini_batch_size,
-            "entropy_coeff": self.entropy_coeff,
-            "value_loss_coeff": self.value_loss_coeff,
-            "actor_lr": self.actor_lr,
-            "critic_lr": self.critic_lr,
-            "update_frequency": self.update_frequency,
-            "max_grad_norm": self.max_grad_norm
-            if self.max_grad_norm is not None
-            else "disabled",
+        return super().params() | self.model.metadata()
+
+    def checkpoint(self) -> None:
+        """
+        Persist all training state to prevent data loss on failure.
+
+        Saves the model weights under ``<checkpoint_dir>/<timestamp>/model/``
+        and all serialisable hyperparameters to
+        ``<checkpoint_dir>/<timestamp>/params.json``. The timestamp-based
+        subdirectory ensures successive checkpoints do not overwrite each other.
+        """
+        checkpoint_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = Path(self.checkpoint_dir) / checkpoint_id
+
+        model_path = path / "model"
+        model_path.mkdir(parents=True, exist_ok=True)
+        self.model.save(str(model_path))
+
+        with open(path / "params.json", "w") as f:
+            json.dump(self.params(), f, indent=2)
+
+        logger.info(f"Checkpoint {checkpoint_id} saved to {self.checkpoint_dir}")
+
+    def recovery(self, checkpoint_id: str) -> None:
+        """
+        Restore training state from a checkpoint.
+
+        Loads model weights from ``<checkpoint_dir>/<checkpoint_id>/model`` and
+        restores declared class attributes from
+        ``<checkpoint_dir>/<checkpoint_id>/params.json``. Only keys present in
+        the class-level annotations across the full MRO are restored; any extra
+        keys in the JSON (e.g. model metadata) are ignored.
+
+        Args:
+            checkpoint_id: Identifier of the checkpoint subdirectory (timestamp
+                string) produced by :meth:`checkpoint`.
+        """
+        allowed = {
+            key
+            for cls in type(self).__mro__
+            for key in getattr(cls, "__annotations__", {})
         }
+
+        path = Path(self.checkpoint_dir) / checkpoint_id
+        self.model.load(str(path / "model"))
+
+        with open(path / "params.json", "r") as f:
+            params = json.load(f)
+            for key, value in params.items():
+                if key in allowed:
+                    setattr(self, key, value)
+
+        self.actor_optimizer.learning_rate.assign(self.actor_lr)
+        self.critic_optimizer.learning_rate.assign(self.critic_lr)
+
+        logger.info(f"Recovered training state from {path}")
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.float32]:
         """
@@ -454,43 +506,49 @@ class TrainerPPOContinuous(Trainer):
             "mean_reward": float(np.mean(rewards)),
         }
 
-    def run(self, epochs: int) -> None:
+    def run(self, max_transitions: int) -> None:
         """
-        Execute the continuous PPO training loop for ``epochs`` transitions.
+        Execute the continuous PPO training loop for ``max_transitions`` transitions.
 
-        Logs hyperparameters to MLflow, then repeatedly calls
+        Logs hyperparameters to MLflow on a fresh run (skipped when resuming
+        from a checkpoint). Repeatedly calls
         :meth:`~corl.trainer.trainer.Trainer.training_step` to collect
         environment interactions. After every ``update_frequency``
         transitions, runs a full PPO update cycle (multiple mini-batch
         epochs) on the collected batch and discards the data.
 
-        Metrics are logged to MLflow after each update. A model checkpoint
-        is saved every ``model_checkpoint_frequency`` transitions.
+        Metrics are logged to MLflow after each update. A checkpoint is saved
+        via :meth:`checkpoint` every ``checkpoint_frequency`` transitions.
 
         On completion, the final model is saved and the trainer is closed.
 
         Args:
-            epochs: Total number of simulation steps to run.
+            max_transitions: Total number of simulation steps to run.
 
         Raises:
-            ValueError: If ``epochs`` is less than ``1``.
+            ValueError: If ``max_transitions`` is less than ``1``.
         """
-        if epochs < 1:
-            raise ValueError(f"Number of epochs must be >= 1, got {epochs}")
+        if max_transitions < 1:
+            raise ValueError(
+                f"Number of transitions must be >= 1, got {max_transitions}"
+            )
 
-        mlflow.log_params(self.params())
-
-        training_step_count = 0
-        episode_count = 0
-        last_update = 0
-        last_checkpoint = 0
+        if self.last_checkpoint_transition == 0:
+            self._mlflow_log_train_params()
+            training_step_count = 0
+            last_update = 0
+        else:
+            training_step_count = self.last_checkpoint_transition
+            last_update = self.last_checkpoint_transition
 
         # On-policy buffer: filled, consumed once per PPO cycle, then cleared
         buffer: list[TransitionSchema] = []
 
-        logger.info(f"Starting continuous PPO training for {epochs} transitions")
+        logger.info(
+            f"Starting continuous PPO training at transition {training_step_count}/{max_transitions}."
+        )
 
-        while training_step_count < epochs:
+        while training_step_count < max_transitions:
             steps = self.training_step()
 
             transitions = [
@@ -503,7 +561,7 @@ class TrainerPPOContinuous(Trainer):
                 training_step_count += 1
 
                 if transition.current_step.done:
-                    episode_count += 1
+                    self.episode_count += 1
 
                 buffer.append(transition)
 
@@ -518,23 +576,26 @@ class TrainerPPOContinuous(Trainer):
                 mlflow.log_metrics(
                     update_metrics
                     | {
-                        "episode": episode_count,
+                        "episode": self.episode_count,
                         "transition_per_episode": round(
-                            training_step_count / episode_count, 2
+                            training_step_count / self.episode_count, 2
                         )
-                        if episode_count > 0
+                        if self.episode_count > 0
                         else 0.0,
                     },
                     step=training_step_count,
                 )
 
-            if training_step_count - last_checkpoint >= self.model_checkpoint_frequency:
-                self.model.save_weights(self.model_dir, checkpoint=True)
-                last_checkpoint = training_step_count
+            if (
+                training_step_count - self.last_checkpoint_transition
+                >= self.checkpoint_frequency
+            ):
+                self.last_checkpoint_transition = training_step_count
+                self.checkpoint()
 
             logger.debug(
                 f"Processed {len(steps)} steps with {len(transitions)} "
-                f"transitions. {training_step_count}/{epochs}."
+                f"transitions. {training_step_count}/{max_transitions}."
             )
 
         self.model.save(self.model_dir)

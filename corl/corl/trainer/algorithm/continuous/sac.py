@@ -353,6 +353,10 @@ class TrainerSAC(Trainer):
                 if key in allowed:
                     setattr(self, key, value)
 
+        self.actor_optimizer.learning_rate.assign(self.actor_lr)
+        self.critic1_optimizer.learning_rate.assign(self.critic_lr)
+        self.critic2_optimizer.learning_rate.assign(self.critic_lr)
+
         logger.info(f"Recovered training state from {path}")
 
     def policy(self, observations: NDArray[np.float32]) -> NDArray[np.float32]:

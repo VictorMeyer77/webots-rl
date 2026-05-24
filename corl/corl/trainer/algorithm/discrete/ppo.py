@@ -225,6 +225,9 @@ class TrainerPPO(Trainer):
                 if key in allowed:
                     setattr(self, key, value)
 
+        self.actor_optimizer.learning_rate.assign(self.actor_lr)
+        self.critic_optimizer.learning_rate.assign(self.critic_lr)
+
         logger.info(f"Recovered training state from {path}")
 
     def _apply_gradients(
