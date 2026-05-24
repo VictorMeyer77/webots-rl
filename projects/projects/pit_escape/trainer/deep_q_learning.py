@@ -16,7 +16,7 @@ from corl.utils.logger import setup_logging
 
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 TRANSITIONS = 2_000_000  # Total number of training transitions
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
+CHECKPOINT_FREQUENCY = 400_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor: how much future rewards are valued
 EPSILON = 1.0  # Epsilon-greedy initial value
 EPSILON_MIN = 0.01  # Epsilon-greedy minimum value
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     PitEscapeDeepQLearning(
         config=config,
         model=model,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
         gamma=GAMMA,
         epsilon=EPSILON,
         epsilon_min=EPSILON_MIN,
@@ -119,4 +119,4 @@ if __name__ == "__main__":
         per_size=PER_SIZE,
         per_alpha=PER_ALPHA,
         per_beta_start=PER_BETA_START,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)

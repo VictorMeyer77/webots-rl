@@ -124,7 +124,7 @@ if __name__ == "__main__":
         config=config,
         model=model,
         checkpoint_frequency=CHECKPOINT_FREQUENCY,
-        #checkpoint_id="20260523_224345",
+        # checkpoint_id="20260523_224345",
         gamma=GAMMA,
         entropy_coeff=ENTROPY_COEFF,
         value_loss_coeff=VALUE_LOSS_COEFF,

@@ -14,7 +14,7 @@ from corl.utils.logger import setup_logging
 
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 TRANSITIONS = 1_000_000  # Total number of training transitions
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
+CHECKPOINT_FREQUENCY = 400_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor: how much future rewards are valued
 ENTROPY_COEFF = 0.02  # Entropy bonus weight
 VALUE_LOSS_COEFF = 0.5  # Critic loss scaling factor
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     PitEscapePPODiscrete(
         config=config,
         model=model,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
         gamma=GAMMA,
         clip_range=CLIP_RANGE,
         ppo_epochs=PPO_EPOCHS,
@@ -137,4 +137,4 @@ if __name__ == "__main__":
         critic_lr=CRITIC_LR,
         update_frequency=UPDATE_FREQUENCY,
         max_grad_norm=MAX_GRAD_NORM,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)
