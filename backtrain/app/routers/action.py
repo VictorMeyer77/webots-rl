@@ -149,7 +149,7 @@ def add_action_step(
             "content": {
                 "application/json": {
                     "example": {
-                        "action": 2,
+                        "action": [2.0],
                     }
                 }
             },
@@ -227,7 +227,7 @@ def get_action_step(
                                     "episode_id": 5,
                                     "step": 10,
                                 },
-                                "value": {"action": 2, "executed": False},
+                                "value": {"action": [2.0]},
                                 "found": True,
                             },
                             {

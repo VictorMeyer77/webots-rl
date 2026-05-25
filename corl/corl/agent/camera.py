@@ -78,7 +78,8 @@ class Camera:
 
         Returns:
             NDArray[np.float32]: Stacked frame tensor of shape
-            ``(*frame_shape, frame_size)``.
+            ``(H, W, frame_size)`` when grayscale is ``True``, or
+            ``(H, W, 4, frame_size)`` for colour (BGRA) frames.
         """
         observation = np.array(self.camera.getImageArray(), dtype=np.uint8)
         frame = self.format_image(observation)
@@ -100,7 +101,7 @@ class Camera:
 
         Returns:
             NDArray[np.float32]: Processed image of shape ``(H, W)`` when
-            grayscale is ``True``, or ``(H, W, C)`` otherwise.
+            grayscale is ``True``, or ``(H, W, 4)`` (BGRA channels) otherwise.
         """
 
         if self.grayscale:
@@ -122,7 +123,8 @@ class Camera:
 
         Returns:
             NDArray[np.float32]: Stacked tensor of shape
-            ``(*frame_shape, frame_size)``.
+            ``(H, W, frame_size)`` for grayscale or
+            ``(H, W, 4, frame_size)`` for colour frames.
 
         Raises:
             ValueError: If the buffer is completely empty.

@@ -102,6 +102,17 @@ class Environment(ABC):
         self.timestep_index = 0
         logger.debug("Environment reset.")
 
+    @abstractmethod
+    def randomize(self) -> None:
+        """
+        Randomize the environment for the upcoming episode.
+
+        Called by :class:`~corl.trainer.environment.TrainerEnvironment` after
+        each ``environment.reset()`` sync step, before the warmup steps run.
+        Subclasses should override this to randomize initial conditions such as
+        robot position, orientation, or scene parameters.
+        """
+
     def quit(self) -> None:
         """
         Terminate the Webots simulation process with exit code 0.

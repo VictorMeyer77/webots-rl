@@ -7,24 +7,24 @@ from tensorflow.keras.losses import Huber
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 
-from corl.model.deep_value_table import ModelDeepValueTable
+from corl.model.discrete.deep_value_table import ModelDeepValueTable
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.deep_q_learning import TrainerDeepQLearning
+from corl.trainer.algorithm.discrete.deep_q_learning import TrainerDeepQLearning
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 TRANSITIONS = 1_000_000  # Total number of training transitions
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
+CHECKPOINT_FREQUENCY = 200_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor: how much future rewards are valued
 EPSILON = 1.0  # Epsilon-greedy initial value
 EPSILON_MIN = 0.01  # Epsilon-greedy minimum value
-EPSILON_DECAY = 0.999995  # Epsilon-greedy decay rate per transition
+EPSILON_DECAY = 0.999994  # Epsilon-greedy decay rate per transition
 BATCH_SIZE = 64  # Number of transitions sampled per gradient update
 FIT_FREQUENCY = 5  # Train the online network every N steps
 UPDATE_TARGET_WEIGHTS_FREQUENCY = 2000  # Sync target network weights every N steps
-PER_SIZE = 50000  # Prioritised replay buffer capacity
+PER_SIZE = 300_000  # Prioritised replay buffer capacity
 PER_ALPHA = 0.6  # Prioritisation exponent (0 = uniform, 1 = full priority)
 PER_BETA_START = 0.4  # Initial importance-sampling correction exponent
 LEARNING_RATE = 0.0001  # Adam optimizer learning rate
@@ -82,7 +82,7 @@ class SimpleArenaDeepQLearning(TrainerDeepQLearning):
             for step_key, observation in observations
         ]
 
-    def params(self) -> dict[str, str | int | float]:
+    def params(self) -> dict[str, str | int | float | bool]:
         """
         Return hyperparameters logged to the experiment tracker.
 
@@ -103,16 +103,13 @@ if __name__ == "__main__":
     setup_logging(config)
     logger = logging.getLogger(__name__)
 
-    # model = ModelValueTable(
-    #    model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.train/mlflow/9e706c4ed2e9417eb85a29986a0b76a6/artifacts/model"
-    # )
-
     model = ModelDeepValueTable(weights=build_tf_model(), action_size=ACTION_SIZE)
 
     SimpleArenaDeepQLearning(
         config=config,
         model=model,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
+        # checkpoint_id="20260523_201114",
         gamma=GAMMA,
         epsilon=EPSILON,
         epsilon_min=EPSILON_MIN,
@@ -123,4 +120,4 @@ if __name__ == "__main__":
         per_size=PER_SIZE,
         per_alpha=PER_ALPHA,
         per_beta_start=PER_BETA_START,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)

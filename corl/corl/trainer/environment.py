@@ -23,10 +23,13 @@ class TrainerEnvironment:
     state information with the remote trainer over HTTP via
     :class:`~corl.trainer.wrapper.Wrapper`. Each episode follows the pattern:
 
-    1. **Warm-up** – one unchecked ``supervisor.step()`` to initialise sensors.
-    2. **Loop** – alternate :meth:`execute_training_step` (advance simulation)
+    1. **Sync** – one ``supervisor.step()`` to flush any pending physics reset,
+       then :meth:`~corl.environment.Environment.randomize` if enabled.
+    2. **Warm-up** – ``warmup_steps`` additional ``supervisor.step()`` calls to
+       let physics settle (e.g. robot landing after being dropped).
+    3. **Loop** – alternate :meth:`execute_training_step` (advance simulation)
        and :meth:`evaluate_step` (compute & send state) until ``done``.
-    3. **Bookkeeping** – increment the remote episode counter and reset the
+    4. **Bookkeeping** – increment the remote episode counter and reset the
        simulation for the next episode.
 
     Optionally records episodes as MP4 video files. Recording is restricted
@@ -41,6 +44,9 @@ class TrainerEnvironment:
         video_directory: Directory where episode MP4 recordings are saved.
         is_recording: Whether a video recording is currently active.
         recording_frequency: Number of episodes between recordings.
+        randomize: Whether to call
+            :meth:`~corl.environment.Environment.randomize` after each
+            ``environment.reset()`` in :meth:`run`.
         api: HTTP client used to communicate with the remote trainer.
     """
 
@@ -50,12 +56,14 @@ class TrainerEnvironment:
     video_directory: str
     is_recording: bool
     recording_frequency: int
+    randomize: bool
     api: Wrapper
 
     def __init__(
         self,
         environment: BaseEnvironment,
         config: Config,
+        randomize: bool = False,
     ):
         """
         Initialise the training wrapper.
@@ -66,8 +74,12 @@ class TrainerEnvironment:
             config: Application configuration. Must contain ``"train_id"``,
                 ``"worker_id"``, ``"trainer_output_dir"``, and
                 ``"environment_record_frequency"``.
+            randomize: If ``True``,
+                :meth:`~corl.environment.Environment.randomize` is called
+                after each ``environment.reset()`` between episodes.
         """
         self.environment = environment
+        self.randomize = randomize
         self.train_id = config.get("train_id")
         self.worker_id = config.get("worker_id")
         self.episode_id = 0
@@ -79,25 +91,40 @@ class TrainerEnvironment:
         self.recording_frequency = config.get("environment_record_frequency")
         self.api = Wrapper(config)
 
-    def run(self, action_repeat: int) -> None:
+    def run(self, action_repeat: int, warmup_steps: int = 0) -> None:
         """
         Run the full training loop across all episodes.
 
         Repeatedly calls :meth:`episode` for as long as the remote worker is
         reported as active by the API. Per episode:
 
-        - Recording is started if ``worker_id == 0`` and
-          ``episode_id % recording_frequency == 0`` and not already recording.
-        - :meth:`stop_recording` is called *before* ``environment.reset()``;
-          Webots may not have fully flushed the video file by the time the
-          next episode begins.
+        1. Recording is started if ``worker_id == 0`` and
+           ``episode_id % recording_frequency == 0`` and not already recording.
+        2. ``environment.reset()`` prepares the simulation for the next episode.
+        3. One ``supervisor.step()`` is executed to flush the pending physics reset.
+        4. :meth:`~corl.environment.Environment.randomize` is called if
+           :attr:`randomize` is ``True``.
+        5. :meth:`episode` runs the RL loop with ``warmup_steps`` settling steps.
+        6. :meth:`stop_recording` is called after the episode to ensure Webots
+           has flushed the video file.
 
         Once the worker is no longer active, ``environment.quit()`` is called
         to terminate the simulation.
 
         Args:
             action_repeat: Passed directly to :meth:`episode`.
+            warmup_steps: Number of *additional* simulation timesteps passed to
+                :meth:`episode` for environment randomization (e.g. letting the
+                robot land after being dropped). One extra timestep is always
+                executed first to flush the physics reset before these
+                additional steps run. Must be >= 0.
+
+        Raises:
+            ValueError: If ``warmup_steps`` is less than ``0``.
         """
+        if warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {warmup_steps}")
+
         while self.api.get_worker_status(self.train_id, self.worker_id):
             to_record = (
                 self.worker_id == 0 and self.episode_id % self.recording_frequency == 0
@@ -108,26 +135,29 @@ class TrainerEnvironment:
             if to_record and not self.is_recording:
                 self.start_recording()
 
-            self.episode(action_repeat)
+            self.environment.reset()
+            self.environment.supervisor.step(self.environment.timestep)
+            if self.randomize:
+                self.environment.randomize()
+
+            self.episode(action_repeat, warmup_steps)
 
             if self.is_recording:
                 self.stop_recording()
 
-            self.environment.reset()
-
         self.environment.quit()
 
-    def episode(self, action_repeat: int) -> None:
+    def episode(self, action_repeat: int, warmup_steps: int = 0) -> None:
         """
         Run a single training episode until termination.
 
-        Performs one warm-up ``supervisor.step()`` call before entering the
-        main loop to allow sensors to initialise (its return value is not
-        checked). Then alternates between :meth:`execute_training_step`
-        (advancing the simulation by ``action_repeat`` timesteps) and
-        :meth:`evaluate_step` (computing the state and sending it to the
-        remote agent). The loop exits when any of the following conditions
-        are met:
+        Performs ``warmup_steps`` ``supervisor.step()`` calls before entering
+        the main loop, allowing physics to settle after randomization (e.g.
+        waiting for the robot to land after being dropped). Then alternates
+        between :meth:`execute_training_step` (advancing the simulation by
+        ``action_repeat`` timesteps) and :meth:`evaluate_step` (computing the
+        state and sending it to the remote agent). The loop exits when any of
+        the following conditions are met:
 
         - ``state.done`` is ``True`` (episode ended naturally), or
         - :meth:`execute_training_step` returns ``False`` (simulator stopped).
@@ -138,12 +168,25 @@ class TrainerEnvironment:
         Args:
             action_repeat: Number of simulation timesteps to advance per
                 logical RL step before evaluating the state.
+            warmup_steps: Number of simulation timesteps to step through
+                for environment randomization before the RL loop starts.
+                Must be >= 0.
+
+        Raises:
+            ValueError: If ``warmup_steps`` is less than ``0``.
         """
+        if warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {warmup_steps}")
+
         training_step: int = 0
         total_reward: float = 0.0
         start_counter: float = time.perf_counter()
 
-        self.environment.supervisor.step(self.environment.timestep)
+        logger.debug(
+            f"Running {warmup_steps} warmup step(s) for episode {self.episode_id}."
+        )
+        for _ in range(warmup_steps):
+            self.environment.supervisor.step(self.environment.timestep)
 
         while self.execute_training_step(training_step, action_repeat):
             state = self.evaluate_step(training_step)

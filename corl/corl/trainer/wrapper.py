@@ -373,9 +373,9 @@ class Wrapper:
                 if e.response
                 else str(e)
             )
-            logger.debug(f"POST {url} failed with error: {content}")
+            logger.warning(f"POST {url} failed with error: {content}")
         except Exception as e:
-            logger.debug(f"POST {url} failed with unexpected error: {e}")
+            logger.warning(f"POST {url} failed with unexpected error: {e}")
         return False
 
     # Supervisor endpoints
@@ -605,7 +605,9 @@ class Wrapper:
             step: Step number within the episode
 
         Returns:
-            Action object if found and successfully parsed, None otherwise
+            :class:`Action` object with the ``action`` field populated if the
+            step was found; ``None`` if the step is not yet available or on
+            any request failure.
 
         Raises:
             Does not raise exceptions. Returns None on failure.
@@ -617,11 +619,7 @@ class Wrapper:
             episode_id,
             step,
         )
-        return (
-            Action(action=int(action["action"]), executed=action["executed"])
-            if action is not None
-            else None
-        )
+        return Action(action=action["action"]) if action is not None else None
 
     def send_action(
         self, train_id: str, worker_id: int, episode_id: int, step: int, action: Action

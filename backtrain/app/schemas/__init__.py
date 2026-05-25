@@ -62,8 +62,7 @@ class ActionSchema(BaseModel):
         executed: Boolean flag indicating if the action has been executed (defaults to False).
     """
 
-    action: int
-    executed: bool = False
+    action: list[float]
 
 
 class SuccessResponseSchema(BaseModel):

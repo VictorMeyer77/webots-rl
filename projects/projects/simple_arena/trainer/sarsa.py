@@ -3,15 +3,15 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 
-from corl.model.value_table import ModelValueTable
+from corl.model.discrete.value_table import ModelValueTable
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.sarsa import TrainerSarsa
+from corl.trainer.algorithm.discrete.sarsa import TrainerSarsa
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
 TRANSITIONS = 1_000_000  # Total number of training epochs
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N epochs
+CHECKPOINT_FREQUENCY = 200_000  # Save a checkpoint every N epochs
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 OBSERVATION_CARDINALITY = (
     3  # Number of discrete bins per sensor (must equal len(bins) + 1)
@@ -69,10 +69,6 @@ if __name__ == "__main__":
     setup_logging(config)
     logger = logging.getLogger(__name__)
 
-    # model = ModelValueTable(
-    #    model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.train/mlflow/144aa4da0afe423893be53f5c83a3dce/artifacts/model"
-    # )
-
     model = ModelValueTable(
         observation_cardinality=OBSERVATION_CARDINALITY,
         observation_size=OBSERVATION_SIZE,
@@ -82,10 +78,11 @@ if __name__ == "__main__":
     SimpleArenaSarsa(
         config=config,
         model=model,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
+        # checkpoint_id="20260523_164422",
         alpha=ALPHA,
         gamma=GAMMA,
         epsilon=EPSILON,
         epsilon_min=EPSILON_MIN,
         epsilon_decay=EPSILON_DECAY,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)

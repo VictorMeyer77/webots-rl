@@ -5,16 +5,16 @@ from numpy.typing import NDArray
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
 
-from corl.model.actor_critic import ModelActorCritic
+from corl.model.discrete.actor_critic import ModelActorCritic
 from corl.schemas.learning import Observation
 from corl.schemas.tracker import StepKey
-from corl.trainer.algorithm.a2c import TrainerA2C
+from corl.trainer.algorithm.discrete.a2c import TrainerA2C
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
 
 ACTION_SIZE = 9  # Number of discrete actions available to the agent
 TRANSITIONS = 1_000_000  # Total number of training transitions
-MODEL_CHECKPOINT_FREQUENCY = 250_000  # Save a checkpoint every N transitions
+CHECKPOINT_FREQUENCY = 200_000  # Save a checkpoint every N transitions
 GAMMA = 0.99  # Discount factor: how much future rewards are valued
 ENTROPY_COEFF = 0.1  # Entropy bonus weight to encourage exploration
 VALUE_LOSS_COEFF = 0.5  # Critic loss scaling factor
@@ -123,11 +123,12 @@ if __name__ == "__main__":
     SimpleArenaA2C(
         config=config,
         model=model,
-        model_checkpoint_frequency=MODEL_CHECKPOINT_FREQUENCY,
+        checkpoint_frequency=CHECKPOINT_FREQUENCY,
+        # checkpoint_id="20260523_224345",
         gamma=GAMMA,
         entropy_coeff=ENTROPY_COEFF,
         value_loss_coeff=VALUE_LOSS_COEFF,
         actor_lr=ACTOR_LR,
         critic_lr=CRITIC_LR,
         update_frequency=UPDATE_FREQUENCY,
-    ).run(epochs=TRANSITIONS)
+    ).run(max_transitions=TRANSITIONS)

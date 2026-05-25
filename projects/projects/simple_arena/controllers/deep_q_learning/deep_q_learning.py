@@ -3,8 +3,8 @@ from typing import Any
 import numpy as np
 from controller import Robot
 
-from corl.agent.epuck import Epuck
-from corl.model.deep_value_table_lite import ModelDeepValueTableLite
+from corl.agent.epuck.discrete import EpuckDiscrete
+from corl.model.discrete.deep_value_table_lite import ModelDeepValueTableLite
 from corl.model.model import Model
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
@@ -20,7 +20,7 @@ NORMALIZE = True
 IMAGE_SHAPE = (42, 42)
 
 
-class EpuckDeepQLearningController(Epuck):
+class EpuckDeepQLearningController(EpuckDiscrete):
     """
     E-puck controller driven by a Deep Q-learning convolutional network policy.
 
@@ -41,7 +41,8 @@ class EpuckDeepQLearningController(Epuck):
         Args:
             robot (Robot): Webots Robot instance.
             timestep (int): Simulation timestep in milliseconds.
-            action_repeat (int): Number of simulation steps each action is held for.
+            action_repeat (int): Number of simulation steps each chosen action
+                is held for.
             model (Model | None): Pre-trained convolutional Q-network model. Pass
                 ``None`` during training; the trainer will supply actions externally.
         """
@@ -55,7 +56,7 @@ class EpuckDeepQLearningController(Epuck):
             image_shape=IMAGE_SHAPE, grayscale=GRAYSCALE, normalize=NORMALIZE
         )
 
-    def policy(self, observation: dict[str, Any]) -> int:
+    def policy(self, observation: dict[str, Any]) -> list[float]:
         """
         Return the greedy action for the current observation.
 
@@ -67,12 +68,13 @@ class EpuckDeepQLearningController(Epuck):
                 the current frame as a float32 array of shape ``IMAGE_SHAPE``.
 
         Returns:
-            int: Greedy action index predicted by the Q-network.
+            list[float]: Single-element list with the greedy action index as a
+                float (e.g. ``[3.0]``).
         """
         observation_array = np.expand_dims(
             np.array(observation["camera"], dtype=np.float32), axis=0
         )
-        return int(self.model.predict(observation_array))
+        return [float(self.model.predict(observation_array))]
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ from app.routers.environment import router as environment_router
 from app.routers.observation import router as observation_router
 from app.routers.supervisor import router as supervisor_router
 from fastapi import FastAPI
+from prometheus_fastapi_instrumentator import Instrumentator
 
 # Configure application-wide logging
 setup_logging()
@@ -70,6 +71,8 @@ app.include_router(environment_router, prefix=API_PREFIX)
 app.include_router(observation_router, prefix=API_PREFIX)
 app.include_router(action_router, prefix=API_PREFIX)
 app.include_router(supervisor_router, prefix=API_PREFIX)
+
+Instrumentator().instrument(app).expose(app)
 
 
 if __name__ == "__main__":

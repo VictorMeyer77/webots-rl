@@ -283,25 +283,25 @@ class TestAddBufferActions:
     def test_stores_action_in_buffer(self):
         t = _make_tracker([{"worker_id": 0}])
         key = StepKey(worker_id=0, episode_id=0, step=0)
-        t.add_buffer_actions([(key, Action(action=3))])
-        assert t._buffer_results[0].action == 3
+        t.add_buffer_actions([(key, Action(action=[3.0]))])
+        assert t._buffer_results[0].action == [3.0]
 
     def test_updates_last_update_timestamp(self):
         t = _make_tracker([{"worker_id": 0}])
         t._worker_last_update[0] = 0.0
         key = StepKey(worker_id=0, episode_id=0, step=0)
-        t.add_buffer_actions([(key, Action(action=1))])
+        t.add_buffer_actions([(key, Action(action=[1.0]))])
         assert t._worker_last_update[0] > 0.0
 
     def test_multiple_actions(self):
         t = _make_tracker([{"worker_id": 0}, {"worker_id": 1}])
         actions = [
-            (StepKey(worker_id=0, episode_id=0, step=0), Action(action=1)),
-            (StepKey(worker_id=1, episode_id=0, step=0), Action(action=2)),
+            (StepKey(worker_id=0, episode_id=0, step=0), Action(action=[1.0])),
+            (StepKey(worker_id=1, episode_id=0, step=0), Action(action=[2.0])),
         ]
         t.add_buffer_actions(actions)
-        assert t._buffer_results[0].action == 1
-        assert t._buffer_results[1].action == 2
+        assert t._buffer_results[0].action == [1.0]
+        assert t._buffer_results[1].action == [2.0]
 
     def test_raises_for_none_action(self):
         t = _make_tracker([{"worker_id": 0}])
@@ -313,7 +313,7 @@ class TestAddBufferActions:
         t = _make_tracker()
         key = StepKey(worker_id=99, episode_id=0, step=0)
         with pytest.raises(ValueError, match="not found"):
-            t.add_buffer_actions([(key, Action(action=0))])
+            t.add_buffer_actions([(key, Action(action=[0.0]))])
 
 
 # ===========================================================================

@@ -3,9 +3,9 @@ from typing import Any
 import numpy as np
 from controller import Robot
 
-from corl.agent.epuck import Epuck
+from corl.agent.epuck.discrete import EpuckDiscrete
+from corl.model.discrete.value_table import ModelValueTable
 from corl.model.model import Model
-from corl.model.value_table import ModelValueTable
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
@@ -17,7 +17,7 @@ MAX_TIMESTEP = (
 )
 
 
-class EpuckDoubleQLearningController(Epuck):
+class EpuckDoubleQLearningController(EpuckDiscrete):
     """
     E-puck controller driven by a Double Q-learning value-table policy.
 
@@ -38,7 +38,8 @@ class EpuckDoubleQLearningController(Epuck):
         Args:
             robot (Robot): Webots Robot instance.
             timestep (int): Simulation timestep in milliseconds.
-            action_repeat (int): Number of simulation steps each action is held for.
+            action_repeat (int): Number of simulation steps each chosen action
+                is held for.
             model (Model | None): Pre-trained value-table model. Pass ``None``
                 during training; the trainer will supply actions externally.
         """
@@ -50,7 +51,7 @@ class EpuckDoubleQLearningController(Epuck):
         )
         self.init_distance_sensors()
 
-    def policy(self, observation: dict[str, Any]) -> int:
+    def policy(self, observation: dict[str, Any]) -> list[float]:
         """
         Return the greedy action for the current observation.
 
@@ -62,7 +63,8 @@ class EpuckDoubleQLearningController(Epuck):
                 key with a list of raw sensor readings.
 
         Returns:
-            int: Greedy action index from the value table.
+            list[float]: Single-element list with the greedy action index as a
+                float (e.g. ``[3.0]``).
 
         Raises:
             ValueError: If ``"distance_sensors"`` is absent from ``observation``.
@@ -72,7 +74,7 @@ class EpuckDoubleQLearningController(Epuck):
                 np.asarray(observation["distance_sensors"], dtype=np.float32),
                 bins=[70, 80],
             )
-            return int(self.model.predict(binned_observation.astype(np.float32)))
+            return [float(self.model.predict(binned_observation.astype(np.float32)))]
         else:
             raise ValueError("Observation missing 'distance_sensors' key.")
 
@@ -93,7 +95,7 @@ if __name__ == "__main__":
         TrainerAgent(epuck, config).run(MAX_TIMESTEP)
     else:
         model = ModelValueTable(
-            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/double_q_learning"
+            model_dir="/Users/victormeyer/Dev/Self/webots-rl/projects/.model/simple_arena/double_q_learning"
         )
 
         epuck = EpuckDoubleQLearningController(

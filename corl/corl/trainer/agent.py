@@ -73,15 +73,16 @@ class TrainerAgent:
             f"Agent initialized for training with train_id={self.train_id} and worker_id={self.worker_id}"
         )
 
-    def run(self, max_timestep: int) -> None:
+    def run(self, max_timestep: int, warmup_steps: int = 0) -> None:
         """
         Run a single training episode up to ``max_timestep`` simulation steps.
 
-        Fetches the current episode ID, performs one warm-up ``robot.step()``
-        call to allow sensors to initialise (its return value is not checked),
-        then repeatedly sends observations to the remote trainer, retrieves the
-        resulting action, and executes it. The loop exits when any of the
-        following conditions are met:
+        Fetches the current episode ID, performs ``warmup_steps`` warm-up
+        ``robot.step()`` calls to allow sensors to initialise and physics to
+        settle (e.g. waiting for the robot to land after being dropped during
+        environment randomization), then repeatedly sends observations to the
+        remote trainer, retrieves the resulting action, and executes it. The
+        loop exits when any of the following conditions are met:
 
         - ``agent.timestep_index >= max_timestep`` (step budget exhausted), or
         - :meth:`execute_action` returns ``False`` (simulator stopped).
@@ -92,13 +93,26 @@ class TrainerAgent:
                 each decision cycle may advance the simulator by
                 ``action_repeat`` ticks, so the number of training steps is
                 approximately ``max_timestep // action_repeat``.
+            warmup_steps: Number of *additional* simulation timesteps to step
+                through for environment randomization (e.g. letting the robot
+                land after being dropped). One extra timestep is always
+                executed first to allow the robot controller to initialise
+                before these additional steps run. Must be >= 0.
+
+        Raises:
+            ValueError: If ``warmup_steps`` is less than ``0``.
         """
+        if warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {warmup_steps}")
+
         episode_id: int = self.api.get_episode_id(
             self.train_id, worker_id=self.worker_id
         )
         training_step: int = 0
 
-        self.agent.robot.step(self.agent.timestep)
+        logger.debug(f"Running {warmup_steps} warmup step(s) for episode {episode_id}.")
+        for _ in range(1 + warmup_steps):
+            self.agent.robot.step(self.agent.timestep)
 
         while self.agent.timestep_index < max_timestep:
             _ = self.send_observation(episode_id, training_step)
@@ -162,23 +176,25 @@ class TrainerAgent:
             f"Failed to send observation after {SEND_OBS_RETRY_MAX_ATTEMPTS} attempts.",
         )
 
-    def get_action(self, episode_id: int, training_step: int) -> int:
+    def get_action(self, episode_id: int, training_step: int) -> list[float]:
         """
         Poll the API for the action corresponding to the current training step.
 
         Retries until an action is received or ``agent_request_timeout`` seconds
         have elapsed. Each retry sleeps for an exponentially increasing duration
         capped at ``RETRY_MAX_DELAY``, with ±50 % jitter to spread concurrent
-        worker requests. During the wait, a periodic check runs every
-        ``REFRESH_STATUS_INTERVAL`` seconds to verify the worker is still
-        active via :meth:`_check_worker_status`.
+        worker requests. During the wait, two periodic checks run:
+        :meth:`_check_worker_status` every ``REFRESH_STATUS_INTERVAL`` seconds
+        to verify the worker is still active, and :meth:`_check_episode_id`
+        every ``REFRESH_EPISODE_INTERVAL`` seconds to verify the episode has
+        not been superseded.
 
         Args:
             episode_id: Current episode identifier.
             training_step: Current step index within the episode.
 
         Returns:
-            The discrete action index to execute.
+            The action vector to execute as a list of floats.
 
         Raises:
             RuntimeError: If no action is received within
@@ -279,17 +295,18 @@ class TrainerAgent:
             return now
         return last_check
 
-    def execute_action(self, training_step: int, action: int) -> bool:
+    def execute_action(self, training_step: int, action: list[float]) -> bool:
         """
         Execute an action for ``action_repeat`` consecutive simulation steps.
 
         Calls :meth:`act` and advances the Webots simulation for each repeat.
         Exits early if the simulator signals termination (``robot.step`` returns
-        ``-1``).
+        ``-1``). Increments ``agent.timestep_index`` by one for every completed
+        repeat.
 
         Args:
             training_step: Current step index, used only for debug logging.
-            action: Discrete action identifier to pass to :meth:`act`.
+            action: Action vector to pass to :meth:`act`.
 
         Returns:
             ``True`` if all repeats completed normally, ``False`` if the

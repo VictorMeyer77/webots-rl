@@ -4,7 +4,7 @@ import numpy as np
 from controller import Robot
 
 from corl.agent.bb8 import BB8
-from corl.model.deep_value_table_lite import ModelDeepValueTableLite
+from corl.model.discrete.deep_value_table_lite import ModelDeepValueTableLite
 from corl.trainer.agent import TrainerAgent
 from corl.utils.config import Config
 from corl.utils.logger import setup_logging
@@ -14,6 +14,7 @@ ACTION_REPEAT = 25  # Number of simulation timesteps to repeat each action
 MAX_TIMESTEP = (
     1875  # Maximum number of simulation timesteps before reset (1875 * 32 ms = 60s)
 )
+WARMUP_STEPS = 40  # Simulation timesteps to run before RL loop starts
 
 
 class BB8DeepQLearningController(BB8):
@@ -24,7 +25,7 @@ class BB8DeepQLearningController(BB8):
     convolutional Q-network to select the greedy action.
     """
 
-    def policy(self, observation: dict[str, Any]) -> int:
+    def policy(self, observation: dict[str, Any]) -> list[float]:
         """
         Return the greedy action for the current observation.
 
@@ -36,12 +37,13 @@ class BB8DeepQLearningController(BB8):
                 the current frame as a float32 array.
 
         Returns:
-            int: Greedy action index predicted by the Q-network.
+            list[float]: Single-element list containing the greedy action
+                index as a float (e.g. ``[3.0]``).
         """
         observation_array = np.expand_dims(
             np.array(observation["base"], dtype=np.float32), axis=0
         )
-        return int(self.model.predict(observation_array))
+        return [float(self.model.predict(observation_array))]
 
 
 if __name__ == "__main__":
@@ -58,7 +60,7 @@ if __name__ == "__main__":
             model=None,
         )
 
-        TrainerAgent(bb8, config).run(MAX_TIMESTEP)
+        TrainerAgent(bb8, config).run(MAX_TIMESTEP, warmup_steps=WARMUP_STEPS)
 
     else:
         model = ModelDeepValueTableLite()

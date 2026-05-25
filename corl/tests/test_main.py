@@ -15,8 +15,10 @@ import corl.__main__ as main_module
 from corl.__main__ import (
     _build_arg_parser,
     _create_world,
+    _del_train,
     _get_free_port,
     _launch_trainer,
+    _launch_training_workers,
     _launch_webots,
     _remove_world,
     _run_single,
@@ -451,3 +453,251 @@ class TestRunSingle:
 
         _, _, fast, _ = mock_lw.call_args[0]
         assert fast is True
+
+
+# ---------------------------------------------------------------------------
+# _launch_training_workers
+# ---------------------------------------------------------------------------
+
+
+class TestLaunchTrainingWorkers:
+    def _make_config(self):
+        config = MagicMock()
+        config.get.side_effect = lambda key: {
+            "train_id": "train_001",
+            "bin_path": "/usr/bin/webots",
+        }.get(key, MagicMock())
+        config.environ.return_value = {}
+        return config
+
+    def test_returns_one_process_per_worker(self):
+        config = self._make_config()
+        mock_api = MagicMock()
+        mock_api.add_worker.return_value = 1
+        mock_proc = MagicMock()
+
+        with (
+            patch("corl.__main__.Wrapper", return_value=mock_api),
+            patch("corl.__main__._launch_webots", return_value=mock_proc),
+        ):
+            result = _launch_training_workers(config, Path("world.wbt"), 3)
+
+        assert len(result) == 3
+
+    def test_registers_each_worker_with_api(self):
+        config = self._make_config()
+        mock_api = MagicMock()
+        mock_api.add_worker.return_value = 42
+
+        with (
+            patch("corl.__main__.Wrapper", return_value=mock_api),
+            patch("corl.__main__._launch_webots", return_value=MagicMock()),
+        ):
+            _launch_training_workers(config, Path("world.wbt"), 2)
+
+        assert mock_api.add_worker.call_count == 2
+
+    def test_passes_worker_id_in_env(self):
+        config = self._make_config()
+        mock_api = MagicMock()
+        mock_api.add_worker.return_value = 7
+        captured_envs = []
+
+        def fake_launch(bin_path, world_path, fast, env):
+            captured_envs.append(env)
+            return MagicMock()
+
+        with (
+            patch("corl.__main__.Wrapper", return_value=mock_api),
+            patch("corl.__main__._launch_webots", side_effect=fake_launch),
+        ):
+            _launch_training_workers(config, Path("world.wbt"), 1)
+
+        assert captured_envs[0]["WEBOTS_WORKER_ID"] == "7"
+
+    def test_launches_workers_in_fast_mode(self):
+        config = self._make_config()
+        mock_api = MagicMock()
+        mock_api.add_worker.return_value = 1
+        fast_flags = []
+
+        def fake_launch(bin_path, world_path, fast, env):
+            fast_flags.append(fast)
+            return MagicMock()
+
+        with (
+            patch("corl.__main__.Wrapper", return_value=mock_api),
+            patch("corl.__main__._launch_webots", side_effect=fake_launch),
+        ):
+            _launch_training_workers(config, Path("world.wbt"), 1)
+
+        assert fast_flags[0] is True
+
+
+# ---------------------------------------------------------------------------
+# _del_train
+# ---------------------------------------------------------------------------
+
+
+class TestDelTrain:
+    def test_calls_delete_training_session(self):
+        config = MagicMock()
+        config.get.return_value = "train_001"
+        mock_api = MagicMock()
+
+        with patch("corl.__main__.Wrapper", return_value=mock_api):
+            _del_train(config)
+
+        mock_api.delete_training_session.assert_called_once_with("train_001")
+
+    def test_swallows_exception_on_failure(self):
+        config = MagicMock()
+        config.get.return_value = "train_001"
+        mock_api = MagicMock()
+        mock_api.delete_training_session.side_effect = RuntimeError("not found")
+
+        with patch("corl.__main__.Wrapper", return_value=mock_api):
+            _del_train(config)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# main()
+# ---------------------------------------------------------------------------
+
+
+class TestMain:
+    def _base_args(self, **kwargs):
+        defaults = {
+            "world": "maze",
+            "controller": "dqn",
+            "fast": False,
+            "worker": None,
+            "trainer": False,
+            "delete": False,
+            "env": ".env",
+        }
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    def _patch_main(self, args, config=None):
+        if config is None:
+            config = MagicMock()
+            config.get.return_value = "/some/path"
+            config.set = MagicMock()
+
+        return (
+            patch("corl.__main__._build_arg_parser"),
+            patch("corl.__main__._validate_args"),
+            patch("corl.__main__.Config", return_value=config),
+            patch("corl.__main__.setup_logging"),
+            patch("corl.__main__._create_world", return_value=Path("world.wbt")),
+            patch("corl.__main__._remove_world"),
+            args,
+            config,
+        )
+
+    def test_delete_mode_calls_del_train_and_returns(self):
+        config = MagicMock()
+        config.get.return_value = "/some/path"
+
+        args = self._base_args(delete=True)
+        with (
+            patch("corl.__main__._build_arg_parser") as mock_parser,
+            patch("corl.__main__._validate_args"),
+            patch("corl.__main__.Config", return_value=config),
+            patch("corl.__main__.setup_logging"),
+            patch("corl.__main__._del_train") as mock_del,
+            patch("corl.__main__._create_world") as mock_create,
+        ):
+            mock_parser.return_value.parse_args.return_value = args
+            main_module.main()
+
+        mock_del.assert_called_once_with(config)
+        mock_create.assert_not_called()
+
+    def test_worker_mode_launches_workers_and_waits(self):
+        config = MagicMock()
+        config.get.return_value = "/some/path"
+
+        mock_proc = MagicMock()
+        args = self._base_args(worker=2)
+
+        with (
+            patch("corl.__main__._build_arg_parser") as mock_parser,
+            patch("corl.__main__._validate_args"),
+            patch("corl.__main__.Config", return_value=config),
+            patch("corl.__main__.setup_logging"),
+            patch("corl.__main__._create_world", return_value=Path("world.wbt")),
+            patch("corl.__main__._remove_world"),
+            patch(
+                "corl.__main__._launch_training_workers",
+                return_value=[mock_proc, mock_proc],
+            ) as mock_workers,
+        ):
+            mock_parser.return_value.parse_args.return_value = args
+            main_module.main()
+
+        mock_workers.assert_called_once()
+        assert mock_proc.wait.call_count == 2
+
+    def test_trainer_mode_launches_trainer_and_waits(self):
+        config = MagicMock()
+        config.get.return_value = "/some/path"
+
+        mock_proc = MagicMock()
+        args = self._base_args(trainer=True)
+
+        with (
+            patch("corl.__main__._build_arg_parser") as mock_parser,
+            patch("corl.__main__._validate_args"),
+            patch("corl.__main__.Config", return_value=config),
+            patch("corl.__main__.setup_logging"),
+            patch("corl.__main__._create_world", return_value=Path("world.wbt")),
+            patch("corl.__main__._remove_world"),
+            patch("corl.__main__._launch_trainer", return_value=mock_proc) as mock_lt,
+        ):
+            mock_parser.return_value.parse_args.return_value = args
+            main_module.main()
+
+        mock_lt.assert_called_once()
+        mock_proc.wait.assert_called_once()
+
+    def test_run_mode_calls_run_single(self):
+        config = MagicMock()
+        config.get.return_value = "/some/path"
+
+        args = self._base_args()
+
+        with (
+            patch("corl.__main__._build_arg_parser") as mock_parser,
+            patch("corl.__main__._validate_args"),
+            patch("corl.__main__.Config", return_value=config),
+            patch("corl.__main__.setup_logging"),
+            patch("corl.__main__._create_world", return_value=Path("world.wbt")),
+            patch("corl.__main__._remove_world"),
+            patch("corl.__main__._run_single") as mock_run,
+        ):
+            mock_parser.return_value.parse_args.return_value = args
+            main_module.main()
+
+        mock_run.assert_called_once()
+
+    def test_world_removed_after_run(self):
+        config = MagicMock()
+        config.get.return_value = "/some/path"
+
+        args = self._base_args()
+
+        with (
+            patch("corl.__main__._build_arg_parser") as mock_parser,
+            patch("corl.__main__._validate_args"),
+            patch("corl.__main__.Config", return_value=config),
+            patch("corl.__main__.setup_logging"),
+            patch("corl.__main__._create_world", return_value=Path("world.wbt")),
+            patch("corl.__main__._remove_world") as mock_remove,
+            patch("corl.__main__._run_single"),
+        ):
+            mock_parser.return_value.parse_args.return_value = args
+            main_module.main()
+
+        mock_remove.assert_called_once_with(Path("world.wbt"))

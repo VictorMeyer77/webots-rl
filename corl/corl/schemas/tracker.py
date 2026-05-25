@@ -45,7 +45,9 @@ class StepResult(BaseModel):
     Attributes:
         observation: Environment observation (sensor data, state) as a numpy array.
             Can be None if not yet received.
-        action: Action taken by the agent (discrete index or continuous values).
+        action: List of floats representing the action taken by the agent.
+            Single-element for discrete actions (e.g. ``[3.0]``), multi-element
+            for continuous actions (e.g. ``[0.5, -0.3]``).
             Can be None if not yet determined.
         reward: Scalar reward received from the environment.
             Can be None if not yet computed.
@@ -58,7 +60,9 @@ class StepResult(BaseModel):
     observation: NDArray[np.float32] | None = Field(
         default=None, description="Environment observation array"
     )
-    action: int | None = Field(default=None, description="Action index taken by agent")
+    action: list[float] | None = Field(
+        default=None, description="Action taken by agent"
+    )
     reward: float | None = Field(
         default=None, description="Reward received from environment"
     )
