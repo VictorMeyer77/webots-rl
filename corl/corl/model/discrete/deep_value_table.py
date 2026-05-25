@@ -101,12 +101,7 @@ class ModelDeepValueTable(Model):
 
         Args:
             model_dir: Target directory for the ``.keras`` file.
-
-        Raises:
-            ValueError: If :attr:`weights` has not been initialised.
         """
-        if self.weights is None:
-            raise ValueError("model is not initialized.")
 
         model_path = Path(model_dir) / "model.keras"
         self.weights.save(model_path)
@@ -123,12 +118,7 @@ class ModelDeepValueTable(Model):
 
         Args:
             model_dir: Target directory for ``model.tflite``.
-
-        Raises:
-            ValueError: If :attr:`weights` has not been initialised.
         """
-        if self.weights is None:
-            raise ValueError("model is not initialized.")
 
         model_path = Path(model_dir) / "model.tflite"
         converter = tf.lite.TFLiteConverter.from_keras_model(self.weights)

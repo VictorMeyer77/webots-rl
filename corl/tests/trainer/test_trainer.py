@@ -27,6 +27,32 @@ from corl.utils.config import Config  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
+def _make_real_trainer_class():
+    """Concrete subclass that inherits checkpoint() and recovery() from Trainer base."""
+    import numpy as np
+    from numpy.typing import NDArray
+
+    from corl.trainer.trainer import Trainer
+
+    class RealTrainer(Trainer):
+        def params(self) -> dict[str, str | int | float | bool]:
+            return super().params()
+
+        def run(self, max_transitions: int) -> None:
+            pass
+
+        def policy(self, observations: NDArray[np.float32]) -> NDArray[np.float32]:
+            return np.zeros(observations.shape[0], dtype=np.float32)
+
+        def parse_observations(self, observations):
+            return [
+                (key, obs.data.get("array", np.zeros(3, dtype=np.float32)))
+                for key, obs in observations
+            ]
+
+    return RealTrainer
+
+
 def _make_trainer_class():
     import numpy as np
     from numpy.typing import NDArray
@@ -776,8 +802,422 @@ class TestCloseCheckpoints:
             trainer._close_checkpoints()
         mock_mlflow.log_artifact.assert_not_called()
 
+    def test_zips_actual_file_when_present(self, trainer, tmp_path):
+        """Covers lines 177-178: the zf.write() call inside the ZipFile loop."""
+        ckpt_dir = tmp_path / "ckpt"
+        ckpt_dir.mkdir()
+        (ckpt_dir / "epoch_1.npy").write_bytes(b"data")
 
-class TestGenerateVideo:
+        trainer.checkpoint_dir = str(ckpt_dir)
+
+        with (
+            patch("corl.trainer.trainer.mlflow"),
+            patch("corl.trainer.trainer.shutil.rmtree"),
+            patch("pathlib.Path.unlink"),
+        ):
+            trainer._close_checkpoints()  # must not raise
+
+
+class TestInitApiRecover:
+    def test_delete_called_before_create_when_recovering(self):
+        ConcreteTrainer = _make_trainer_class()
+        config = _make_config()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper") as MockWrapper,
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            mock_api = MagicMock()
+            MockWrapper.return_value = mock_api
+            t = ConcreteTrainer(_make_model(), config)
+            t._init_api(config, recover=True)
+
+        mock_api.delete_training_session.assert_called_once_with(t.train_id)
+
+    def test_create_called_after_delete_when_recovering(self):
+        ConcreteTrainer = _make_trainer_class()
+        config = _make_config()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper") as MockWrapper,
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            mock_api = MagicMock()
+            MockWrapper.return_value = mock_api
+            t = ConcreteTrainer(_make_model(), config)
+            t._init_api(config, recover=True)
+
+        mock_api.create_training_session.assert_called_with(t.train_id)
+
+    def test_delete_not_called_on_fresh_start(self):
+        ConcreteTrainer = _make_trainer_class()
+        config = _make_config()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper") as MockWrapper,
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            mock_api = MagicMock()
+            MockWrapper.return_value = mock_api
+            t = ConcreteTrainer(_make_model(), config)
+            mock_api.delete_training_session.reset_mock()
+            t._init_api(config, recover=False)
+
+        mock_api.delete_training_session.assert_not_called()
+
+
+# ===========================================================================
+# _init_mlflow
+# ===========================================================================
+
+
+class TestInitMlflow:
+    def test_creates_new_experiment_when_not_found(self, trainer):
+        with patch("corl.trainer.trainer.mlflow") as mock_mlflow:
+            mock_mlflow.get_experiment_by_name.return_value = None
+            mock_mlflow.create_experiment.return_value = "new_exp_id"
+            mock_run = MagicMock()
+            mock_run.info.run_id = "run123"
+            mock_mlflow.start_run.return_value = mock_run
+
+            trainer._init_mlflow("my_exp", "http://localhost:5001")
+
+        mock_mlflow.create_experiment.assert_called_once_with("my_exp")
+
+    def test_uses_existing_experiment_when_found(self, trainer):
+        with patch("corl.trainer.trainer.mlflow") as mock_mlflow:
+            mock_exp = MagicMock()
+            mock_exp.experiment_id = "existing_id"
+            mock_mlflow.get_experiment_by_name.return_value = mock_exp
+            mock_run = MagicMock()
+            mock_run.info.run_id = "run123"
+            mock_mlflow.start_run.return_value = mock_run
+
+            trainer._init_mlflow("my_exp", "http://localhost:5001")
+
+        mock_mlflow.create_experiment.assert_not_called()
+        mock_mlflow.set_experiment.assert_called_with(experiment_id="existing_id")
+
+    def test_resumes_run_when_run_id_already_set(self, trainer):
+        trainer.mlflow_run_id = "existing_run_id"
+        with patch("corl.trainer.trainer.mlflow") as mock_mlflow:
+            mock_exp = MagicMock()
+            mock_exp.experiment_id = "exp_id"
+            mock_mlflow.get_experiment_by_name.return_value = mock_exp
+            mock_run = MagicMock()
+            mock_run.info.run_id = "existing_run_id"
+            mock_mlflow.start_run.return_value = mock_run
+
+            trainer._init_mlflow("my_exp", "http://localhost:5001")
+
+        mock_mlflow.start_run.assert_called_once_with(run_id="existing_run_id")
+
+    def test_starts_new_run_when_no_run_id(self, trainer):
+        trainer.mlflow_run_id = None
+        with patch("corl.trainer.trainer.mlflow") as mock_mlflow:
+            mock_mlflow.get_experiment_by_name.return_value = None
+            mock_mlflow.create_experiment.return_value = "exp_id"
+            mock_run = MagicMock()
+            mock_run.info.run_id = "brand_new_run"
+            mock_mlflow.start_run.return_value = mock_run
+
+            trainer._init_mlflow("my_exp", "http://localhost:5001")
+
+        mock_mlflow.start_run.assert_called_once_with(run_name=trainer.train_id)
+        assert trainer.mlflow_run_id == "brand_new_run"
+
+
+# ===========================================================================
+# _close_mlflow
+# ===========================================================================
+
+
+class TestCloseMlflow:
+    def test_calls_mlflow_end_run(self, trainer):
+        with patch("corl.trainer.trainer.mlflow") as mock_mlflow:
+            trainer._close_mlflow()
+        mock_mlflow.end_run.assert_called_once()
+
+
+# ===========================================================================
+# _mlflow_log_train_params
+# ===========================================================================
+
+
+class TestMlflowLogTrainParams:
+    def test_logs_numeric_and_bool_params(self, trainer):
+        trainer.params = MagicMock(
+            return_value={"lr": 0.001, "epochs": 10, "name": "model", "flag": True}
+        )
+        with patch("corl.trainer.trainer.mlflow") as mock_mlflow:
+            trainer._mlflow_log_train_params()
+
+        logged = mock_mlflow.log_params.call_args[0][0]
+        assert "lr" in logged
+        assert "epochs" in logged
+        assert "flag" in logged
+
+    def test_filters_out_string_params(self, trainer):
+        trainer.params = MagicMock(
+            return_value={"lr": 0.001, "name": "model", "algo": "ppo"}
+        )
+        with patch("corl.trainer.trainer.mlflow") as mock_mlflow:
+            trainer._mlflow_log_train_params()
+
+        logged = mock_mlflow.log_params.call_args[0][0]
+        assert "name" not in logged
+        assert "algo" not in logged
+
+
+# ===========================================================================
+# params()
+# ===========================================================================
+
+
+class TestParams:
+    def test_returns_scalar_instance_attributes(self):
+        RealTrainer = _make_real_trainer_class()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper"),
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            t = RealTrainer(_make_model(), _make_config())
+            t.lr = 0.01
+            t.batch_size = 32
+            t.label = "test"
+            t.flag = True
+
+        result = t.params()
+        assert result["lr"] == 0.01
+        assert result["batch_size"] == 32
+        assert result["label"] == "test"
+        assert result["flag"] is True
+
+    def test_excludes_non_scalar_attributes(self):
+        RealTrainer = _make_real_trainer_class()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper"),
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            t = RealTrainer(_make_model(), _make_config())
+            t.my_list = [1, 2, 3]
+            t.my_dict = {"a": 1}
+
+        result = t.params()
+        assert "my_list" not in result
+        assert "my_dict" not in result
+
+
+# ===========================================================================
+# checkpoint() / recovery()
+# ===========================================================================
+
+
+class TestCheckpoint:
+    @pytest.fixture
+    def real_trainer(self):
+        RealTrainer = _make_real_trainer_class()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper") as MockWrapper,
+            patch("corl.trainer.trainer.Tracker") as MockTracker,
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            mock_api = MagicMock()
+            MockWrapper.return_value = mock_api
+            mock_tracker = MagicMock()
+            MockTracker.return_value = mock_tracker
+            t = RealTrainer(_make_model(), _make_config())
+            t.api = mock_api
+            t.tracker = mock_tracker
+            return t
+
+    def test_creates_model_dir_and_saves(self, real_trainer):
+        real_trainer.checkpoint_dir = "/ckpt"
+
+        with (
+            patch("corl.trainer.trainer.Path.mkdir"),
+            patch("corl.trainer.trainer.json.dump") as mock_dump,
+            patch("builtins.open", MagicMock()),
+        ):
+            real_trainer.checkpoint()
+
+        real_trainer.model.save.assert_called_once()
+        assert mock_dump.called
+
+    def test_returns_path_under_checkpoint_dir(self, real_trainer):
+        real_trainer.checkpoint_dir = "/ckpt"
+
+        with (
+            patch("corl.trainer.trainer.Path.mkdir"),
+            patch("builtins.open", MagicMock()),
+            patch("corl.trainer.trainer.json.dump"),
+        ):
+            path = real_trainer.checkpoint()
+
+        assert str(path).startswith("/ckpt/")
+
+    def test_params_written_to_json(self, real_trainer):
+        real_trainer.checkpoint_dir = "/ckpt"
+        real_trainer.lr = 0.001
+        real_trainer.batch_size = 5
+
+        captured = {}
+
+        def _fake_dump(data, f, **kwargs):
+            captured["data"] = data
+
+        with (
+            patch("corl.trainer.trainer.Path.mkdir"),
+            patch("builtins.open", MagicMock()),
+            patch("corl.trainer.trainer.json.dump", side_effect=_fake_dump),
+        ):
+            real_trainer.checkpoint()
+
+        assert captured["data"] is not None
+
+
+class TestRecovery:
+    def _make_checkpoint(self, tmp_path, params: dict) -> str:
+        import json
+
+        checkpoint_id = "20240101_120000"
+        ckpt_dir = tmp_path / checkpoint_id
+        (ckpt_dir / "model").mkdir(parents=True)
+        with open(ckpt_dir / "params.json", "w") as f:
+            json.dump(params, f)
+        return checkpoint_id
+
+    def _make_real_trainer(self, tmp_path):
+        RealTrainer = _make_real_trainer_class()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper"),
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            t = RealTrainer(_make_model(), _make_config())
+
+        t.checkpoint_dir = str(tmp_path)
+        return t
+
+    def test_loads_model_from_checkpoint(self, tmp_path):
+        t = self._make_real_trainer(tmp_path)
+        checkpoint_id = self._make_checkpoint(tmp_path, {})
+        t.recovery(checkpoint_id)
+
+        t.model.load.assert_called_once_with(str(tmp_path / checkpoint_id / "model"))
+
+    def test_restores_annotated_scalar_attributes(self, tmp_path):
+        RealTrainer = _make_real_trainer_class()
+
+        class AnnotatedTrainer(RealTrainer):
+            lr: float
+            batch_size: int
+
+        with (
+            patch("corl.trainer.trainer.Wrapper"),
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+            patch("pathlib.Path.mkdir"),
+        ):
+            t = AnnotatedTrainer(_make_model(), _make_config())
+
+        t.checkpoint_dir = str(tmp_path)
+        checkpoint_id = self._make_checkpoint(
+            tmp_path, {"lr": 0.005, "batch_size": 64, "unknown_key": "ignored"}
+        )
+        t.recovery(checkpoint_id)
+
+        assert t.lr == 0.005
+        assert t.batch_size == 64
+
+    def test_ignores_unannotated_keys(self, tmp_path):
+        t = self._make_real_trainer(tmp_path)
+        checkpoint_id = self._make_checkpoint(tmp_path, {"totally_unknown": 999})
+        t.recovery(checkpoint_id)
+
+        assert not hasattr(t, "totally_unknown")
+
+    def test_returns_path_to_checkpoint_dir(self, tmp_path):
+        t = self._make_real_trainer(tmp_path)
+        checkpoint_id = self._make_checkpoint(tmp_path, {})
+        path = t.recovery(checkpoint_id)
+
+        assert path == tmp_path / checkpoint_id
+
+    def test_recovery_called_during_init_when_checkpoint_id_provided(self, tmp_path):
+        import json
+
+        RealTrainer = _make_real_trainer_class()
+        checkpoint_id = "20240101_120000"
+        # Must match the path trainer constructs: {output_dir}/checkpoints/{train_id}
+        ckpt_dir = tmp_path / "checkpoints" / TRAIN_ID / checkpoint_id
+        (ckpt_dir / "model").mkdir(parents=True)
+        with open(ckpt_dir / "params.json", "w") as f:
+            json.dump({}, f)
+
+        config = _make_config()
+        config.get = MagicMock(
+            side_effect=lambda key: {
+                "train_id": TRAIN_ID,
+                "trainer_output_dir": str(tmp_path),
+                "trainer_log_metric_frequency": 10,
+                "trainer_mlflow_url": "localhost:5001",
+                "world_name": EXPERIMENT_NAME,
+                "api_host": "http://localhost",
+                "api_port": 8000,
+                "trainer_worker_timeout": 30,
+            }.get(key.lower())
+        )
+        config.__getitem__ = config.get
+
+        model = _make_model()
+
+        with (
+            patch("corl.trainer.trainer.Wrapper"),
+            patch("corl.trainer.trainer.Tracker"),
+            patch("corl.trainer.trainer.mlflow"),
+        ):
+            RealTrainer(model, config, checkpoint_id=checkpoint_id)
+
+        model.load.assert_called_once()
+
+
+# ===========================================================================
+# _training_step_action (policy length mismatch)
+# ===========================================================================
+
+
+class TestTrainingStepActionPolicyMismatch:
+    def test_raises_when_policy_returns_wrong_number_of_actions(self, trainer):
+        observations = [
+            (k, np.zeros(3, dtype=np.float32))
+            for k in [_step_key(worker_id=i) for i in range(3)]
+        ]
+
+        # policy returns only 1 action for 3 observations
+        trainer.policy = MagicMock(return_value=np.zeros(1, dtype=np.float32))
+
+        with pytest.raises(RuntimeError, match="Policy returned"):
+            trainer._training_step_action(observations)
+
+
+class TestGenerateVideo:  # noqa: F811
     def _run(self, trainer, video_path=None, generate_raises=False):
         """Helper that patches generate_training_video, mlflow, and shutil.rmtree."""
 

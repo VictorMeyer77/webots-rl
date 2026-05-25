@@ -359,6 +359,43 @@ class TestCreateTrainingSession:
 
 
 # ===========================================================================
+# Supervisor: delete_training_session()
+# ===========================================================================
+
+
+class TestDeleteTrainingSession:
+    def test_succeeds_on_success_status(self, wrapper):
+        wrapper.session.delete = MagicMock(
+            return_value=_mock_response({"status": "success"})
+        )
+        wrapper.delete_training_session(TRAIN_ID)  # should not raise
+
+    def test_raises_runtime_error_on_non_success(self, wrapper):
+        wrapper.session.delete = MagicMock(
+            return_value=_mock_response({"status": "error"})
+        )
+        with pytest.raises(RuntimeError):
+            wrapper.delete_training_session(TRAIN_ID)
+
+    def test_propagates_http_error(self, wrapper):
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = requests.HTTPError()
+        wrapper.session.delete = MagicMock(return_value=resp)
+        with pytest.raises(requests.HTTPError):
+            wrapper.delete_training_session(TRAIN_ID)
+
+    def test_url_is_correct(self, wrapper):
+        wrapper.session.delete = MagicMock(
+            return_value=_mock_response({"status": "success"})
+        )
+        wrapper.delete_training_session(TRAIN_ID)
+        wrapper.session.delete.assert_called_once_with(
+            f"{BASE_URL}/supervisor/train/{TRAIN_ID}",
+            timeout=5,
+        )
+
+
+# ===========================================================================
 # Supervisor: add_worker()
 # ===========================================================================
 
